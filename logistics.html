@@ -1,760 +1,752 @@
-{\rtf1\ansi\ansicpg950\cocoartf2709
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>百麒物流 - 飯店點收簽單</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc; touch-action: manipulation; }
+        .main-container { max-width: 500px; margin: 0 auto; }
+        
+        input[type="date"]::-webkit-calendar-picker-indicator { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+        }
+        
+        .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
+    </style>
+</head>
+<body class="p-3 pb-32 relative">
 
-\f0\fs24 \cf0 <!DOCTYPE html>\
-<html lang="zh-TW">\
-<head>\
-    <meta charset="UTF-8">\
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\
-    <title>\uc0\u30334 \u40594 \u29289 \u27969  - \u39151 \u24215 \u40670 \u25910 \u31805 \u21934 </title>\
-    <script src="https://cdn.tailwindcss.com"></script>\
-    <style>\
-        body \{ background-color: #f8fafc; touch-action: manipulation; \}\
-        .main-container \{ max-width: 500px; margin: 0 auto; \}\
-        \
-        input[type="date"]::-webkit-calendar-picker-indicator \{ \
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;\
-        \}\
-        \
-        .sign-canvas \{ display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; \}\
-    </style>\
-</head>\
-<body class="p-3 pb-32 relative">\
-\
-    <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 bg-green-700 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">\
-        \uc0\u9989  \u40670 \u25910 \u31805 \u21934 \u24050 \u25104 \u21151 \u26356 \u26032 \u65281 \
-    </div>\
-\
-    <div class="main-container">\
-        <!-- \uc0\u38914 \u37096 \u36039 \u35338 \u21312  -->\
-        <div class="bg-blue-800 text-white p-5 rounded-t-2xl shadow-md text-center relative">\
-            <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">\uc0\u36617 \u20837 \u20013 ...</h1>\
-            <div class="flex justify-center items-center gap-3 mt-2">\
-                <p id="dateTitle" class="text-lg font-bold text-blue-200">\uc0\u20986 \u36008 \u40670 \u25910 \u31995 \u32113 </p>\
-                <!-- \uc0\u31227 \u38500 \u20102 \u23450 \u26178 \u22120 \u65292 \u21152 \u19978 \u25163 \u21205 \u37325 \u26032 \u36617 \u20837 \u25353 \u37397  -->\
-                <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">\
-                    \uc0\u55357 \u56580  \u37325 \u26032 \u36617 \u20837 \
-                </button>\
-            </div>\
-            <span id="syncIndicator" class="text-xs text-green-300 font-bold opacity-0 transition-opacity duration-500 absolute top-4 right-4 tracking-widest">\uc0\u9679 \u21363 \u26178 \u21516 \u27493 \u20013 </span>\
-        </div>\
-        \
-        <!-- \uc0\u26085 \u26399 \u36984 \u25799 \u21312  -->\
-        <div class="bg-white p-4 rounded-b-2xl shadow-md mb-6 flex flex-col gap-3 border-t border-blue-900">\
-            <div class="relative w-full bg-blue-50 rounded-lg h-14 flex items-center justify-center border border-blue-200">\
-                <span class="absolute left-4 text-xl">\uc0\u55357 \u56517 </span>\
-                <div id="dateDisplay" class="w-full text-center font-bold text-xl pointer-events-none text-blue-900">\uc0\u36617 \u20837 \u20013 ...</div>\
-                <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">\
-            </div>\
-            <p class="text-center text-sm text-gray-400 font-bold">\uc0\u40670 \u25802 \u19978 \u26041 \u21487 \u22238 \u28335 \u26597 \u35426 \u27511 \u21490 \u40670 \u20132 \u32000 \u37636 </p>\
-        </div>\
-\
-        <!-- \uc0\u40670 \u20132 \u28165 \u21934 \u21312  -->\
-        <div id="departmentsContainer" class="space-y-6">\
-            <div class="text-center py-10 text-gray-500 font-bold text-lg">\uc0\u36617 \u20837 \u36039 \u26009 \u20013 ...</div>\
-        </div>\
-    </div>\
-\
-    <!-- \uc0\u38617 \u31805 \u21517 \u35222 \u31383  -->\
-    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000] overflow-y-auto">\
-        <div class="bg-white p-5 rounded-2xl w-full max-w-sm my-auto">\
-            <h2 id="modalDeptTitle" class="text-xl font-black text-center text-blue-800 mb-4 border-b pb-2">\uc0\u37096 \u38272 \u21517 \u31281 </h2>\
-            \
-            <div class="mb-5">\
-                <div class="flex justify-between items-center mb-2">\
-                    <h2 class="text-lg font-bold text-gray-800">1. \uc0\u39151 \u24215 \u31471 \u20027 \u31649 \u31805 \u25910 </h2>\
-                    <button onclick="clearCanvas(clientCtx, clientCanvas)" class="text-sm text-red-500 font-bold px-2 py-1 rounded bg-red-50 shadow-sm active:bg-red-100">\uc0\u28165 \u38500 \u37325 \u31805 </button>\
-                </div>\
-                <canvas id="clientCanvas" class="sign-canvas"></canvas>\
-            </div>\
-\
-            <div class="mb-6">\
-                <div class="flex justify-between items-center mb-2">\
-                    <h2 class="text-lg font-bold text-gray-800">2. \uc0\u30334 \u40594 \u21496 \u27231 \u31805 \u25910 </h2>\
-                    <button onclick="clearCanvas(driverCtx, driverCanvas)" class="text-sm text-red-500 font-bold px-2 py-1 rounded bg-red-50 shadow-sm active:bg-red-100">\uc0\u28165 \u38500 \u37325 \u31805 </button>\
-                </div>\
-                <canvas id="driverCanvas" class="sign-canvas"></canvas>\
-                <div class="text-xs text-blue-600 font-bold mt-2 text-right">\uc0\u55357 \u56481  \u21496 \u27231 \u31805 \u21517 \u23559 \u33258 \u21205 \u21516 \u27493 \u33267 \u20854 \u20182 <span class="text-red-500">\u26410 \u31805 \u21517 </span>\u30340 \u37096 \u38272 </div>\
-            </div>\
-\
-            <div class="flex gap-3">\
-                <button onclick="closeSignModal()" class="flex-1 p-4 text-lg font-bold bg-gray-200 text-gray-700 rounded-xl active:bg-gray-300">\uc0\u21462 \u28040 </button>\
-                <button id="submitBtn" onclick="submitVerify()" class="flex-1 p-4 text-lg font-bold bg-blue-600 text-white rounded-xl shadow-md active:bg-blue-700">\uc0\u30906 \u35469 \u36865 \u20986 </button>\
-            </div>\
-        </div>\
-    </div>\
-\
-    <!-- \uc0\u9733  \u24341 \u20837  Firebase \u27169 \u32068  -->\
-    <script type="module">\
-        import \{ initializeApp \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";\
-        import \{ getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";\
-\
-        const firebaseConfig = \{\
-            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",\
-            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",\
-            projectId: "hotel-inventory-3a1ad",\
-            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",\
-            messagingSenderId: "363844184412",\
-            appId: "1:363844184412:web:66cdd6425d53bde75f3999",\
-            measurementId: "G-NM1W9JT70F"\
-        \};\
-\
-        const app = initializeApp(firebaseConfig);\
-        const db = getFirestore(app);\
-        \
-        let currentHotel = "";\
-        let currentDate = "";\
-        let groupedData = \{\}; \
-        let activeDeptKey = ""; \
-        let globalItemOrder = \{\}; \
-        let autoSyncTimer = null; \
-\
-        const clientCanvas = document.getElementById('clientCanvas');\
-        const driverCanvas = document.getElementById('driverCanvas');\
-        const clientCtx = clientCanvas.getContext('2d');\
-        const driverCtx = driverCanvas.getContext('2d');\
-\
-        // \uc0\u32129 \u23450 \u25152 \u26377  HTML \u26371 \u21628 \u21483 \u30340 \u20989 \u25976 \
-        window.dateChanged = dateChanged;\
-        window.clearCanvas = clearCanvas;\
-        window.openSignModal = openSignModal;\
-        window.closeSignModal = closeSignModal;\
-        window.submitVerify = submitVerify;\
-        window.handleQtyChange = handleQtyChange;\
-        window.toggleDropdown = toggleDropdown;\
-        window.selectOption = selectOption;\
-        window.addNewItem = addNewItem;\
-        window.fetchData = fetchData;\
-\
-        const loadingHtml = `\
-            <div class="flex flex-col items-center justify-center py-12 space-y-4">\
-                <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">\
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>\
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>\
-                </svg>\
-                <div class="text-blue-700 font-black text-xl animate-pulse tracking-wide">\uc0\u21021 \u27425 \u36617 \u20837 \u36039 \u26009 \u20013 ...</div>\
-            </div>\
-        `;\
-\
-        function getLocalDateString(dateObj) \{\
-            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];\
-        \}\
-\
-        // \uc0\u31934 \u30906 \u26178 \u38291 \u29986 \u29983 \u22120 \
-        function getExactTimeString() \{\
-            const now = new Date();\
-            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');\
-            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');\
-            return `$\{y\}-$\{m\}-$\{d\} $\{h\}:$\{min\}:$\{s\}`;\
-        \}\
-\
-        function setupDateLimits() \{\
-            const today = new Date();\
-            document.getElementById('datePicker').value = getLocalDateString(today);\
-            updateDateDisplay();\
-        \}\
-\
-        function updateDateDisplay() \{\
-            const d = new Date(document.getElementById('datePicker').value);\
-            document.getElementById('dateDisplay').innerText = `$\{d.getFullYear()\}\uc0\u24180 $\{d.getMonth() + 1\}\u26376 $\{d.getDate()\}\u26085 `;\
-            currentDate = document.getElementById('datePicker').value;\
-        \}\
-\
-        function dateChanged() \{ \
-            updateDateDisplay(); \
-            let cachedData = localStorage.getItem(`logistics_cache_$\{currentHotel\}_$\{currentDate\}`);\
-            if (cachedData) \{\
-                processAndRenderData(JSON.parse(cachedData));\
-                fetchData(true); \
-            \} else \{\
-                fetchData(false); \
-            \}\
-        \}\
-\
-        async function init() \{\
-            const urlParams = new URLSearchParams(window.location.search);\
-            currentHotel = urlParams.get('hotel');\
-            \
-            if (!currentHotel || currentHotel.trim() === "") \{\
-                document.getElementById('hotelTitle').innerText = "\uc0\u36899 \u32080 \u37679 \u35492 ";\
-                document.getElementById('departmentsContainer').innerHTML = `\
-                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200">\
-                        <span class="text-4xl block mb-2">\uc0\u55357 \u57003 </span>\
-                        <div class="text-red-600 font-black text-xl mb-2">\uc0\u28961 \u25928 \u30340 \u23384 \u21462 \u36899 \u32080 </div>\
-                        <div class="text-red-500 font-bold text-sm">\uc0\u35531 \u21521 \u29289 \u27969 \u21934 \u20301 \u32034 \u21462 \u24744 \u25152 \u23660 \u39151 \u24215 \u30340 \u23560 \u23660 \u40670 \u20132 \u32178 \u22336 </div>\
-                    </div>`;\
-                return;\
-            \}\
-\
-            document.getElementById('hotelTitle').innerText = currentHotel + " \uc0\u40670 \u20132 ";\
-            setupDateLimits();\
-            \
-            let cachedTemplate = localStorage.getItem(`inventory_masterData`);\
-            let cachedData = localStorage.getItem(`logistics_cache_$\{currentHotel\}_$\{currentDate\}`);\
-\
-            if (cachedTemplate) \{\
-                try \{\
-                    let template = JSON.parse(cachedTemplate);\
-                    globalItemOrder = \{\};\
-                    template.forEach((t, idx) => \{\
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx; \
-                    \});\
-                \} catch(e)\{\}\
-            \}\
-\
-            if (cachedData) \{\
-                try \{\
-                    processAndRenderData(JSON.parse(cachedData));\
-                    fetchData(true); \
-                \} catch(e) \{\
-                    fetchData(false);\
-                \}\
-            \} else \{\
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml;\
-                fetchData(false);\
-            \}\
-\
-            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => \{\
-                if (templateDoc.exists() && templateDoc.data().items) \{\
-                    let template = templateDoc.data().items;\
-                    localStorage.setItem(`inventory_masterData`, JSON.stringify(template));\
-                    globalItemOrder = \{\};\
-                    template.forEach((t, idx) => \{\
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;\
-                    \});\
-                \}\
-            \});\
-\
-            if (autoSyncTimer) clearInterval(autoSyncTimer); // \uc0\u31227 \u38500 \u38275 \u23631 \u24178 \u25854 \
-        \}\
-\
-        async function fetchData(isBackground = false) \{\
-            if (!isBackground) \{\
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("\uc0\u21021 \u27425 \u36617 \u20837 \u36039 \u26009 \u20013 ...", "\u35712 \u21462 \u26368 \u26032 \u36039 \u26009 \u20013 ...");\
-            \} else \{\
-                const indicator = document.getElementById('syncIndicator');\
-                if(indicator) \{\
-                    indicator.classList.remove('opacity-0');\
-                    setTimeout(() => indicator.classList.add('opacity-0'), 1500);\
-                \}\
-            \}\
-\
-            try \{\
-                let rawData = [];\
-                let baseInventoryItems = [];\
-\
-                // 1. \uc0\u25235 \u38463 \u23016 \u36664 \u20837 \u30340 \u36039 \u26009 \
-                const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));\
-                const invSnap = await getDocs(invQ);\
-\
-                invSnap.forEach(docSnap => \{\
-                    const d = docSnap.data();\
-                    if (d.hotel && d.hotel.includes(currentHotel)) \{\
-                        let deptName = d.hotel.replace(currentHotel, "").trim();\
-                        if (deptName === "") deptName = "\uc0\u25151 \u21209 "; \
-                        \
-                        baseInventoryItems.push(\{\
-                            hotelFull: d.hotel,\
-                            deptName: deptName,\
-                            itemName: d.item,\
-                            originalQty: d.doubleCount || d.count || "0",\
-                            auntNote: d.note || ""\
-                        \});\
-                    \}\
-                \});\
-\
-                // 2. \uc0\u25235 \u29289 \u27969 \u31805 \u25910 \u36942 \u30340 \u36039 \u26009 \
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));\
-                const logSnap = await getDocs(logQ);\
-                let savedLogistics = \{\};\
-                \
-                logSnap.forEach(docSnap => \{\
-                    const d = docSnap.data();\
-                    savedLogistics[d.deptName] = d;\
-                \});\
-\
-                // 3. \uc0\u25226 \u20841 \u37002 \u36039 \u26009 \u21512 \u20341 \
-                baseInventoryItems.forEach(item => \{\
-                    let savedDept = savedLogistics[item.deptName] || \
-                                    savedLogistics[item.hotelFull] || \
-                                    savedLogistics[`$\{currentHotel\} $\{item.deptName\}`];\
-                    \
-                    if (!savedDept) \{\
-                        savedDept = Object.values(savedLogistics).find(s => \
-                            s.deptName.includes(item.deptName) || \
-                            item.deptName.includes(s.deptName) ||\
-                            item.hotelFull.includes(s.deptName)\
-                        );\
-                    \}\
-\
-                    let actualQty = item.originalQty;\
-                    let driverNote = "";\
-                    let clientSig = "";\
-                    let driverSig = "";\
-\
-                    if (savedDept) \{\
-                        clientSig = savedDept.clientSig || "";\
-                        driverSig = savedDept.driverSig || "";\
-                        if (savedDept.items) \{\
-                            let savedItem = savedDept.items.find(i => i.itemName === item.itemName);\
-                            if (savedItem) \{\
-                                if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") \{\
-                                    actualQty = savedItem.actualQty;\
-                                \}\
-                                driverNote = savedItem.driverNote || "";\
-                            \}\
-                        \}\
-                    \}\
-\
-                    rawData.push(\{\
-                        deptName: item.deptName,\
-                        itemName: item.itemName,\
-                        originalQty: item.originalQty,\
-                        auntNote: item.auntNote,\
-                        actualQty: actualQty,\
-                        driverNote: driverNote,\
-                        clientSig: clientSig,\
-                        driverSig: driverSig\
-                    \});\
-                \});\
-\
-                // \uc0\u9733  4. \u35036 \u22238 \u29289 \u27969 \u12300 \u33258 \u24049 \u26032 \u22686 \u12301 \u30340 \u33256 \u26178 \u21697 \u38917  (\u38463 \u23016 \u34920 \u21934 \u27794 \u26377 \u65292 \u20294 \u22312  Firebase \u40670 \u25910 \u32000 \u37636 \u26377 )\
-                for (let deptKey in savedLogistics) \{\
-                    let savedDept = savedLogistics[deptKey];\
-                    if (savedDept.items) \{\
-                        savedDept.items.forEach(savedItem => \{\
-                            let exists = rawData.some(r => r.deptName === savedDept.deptName && r.itemName === savedItem.itemName);\
-                            if (!exists) \{\
-                                rawData.push(\{\
-                                    deptName: savedDept.deptName,\
-                                    itemName: savedItem.itemName,\
-                                    originalQty: savedItem.originalQty || "0",\
-                                    auntNote: savedItem.auntNote || "",\
-                                    actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : (savedItem.originalQty || "0"),\
-                                    driverNote: savedItem.driverNote || "",\
-                                    clientSig: savedDept.clientSig || "",\
-                                    driverSig: savedDept.driverSig || ""\
-                                \});\
-                            \}\
-                        \});\
-                    \}\
-                \}\
-\
-                localStorage.setItem(`logistics_cache_$\{currentHotel\}_$\{currentDate\}`, JSON.stringify(rawData));\
-                processAndRenderData(rawData);\
-            \} catch (err) \{\
-                console.error(err);\
-                if (!isBackground) \{\
-                    document.getElementById('departmentsContainer').innerHTML = `<div class="text-center py-10 text-red-500 font-bold">\uc0\u35712 \u21462 \u22833 \u25943 \u65306 \u35531 \u27298 \u26597 \u32178 \u36335 \u36899 \u32218 </div>`;\
-                \}\
-            \}\
-        \}\
-\
-        function processAndRenderData(rawData) \{\
-            let uniqueDataMap = \{\};\
-            rawData.forEach(item => \{\
-                let key = item.deptName + "_" + item.itemName;\
-                uniqueDataMap[key] = item; \
-            \});\
-            const cleanData = Object.values(uniqueDataMap);\
-\
-            if (cleanData.length === 0) \{\
-                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">\uc0\u27492 \u26085 \u26399 \u28961 \u24453 \u40670 \u20132 \u36039 \u26009 \u65281 <br><span class="text-sm">\u21487 \u33021 \u39151 \u24215 \u23578 \u26410 \u30436 \u40670 \u25110 \u28961 \u27492 \u39151 \u24215 \u32000 \u37636 </span></div>';\
-                return;\
-            \}\
-\
-            groupedData = \{\};\
-            cleanData.forEach(item => \{\
-                // \uc0\u22914 \u26524 \u21407 \u22987 \u25976 \u37327 \u26159 0\u32780 \u19988 \u23526 \u25910 \u20063 \u26159 0\u65292 \u25165 \u30053 \u36942 (\u36991 \u20813 \u33258 \u24049 \u26032 \u22686 \u30340 0\u34987 \u21507 \u25481 )\
-                if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && \
-                    (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) \{\
-                    return; \
-                \}\
-\
-                if (!groupedData[item.deptName]) \{\
-                    groupedData[item.deptName] = \{ items: [], clientSig: "", driverSig: "" \};\
-                \}\
-                \
-                if (item.clientSig) groupedData[item.deptName].clientSig = item.clientSig;\
-                if (item.driverSig) groupedData[item.deptName].driverSig = item.driverSig;\
-\
-                let finalActualQty = (item.actualQty !== undefined && item.actualQty !== "" && item.actualQty !== null) ? item.actualQty : item.originalQty;\
-\
-                groupedData[item.deptName].items.push(\{\
-                    deptName: item.deptName,\
-                    itemName: item.itemName,\
-                    originalQty: item.originalQty,\
-                    auntNote: item.auntNote,\
-                    actualQty: finalActualQty,\
-                    driverNote: item.driverNote\
-                \});\
-            \});\
-\
-            if (Object.keys(groupedData).length === 0) \{\
-                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-green-600 font-bold text-xl">\uc0\u55356 \u57225  \u27492 \u26085 \u26399 \u25152 \u26377 \u21697 \u38917 \u20986 \u36008 \u37327 \u30342 \u28858  0\u65292 \u28961 \u38920 \u40670 \u20132 \u65281 </div>';\
-                return;\
-            \}\
-\
-            renderDepartments();\
-        \}\
-\
-        function handleQtyChange(dept, idx, val) \{\
-            groupedData[dept].items[idx].actualQty = val;\
-            const original = groupedData[dept].items[idx].originalQty;\
-            const statusSpan = document.getElementById(`status-$\{dept\}-$\{idx\}`);\
-            if (String(val) === String(original)) \{\
-                statusSpan.innerHTML = "\uc0\u9989  \u30456 \u31526 "; \
-                statusSpan.className = "text-green-600 font-bold ml-3 text-base";\
-            \} else \{\
-                statusSpan.innerHTML = "\uc0\u9888 \u65039  \u24050 \u20462 \u25913 "; \
-                statusSpan.className = "text-red-500 font-bold ml-3 text-base";\
-            \}\
-        \}\
-\
-        // \uc0\u9733  \u26032 \u22686 \u21151 \u33021 \u65306 \u25171 \u38283 \u33287 \u38364 \u38281 \u19979 \u25289 \u36984 \u21934 \
-        function toggleDropdown(deptId, e) \{\
-            e.stopPropagation();\
-            const menu = document.getElementById(`customDropdownMenu-$\{deptId\}`);\
-            if (menu) menu.classList.toggle('hidden');\
-        \}\
-\
-        // \uc0\u9733  \u26032 \u22686 \u21151 \u33021 \u65306 \u24478 \u19979 \u25289 \u36984 \u21934 \u36984 \u21462 \u21697 \u38917 \
-        function selectOption(deptId, val) \{\
-            document.getElementById(`newItemInput-$\{deptId\}`).value = val;\
-            document.getElementById(`customDropdownMenu-$\{deptId\}`).classList.add('hidden');\
-        \}\
-\
-        // \uc0\u9733  \u26032 \u22686 \u21151 \u33021 \u65306 \u23559 \u26032 \u21697 \u38917 \u22622 \u20837 \u30059 \u38754 \u30340 \u37096 \u38272 \u21015 \u34920 \
-        function addNewItem(deptId, deptName) \{\
-            const inputEl = document.getElementById(`newItemInput-$\{deptId\}`);\
-            const newItemName = inputEl.value.trim();\
-\
-            if (!newItemName) \{\
-                alert("\uc0\u35531 \u36664 \u20837 \u35201 \u26032 \u22686 \u30340 \u21697 \u38917 \u21517 \u31281 \u65281 ");\
-                return;\
-            \}\
-            \
-            // \uc0\u27298 \u26597 \u26159 \u21542 \u24050 \u32147 \u23384 \u22312 \
-            let exists = groupedData[deptName].items.some(i => i.itemName === newItemName);\
-            if (exists) \{\
-                alert("\uc0\u36889 \u20491 \u21697 \u38917 \u24050 \u32147 \u22312 \u19978 \u26041 \u21015 \u34920 \u35041 \u38754 \u22217 \u65281 ");\
-                return;\
-            \}\
-\
-            // \uc0\u30452 \u25509 \u22622 \u20837 \u35352 \u25014 \u39636 \u65292 \u38928 \u35373 \u25976 \u37327 \u28858  0\
-            groupedData[deptName].items.push(\{\
-                deptName: deptName,\
-                itemName: newItemName,\
-                originalQty: "0",\
-                auntNote: "",\
-                actualQty: "0",\
-                driverNote: "\uc0\u21496 \u27231 \u33256 \u26178 \u26032 \u22686 "\
-            \});\
-\
-            inputEl.value = "";\
-            \
-            const toast = document.getElementById('toast');\
-            toast.innerText = "\uc0\u9989  \u24050 \u26032 \u22686 \u33256 \u26178 \u21697 \u38917 \u65281 ";\
-            toast.classList.remove('opacity-0'); \
-            setTimeout(() => toast.classList.add('opacity-0'), 2000);\
-\
-            renderDepartments(); // \uc0\u37325 \u26032 \u30059 \u30059 \u38754 \
-        \}\
-\
-        // \uc0\u20840 \u22495 \u40670 \u25802 \u30435 \u32893 \u22120 \u65292 \u29992 \u20358 \u38364 \u38281 \u25152 \u26377 \u23637 \u38283 \u30340 \u19979 \u25289 \u36984 \u21934 \
-        document.addEventListener('click', function(e) \{\
-            document.querySelectorAll('[id^="customDropdownMenu-"]').forEach(menu => \{\
-                const deptId = menu.id.split('-')[1];\
-                const btn = document.getElementById(`dropdownBtn-$\{deptId\}`);\
-                const input = document.getElementById(`newItemInput-$\{deptId\}`);\
-                \
-                if (menu && !menu.classList.contains('hidden')) \{\
-                    if (!menu.contains(e.target) && (!btn || !btn.contains(e.target)) && e.target !== input) \{\
-                        menu.classList.add('hidden');\
-                    \}\
-                \}\
-            \});\
-        \});\
-\
-        function renderDepartments() \{\
-            let html = "";\
-            let deptIndex = 0;\
-\
-            const commonItems = ['\uc0\u26041 \u24062 ', '\u24202 \u22666 ', '\u26517 \u38957 ', '\u24202 \u21253 ', '\u32701 \u27611 \u34987 ', '\u25265 \u26517 \u22871 ', '\u32622 \u29289 \u22666 ', '\u23344 \u20818 \u24202 \u22285 \u32068 ', '\u23344 \u20818 \u24202 \u21253 /\u35033 ', '\u23344 \u20818 \u34987 \u22871 ', '\u23344 \u20818 \u26517 \u22871 ', '\u23344 \u20818 \u24202 \u22285 ', '\u26700 \u35033 ', '\u35242 \u23376 \u24202 \u21934 ', '\u35242 \u23376 \u34987 \u22871 ', '\u28092 \u34987 ', '\u38272 \u31806 '];\
-\
-            for (let dept in groupedData) \{\
-                deptIndex++;\
-                let deptId = `dept_$\{deptIndex\}`; // \uc0\u29986 \u29983 \u23433 \u20840  ID\
-\
-                let hasClientSig = groupedData[dept].clientSig ? true : false;\
-                let hasDriverSig = groupedData[dept].driverSig ? true : false;\
-                let isCompleted = hasClientSig && hasDriverSig;\
-\
-                let actionButton = "";\
-\
-                if (isCompleted) \{\
-                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2">\
-                        <span>\uc0\u9989  \u24050 \u40670 \u25910 \u23436 \u30050 </span>\
-                        <button onclick="openSignModal('$\{dept\}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">\uc0\u26597 \u30475 \u31805 \u21517 </button>\
-                    </div>`;\
-                \} else if (hasClientSig && !hasDriverSig) \{\
-                    actionButton = `<button onclick="openSignModal('$\{dept\}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">\uc0\u55357 \u56986  \u31561 \u24453 \u21496 \u27231 \u31805 \u21517 \u30906 \u35469 </button>`;\
-                \} else if (!hasClientSig && hasDriverSig) \{\
-                    actionButton = `<button onclick="openSignModal('$\{dept\}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">\uc0\u55356 \u57320  \u31561 \u24453 \u39151 \u24215 \u30906 \u35469 \u31805 \u21517 </button>`;\
-                \} else \{\
-                    actionButton = `<button onclick="openSignModal('$\{dept\}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md">\uc0\u55357 \u56541  \u36914 \u34892 \u40670 \u20132 \u33287 \u31805 \u21517 </button>`;\
-                \}\
-\
-                groupedData[dept].items.sort((a, b) => \{\
-                    let idxA = globalItemOrder[a.itemName] !== undefined ? globalItemOrder[a.itemName] : 9999;\
-                    let idxB = globalItemOrder[b.itemName] !== undefined ? globalItemOrder[b.itemName] : 9999;\
-                    return idxA - idxB;\
-                \});\
-\
-                let itemsHtml = groupedData[dept].items.map((item, idx) => \{\
-                    let isMatching = String(item.actualQty) === String(item.originalQty);\
-                    let statusText = isMatching ? "\uc0\u9989  \u30456 \u31526 " : "\u9888 \u65039  \u24050 \u20462 \u25913 ";\
-                    let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";\
-                    \
-                    return `\
-                    <div class="border-b border-gray-100 py-4 last:border-0">\
-                        <div class="flex justify-between items-center mb-2">\
-                            <span class="font-black text-2xl text-gray-800">$\{item.itemName\}</span>\
-                            <div class="text-right">\
-                                <span class="text-xs text-gray-400 block">\uc0\u30436 \u40670 \u20986 \u36008 </span>\
-                                <span class="font-bold text-2xl text-gray-400">$\{item.originalQty\}</span>\
-                            </div>\
-                        </div>\
-                        $\{item.auntNote ? `<div class="text-base text-orange-700 bg-orange-100 p-3 rounded-lg mb-3 font-bold border border-orange-200">\uc0\u55357 \u56541  \u39151 \u24215 \u20633 \u35387 : $\{item.auntNote\}</div>` : ''\}\
-                        \
-                        <div class="bg-blue-50 p-3 rounded-lg border $\{isMatching ? 'border-transparent' : 'border-red-300'\}">\
-                            <div class="flex justify-between items-center">\
-                                <span class="font-bold text-blue-900">\uc0\u23526 \u25910 (\u35531 \u27454 )\u37327 \u65306 </span>\
-                                <div class="flex items-center">\
-                                    <input type="number" oninput="handleQtyChange('$\{dept\}', $\{idx\}, this.value)" value="$\{item.actualQty\}" \
-                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded $\{isCompleted ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'\}" \
-                                           $\{isCompleted ? 'disabled' : ''\}>\
-                                    <span id="status-$\{dept\}-$\{idx\}" class="$\{statusClass\}">$\{statusText\}</span>\
-                                </div>\
-                            </div>\
-                        </div>\
-                    </div>\
-                `\}).join('');\
-\
-                // \uc0\u9733  \u26032 \u22686 \u30340 \u19979 \u25289 \u36984 \u21934 \u36984 \u38917  HTML\
-                let dropdownHtml = commonItems.map(val => \
-                    `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('$\{deptId\}', '$\{val\}')">$\{val\}</div>`\
-                ).join('');\
-\
-                // \uc0\u9733  \u21496 \u27231 \u33256 \u26178 \u26032 \u22686 \u27396 \u20301  (\u22914 \u26524 \u24050 \u31805 \u25910 \u21063 \u38577 \u34255 )\
-                let addItemHtml = "";\
-                if (!isCompleted) \{\
-                    addItemHtml = `\
-                    <div class="mt-4 bg-indigo-50 p-4 rounded-xl border border-dashed border-indigo-300">\
-                        <h3 class="text-sm font-black mb-2 text-indigo-800">\uc0\u10133  \u33256 \u26178 \u26032 \u22686 \u20986 \u36008 \u21697 \u38917 </h3>\
-                        <div class="flex gap-2 relative">\
-                            <div class="relative flex-1">\
-                                <input id="newItemInput-$\{deptId\}" class="w-full h-full p-2 text-lg font-bold border border-indigo-200 rounded-lg outline-none focus:border-indigo-500 bg-white pr-10" placeholder="\uc0\u25163 \u25171 \u25110 \u36984 \u21934  \u55357 \u56393 ">\
-                                <button id="dropdownBtn-$\{deptId\}" onclick="toggleDropdown('$\{deptId\}', event)" class="absolute right-1 top-1/2 transform -translate-y-1/2 p-1 bg-indigo-100 text-indigo-800 rounded-md font-bold shadow-sm border border-indigo-300 active:bg-indigo-200 flex items-center justify-center h-8 w-8">\
-                                    <svg class="w-5 h-5 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>\
-                                </button>\
-                                <div id="customDropdownMenu-$\{deptId\}" class="hidden absolute z-[30000] w-full mt-1 max-h-60 overflow-y-auto bg-white border-2 border-indigo-300 rounded-xl shadow-2xl">\
-                                    $\{dropdownHtml\}\
-                                </div>\
-                            </div>\
-                            <button onclick="addNewItem('$\{deptId\}', '$\{dept\}')" class="px-4 bg-green-600 text-white rounded-lg font-bold text-lg shadow-md active:bg-green-700 whitespace-nowrap">\uc0\u26032 \u22686 </button>\
-                        </div>\
-                    </div>`;\
-                \}\
-\
-                html += `\
-                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">\
-                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl">\
-                        <h2 class="text-xl font-black text-center">$\{dept\}</h2>\
-                    </div>\
-                    $\{itemsHtml\}\
-                    $\{addItemHtml\}\
-                    $\{actionButton\}\
-                </div>`;\
-            \}\
-            document.getElementById('departmentsContainer').innerHTML = html;\
-        \}\
-\
-        function setupCanvas(canvas, ctx) \{\
-            canvas.isModified = false;\
-            function start(e) \{ e.preventDefault(); canvas.painting = true; draw(e); \}\
-            function draw(e) \{\
-                if(!canvas.painting) return; e.preventDefault();\
-                canvas.isModified = true; \
-                const rect = canvas.getBoundingClientRect();\
-                const x = (e.clientX || e.touches[0].clientX) - rect.left;\
-                const y = (e.clientY || e.touches[0].clientY) - rect.top;\
-                ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);\
-            \}\
-            function stop(e) \{ e.preventDefault(); canvas.painting = false; ctx.beginPath(); \}\
-            canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, \{passive: false\});\
-            canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, \{passive: false\});\
-            canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);\
-        \}\
-        setupCanvas(clientCanvas, clientCtx);\
-        setupCanvas(driverCanvas, driverCtx);\
-\
-        function clearCanvas(ctx, canvas) \{ \
-            ctx.clearRect(0, 0, canvas.width, canvas.height); \
-            canvas.isModified = true; \
-        \}\
-\
-        function openSignModal(deptName) \{\
-            activeDeptKey = deptName;\
-            document.getElementById('modalDeptTitle').innerText = deptName;\
-            \
-            let existClient = groupedData[deptName].clientSig;\
-            let existDriver = groupedData[deptName].driverSig;\
-\
-            document.getElementById('signModal').classList.remove('hidden');\
-            requestAnimationFrame(() => \{\
-                [clientCanvas, driverCanvas].forEach(c => \{ c.width = c.offsetWidth; c.height = 160; c.isModified = false; \});\
-                [clientCtx, driverCtx].forEach(ctx => \{ ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, 500, 200); \});\
-                \
-                if(existClient) \{ let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; \}\
-                if(existDriver) \{ let img = new Image(); img.onload = ()=> driverCtx.drawImage(img,0,0); img.src = existDriver; \}\
-            \});\
-        \}\
-        \
-        function closeSignModal() \{ document.getElementById('signModal').classList.add('hidden'); \}\
-\
-        async function submitVerify() \{\
-            let cBlank = !clientCtx.getImageData(0,0,clientCanvas.width,clientCanvas.height).data.some(c => c !== 0);\
-            let dBlank = !driverCtx.getImageData(0,0,driverCanvas.width,driverCanvas.height).data.some(c => c !== 0);\
-\
-            let existClient = groupedData[activeDeptKey].clientSig;\
-            let existDriver = groupedData[activeDeptKey].driverSig;\
-            \
-            let cBase64 = clientCanvas.isModified ? (cBlank ? "" : clientCanvas.toDataURL('image/png')) : (existClient || "");\
-            let dBase64 = driverCanvas.isModified ? (dBlank ? "" : driverCanvas.toDataURL('image/png')) : (existDriver || "");\
-\
-            if (!cBase64 && !dBase64) return alert("\uc0\u35531 \u33267 \u23569 \u19968 \u26041 \u23436 \u25104 \u31805 \u21517 \u65281 (\u21496 \u27231 \u25110 \u39151 \u24215 )");\
-\
-            const btn = document.getElementById('submitBtn');\
-            btn.innerText = "\uc0\u20659 \u36865 \u20013 ..."; btn.disabled = true;\
-\
-            let isNewDriverSig = driverCanvas.isModified;\
-            let payloads = [];\
-            let syncDepts = [];\
-\
-            let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => (\{\
-                deptName: item.deptName,\
-                itemName: item.itemName,\
-                originalQty: item.originalQty,\
-                auntNote: item.auntNote,\
-                actualQty: item.actualQty, \
-                driverNote: item.driverNote\
-            \}));\
-\
-            payloads.push(\{\
-                date: currentDate,\
-                hotelKeyword: currentHotel,\
-                deptName: activeDeptKey,\
-                items: safeItemsForDatabase,\
-                clientSig: cBase64,\
-                driverSig: dBase64\
-            \});\
-\
-            if (isNewDriverSig && dBase64 !== "") \{\
-                for (let dept in groupedData) \{\
-                    if (dept !== activeDeptKey) \{\
-                        let existOtherDriver = groupedData[dept].driverSig;\
-                        if (!existOtherDriver) \{\
-                            let deptItemsSafe = groupedData[dept].items.map(item => (\{\
-                                deptName: item.deptName,\
-                                itemName: item.itemName,\
-                                originalQty: item.originalQty,\
-                                auntNote: item.auntNote,\
-                                actualQty: item.actualQty,\
-                                driverNote: item.driverNote\
-                            \}));\
-                            payloads.push(\{\
-                                date: currentDate,\
-                                hotelKeyword: currentHotel,\
-                                deptName: dept,\
-                                items: deptItemsSafe,\
-                                clientSig: groupedData[dept].clientSig || "", \
-                                driverSig: dBase64 \
-                            \});\
-                            syncDepts.push(dept);\
-                        \}\
-                    \}\
-                \}\
-            \}\
-\
-            try \{\
-                // \uc0\u9733  \u23531 \u20837 \u21934 \u25818 \u33287 \u26178 \u20809 \u27231 \u36556 \u36321 \
-                const savePromises = payloads.map(p => \{\
-                    const docId = `$\{p.date\}_$\{p.hotelKeyword\}_$\{p.deptName\}`;\
-                    const docRef = doc(db, 'logistics_records', docId);\
-\
-                    // \uc0\u21152 \u20837 \u26178 \u20809 \u27231 \u30332 \u22577 \
-                    addDoc(collection(db, 'history_logs'), \{\
-                        logDate: getLocalDateString(new Date()),\
-                        timestamp: Date.now(),\
-                        timeString: getExactTimeString(),\
-                        operator: "\uc0\u55357 \u56986  \u29289 \u27969 \u40670 \u25910 \u31995 \u32113 ",\
-                        date: p.date,\
-                        hotel: `$\{p.hotelKeyword\} $\{p.deptName\}`,\
-                        item: "\uc0\u29289 \u27969 \u40670 \u25910 \u21934 ",\
-                        field: "\uc0\u40670 \u20132 \u29376 \u24907 ",\
-                        oldValue: "\uc0\u26410 \u40670 \u20132 ",\
-                        newValue: "\uc0\u38617 \u26041 \u24050 \u31805 \u25910 "\
-                    \});\
-\
-                    return setDoc(docRef, \{\
-                        date: p.date,\
-                        hotelKeyword: p.hotelKeyword,\
-                        deptName: p.deptName,\
-                        items: p.items,\
-                        clientSig: p.clientSig,\
-                        driverSig: p.driverSig,\
-                        timestamp: new Date().toLocaleString()\
-                    \}, \{ merge: true \});\
-                \});\
-\
-                await Promise.all(savePromises);\
-\
-                btn.innerText = "\uc0\u30906 \u35469 \u36865 \u20986 "; btn.disabled = false;\
-                \
-                if (clientCanvas.isModified) groupedData[activeDeptKey].clientSig = cBase64;\
-                if (driverCanvas.isModified) groupedData[activeDeptKey].driverSig = dBase64;\
-                \
-                if (isNewDriverSig && syncDepts.length > 0) \{\
-                    syncDepts.forEach(dept => \{\
-                        groupedData[dept].driverSig = dBase64;\
-                    \});\
-                \}\
-\
-                closeSignModal();\
-                fetchData(true);\
-                \
-                const toast = document.getElementById('toast');\
-                toast.innerText = (isNewDriverSig && syncDepts.length > 0)\
-                    ? `\uc0\u9989  \u24050 \u40670 \u25910 \u65292 \u20006 \u21516 \u27493 \u31805 \u21517 \u33267  $\{syncDepts.length\} \u20491 \u37096 \u38272 \u65281 ` \
-                    : "\uc0\u9989  \u40670 \u25910 \u31805 \u21934 \u24050 \u25104 \u21151 \u26356 \u26032 \u65281 ";\
-                \
-                toast.classList.remove('opacity-0'); \
-                setTimeout(() => toast.classList.add('opacity-0'), 3000);\
-\
-            \} catch (e) \{\
-                console.error(e);\
-                btn.innerText = "\uc0\u30906 \u35469 \u36865 \u20986 "; btn.disabled = false;\
-                alert("\uc0\u32178 \u36335 \u20659 \u36865 \u22833 \u25943 \u65292 \u35531 \u30906 \u35469 \u32178 \u36335 \u65281 ");\
-            \}\
-        \}\
-\
-        init();\
-    </script>\
-</body>\
-</html>\
-}
+    <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 bg-green-700 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">
+        ✅ 點收簽單已成功更新！
+    </div>
+
+    <div class="main-container">
+        <!-- 頂部資訊區 -->
+        <div class="bg-blue-800 text-white p-5 rounded-t-2xl shadow-md text-center relative">
+            <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">載入中...</h1>
+            <div class="flex justify-center items-center gap-3 mt-2">
+                <p id="dateTitle" class="text-lg font-bold text-blue-200">出貨點收系統</p>
+                <!-- 移除了定時器，加上手動重新載入按鈕 -->
+                <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
+                    🔄 重新載入
+                </button>
+            </div>
+            <span id="syncIndicator" class="text-xs text-green-300 font-bold opacity-0 transition-opacity duration-500 absolute top-4 right-4 tracking-widest">●即時同步中</span>
+        </div>
+        
+        <!-- 日期選擇區 -->
+        <div class="bg-white p-4 rounded-b-2xl shadow-md mb-6 flex flex-col gap-3 border-t border-blue-900">
+            <div class="relative w-full bg-blue-50 rounded-lg h-14 flex items-center justify-center border border-blue-200">
+                <span class="absolute left-4 text-xl">📅</span>
+                <div id="dateDisplay" class="w-full text-center font-bold text-xl pointer-events-none text-blue-900">載入中...</div>
+                <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">
+            </div>
+            <p class="text-center text-sm text-gray-400 font-bold">點擊上方可回溯查詢歷史點交紀錄</p>
+        </div>
+
+        <!-- 點交清單區 -->
+        <div id="departmentsContainer" class="space-y-6">
+            <div class="text-center py-10 text-gray-500 font-bold text-lg">載入資料中...</div>
+        </div>
+    </div>
+
+    <!-- 雙簽名視窗 -->
+    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000] overflow-y-auto">
+        <div class="bg-white p-5 rounded-2xl w-full max-w-sm my-auto">
+            <h2 id="modalDeptTitle" class="text-xl font-black text-center text-blue-800 mb-4 border-b pb-2">部門名稱</h2>
+            
+            <div class="mb-5">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-bold text-gray-800">1. 飯店端主管簽收</h2>
+                    <button onclick="clearCanvas(clientCtx, clientCanvas)" class="text-sm text-red-500 font-bold px-2 py-1 rounded bg-red-50 shadow-sm active:bg-red-100">清除重簽</button>
+                </div>
+                <canvas id="clientCanvas" class="sign-canvas"></canvas>
+            </div>
+
+            <div class="mb-6">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-bold text-gray-800">2. 百麒司機簽收</h2>
+                    <button onclick="clearCanvas(driverCtx, driverCanvas)" class="text-sm text-red-500 font-bold px-2 py-1 rounded bg-red-50 shadow-sm active:bg-red-100">清除重簽</button>
+                </div>
+                <canvas id="driverCanvas" class="sign-canvas"></canvas>
+                <div class="text-xs text-blue-600 font-bold mt-2 text-right">💡 司機簽名將自動同步至其他<span class="text-red-500">未簽名</span>的部門</div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeSignModal()" class="flex-1 p-4 text-lg font-bold bg-gray-200 text-gray-700 rounded-xl active:bg-gray-300">取消</button>
+                <button id="submitBtn" onclick="submitVerify()" class="flex-1 p-4 text-lg font-bold bg-blue-600 text-white rounded-xl shadow-md active:bg-blue-700">確認送出</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 引入 Firebase 模組 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
+            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
+            projectId: "hotel-inventory-3a1ad",
+            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
+            messagingSenderId: "363844184412",
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999",
+            measurementId: "G-NM1W9JT70F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        let currentHotel = "";
+        let currentDate = "";
+        let groupedData = {}; 
+        let activeDeptKey = ""; 
+        let globalItemOrder = {}; 
+        let autoSyncTimer = null; 
+
+        const clientCanvas = document.getElementById('clientCanvas');
+        const driverCanvas = document.getElementById('driverCanvas');
+        const clientCtx = clientCanvas.getContext('2d');
+        const driverCtx = driverCanvas.getContext('2d');
+
+        // 綁定所有 HTML 會呼叫的函數
+        window.dateChanged = dateChanged;
+        window.clearCanvas = clearCanvas;
+        window.openSignModal = openSignModal;
+        window.closeSignModal = closeSignModal;
+        window.submitVerify = submitVerify;
+        window.handleQtyChange = handleQtyChange;
+        window.toggleDropdown = toggleDropdown;
+        window.selectOption = selectOption;
+        window.addNewItem = addNewItem;
+        window.fetchData = fetchData;
+
+        const loadingHtml = `
+            <div class="flex flex-col items-center justify-center py-12 space-y-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <div class="text-blue-700 font-black text-xl animate-pulse tracking-wide">初次載入資料中...</div>
+            </div>
+        `;
+
+        function getLocalDateString(dateObj) {
+            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        }
+
+        // 精確時間產生器
+        function getExactTimeString() {
+            const now = new Date();
+            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
+
+        function setupDateLimits() {
+            const today = new Date();
+            document.getElementById('datePicker').value = getLocalDateString(today);
+            updateDateDisplay();
+        }
+
+        function updateDateDisplay() {
+            const d = new Date(document.getElementById('datePicker').value);
+            document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+            currentDate = document.getElementById('datePicker').value;
+        }
+
+        function dateChanged() { 
+            updateDateDisplay(); 
+            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+            if (cachedData) {
+                processAndRenderData(JSON.parse(cachedData));
+                fetchData(true); 
+            } else {
+                fetchData(false); 
+            }
+        }
+
+        async function init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            currentHotel = urlParams.get('hotel');
+            
+            if (!currentHotel || currentHotel.trim() === "") {
+                document.getElementById('hotelTitle').innerText = "連結錯誤";
+                document.getElementById('departmentsContainer').innerHTML = `
+                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200">
+                        <span class="text-4xl block mb-2">🚫</span>
+                        <div class="text-red-600 font-black text-xl mb-2">無效的存取連結</div>
+                        <div class="text-red-500 font-bold text-sm">請向物流單位索取您所屬飯店的專屬點交網址</div>
+                    </div>`;
+                return;
+            }
+
+            document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
+            setupDateLimits();
+            
+            let cachedTemplate = localStorage.getItem(`inventory_masterData`);
+            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+
+            if (cachedTemplate) {
+                try {
+                    let template = JSON.parse(cachedTemplate);
+                    globalItemOrder = {};
+                    template.forEach((t, idx) => {
+                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx; 
+                    });
+                } catch(e){}
+            }
+
+            if (cachedData) {
+                try {
+                    processAndRenderData(JSON.parse(cachedData));
+                    fetchData(true); 
+                } catch(e) {
+                    fetchData(false);
+                }
+            } else {
+                document.getElementById('departmentsContainer').innerHTML = loadingHtml;
+                fetchData(false);
+            }
+
+            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
+                if (templateDoc.exists() && templateDoc.data().items) {
+                    let template = templateDoc.data().items;
+                    localStorage.setItem(`inventory_masterData`, JSON.stringify(template));
+                    globalItemOrder = {};
+                    template.forEach((t, idx) => {
+                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
+                    });
+                }
+            });
+
+            if (autoSyncTimer) clearInterval(autoSyncTimer); // 移除閃屏干擾
+        }
+
+        async function fetchData(isBackground = false) {
+            if (!isBackground) {
+                document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("初次載入資料中...", "讀取最新資料中...");
+            } else {
+                const indicator = document.getElementById('syncIndicator');
+                if(indicator) {
+                    indicator.classList.remove('opacity-0');
+                    setTimeout(() => indicator.classList.add('opacity-0'), 1500);
+                }
+            }
+
+            try {
+                let rawData = [];
+                let baseInventoryItems = [];
+
+                // 1. 抓阿姨輸入的資料
+                const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
+                const invSnap = await getDocs(invQ);
+
+                invSnap.forEach(docSnap => {
+                    const d = docSnap.data();
+                    if (d.hotel && d.hotel.includes(currentHotel)) {
+                        let deptName = d.hotel.replace(currentHotel, "").trim();
+                        if (deptName === "") deptName = "房務"; 
+                        
+                        baseInventoryItems.push({
+                            hotelFull: d.hotel,
+                            deptName: deptName,
+                            itemName: d.item,
+                            originalQty: d.doubleCount || d.count || "0",
+                            auntNote: d.note || ""
+                        });
+                    }
+                });
+
+                // 2. 抓物流簽收過的資料
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
+                const logSnap = await getDocs(logQ);
+                let savedLogistics = {};
+                
+                logSnap.forEach(docSnap => {
+                    const d = docSnap.data();
+                    savedLogistics[d.deptName] = d;
+                });
+
+                // 3. 把兩邊資料合併
+                baseInventoryItems.forEach(item => {
+                    let savedDept = savedLogistics[item.deptName] || 
+                                    savedLogistics[item.hotelFull] || 
+                                    savedLogistics[`${currentHotel} ${item.deptName}`];
+                    
+                    if (!savedDept) {
+                        savedDept = Object.values(savedLogistics).find(s => 
+                            s.deptName.includes(item.deptName) || 
+                            item.deptName.includes(s.deptName) ||
+                            item.hotelFull.includes(s.deptName)
+                        );
+                    }
+
+                    let actualQty = item.originalQty;
+                    let driverNote = "";
+                    let clientSig = "";
+                    let driverSig = "";
+
+                    if (savedDept) {
+                        clientSig = savedDept.clientSig || "";
+                        driverSig = savedDept.driverSig || "";
+                        if (savedDept.items) {
+                            let savedItem = savedDept.items.find(i => i.itemName === item.itemName);
+                            if (savedItem) {
+                                if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") {
+                                    actualQty = savedItem.actualQty;
+                                }
+                                driverNote = savedItem.driverNote || "";
+                            }
+                        }
+                    }
+
+                    rawData.push({
+                        deptName: item.deptName,
+                        itemName: item.itemName,
+                        originalQty: item.originalQty,
+                        auntNote: item.auntNote,
+                        actualQty: actualQty,
+                        driverNote: driverNote,
+                        clientSig: clientSig,
+                        driverSig: driverSig
+                    });
+                });
+
+                // ★ 4. 補回物流「自己新增」的臨時品項 (阿姨表單沒有，但在 Firebase 點收紀錄有)
+                for (let deptKey in savedLogistics) {
+                    let savedDept = savedLogistics[deptKey];
+                    if (savedDept.items) {
+                        savedDept.items.forEach(savedItem => {
+                            let exists = rawData.some(r => r.deptName === savedDept.deptName && r.itemName === savedItem.itemName);
+                            if (!exists) {
+                                rawData.push({
+                                    deptName: savedDept.deptName,
+                                    itemName: savedItem.itemName,
+                                    originalQty: savedItem.originalQty || "0",
+                                    auntNote: savedItem.auntNote || "",
+                                    actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : (savedItem.originalQty || "0"),
+                                    driverNote: savedItem.driverNote || "",
+                                    clientSig: savedDept.clientSig || "",
+                                    driverSig: savedDept.driverSig || ""
+                                });
+                            }
+                        });
+                    }
+                }
+
+                localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
+                processAndRenderData(rawData);
+            } catch (err) {
+                console.error(err);
+                if (!isBackground) {
+                    document.getElementById('departmentsContainer').innerHTML = `<div class="text-center py-10 text-red-500 font-bold">讀取失敗：請檢查網路連線</div>`;
+                }
+            }
+        }
+
+        function processAndRenderData(rawData) {
+            let uniqueDataMap = {};
+            rawData.forEach(item => {
+                let key = item.deptName + "_" + item.itemName;
+                uniqueDataMap[key] = item; 
+            });
+            const cleanData = Object.values(uniqueDataMap);
+
+            if (cleanData.length === 0) {
+                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">此日期無待點交資料！<br><span class="text-sm">可能飯店尚未盤點或無此飯店紀錄</span></div>';
+                return;
+            }
+
+            groupedData = {};
+            cleanData.forEach(item => {
+                // 如果原始數量是0而且實收也是0，才略過(避免自己新增的0被吃掉)
+                if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && 
+                    (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) {
+                    return; 
+                }
+
+                if (!groupedData[item.deptName]) {
+                    groupedData[item.deptName] = { items: [], clientSig: "", driverSig: "" };
+                }
+                
+                if (item.clientSig) groupedData[item.deptName].clientSig = item.clientSig;
+                if (item.driverSig) groupedData[item.deptName].driverSig = item.driverSig;
+
+                let finalActualQty = (item.actualQty !== undefined && item.actualQty !== "" && item.actualQty !== null) ? item.actualQty : item.originalQty;
+
+                groupedData[item.deptName].items.push({
+                    deptName: item.deptName,
+                    itemName: item.itemName,
+                    originalQty: item.originalQty,
+                    auntNote: item.auntNote,
+                    actualQty: finalActualQty,
+                    driverNote: item.driverNote
+                });
+            });
+
+            if (Object.keys(groupedData).length === 0) {
+                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-green-600 font-bold text-xl">🎉 此日期所有品項出貨量皆為 0，無須點交！</div>';
+                return;
+            }
+
+            renderDepartments();
+        }
+
+        function handleQtyChange(dept, idx, val) {
+            groupedData[dept].items[idx].actualQty = val;
+            const original = groupedData[dept].items[idx].originalQty;
+            const statusSpan = document.getElementById(`status-${dept}-${idx}`);
+            if (String(val) === String(original)) {
+                statusSpan.innerHTML = "✅ 相符"; 
+                statusSpan.className = "text-green-600 font-bold ml-3 text-base";
+            } else {
+                statusSpan.innerHTML = "⚠️ 已修改"; 
+                statusSpan.className = "text-red-500 font-bold ml-3 text-base";
+            }
+        }
+
+        // ★ 新增功能：打開與關閉下拉選單
+        function toggleDropdown(deptId, e) {
+            e.stopPropagation();
+            const menu = document.getElementById(`customDropdownMenu-${deptId}`);
+            if (menu) menu.classList.toggle('hidden');
+        }
+
+        // ★ 新增功能：從下拉選單選取品項
+        function selectOption(deptId, val) {
+            document.getElementById(`newItemInput-${deptId}`).value = val;
+            document.getElementById(`customDropdownMenu-${deptId}`).classList.add('hidden');
+        }
+
+        // ★ 新增功能：將新品項塞入畫面的部門列表
+        function addNewItem(deptId, deptName) {
+            const inputEl = document.getElementById(`newItemInput-${deptId}`);
+            const newItemName = inputEl.value.trim();
+
+            if (!newItemName) {
+                alert("請輸入要新增的品項名稱！");
+                return;
+            }
+            
+            // 檢查是否已經存在
+            let exists = groupedData[deptName].items.some(i => i.itemName === newItemName);
+            if (exists) {
+                alert("這個品項已經在上方列表裡面囉！");
+                return;
+            }
+
+            // 直接塞入記憶體，預設數量為 0
+            groupedData[deptName].items.push({
+                deptName: deptName,
+                itemName: newItemName,
+                originalQty: "0",
+                auntNote: "",
+                actualQty: "0",
+                driverNote: "司機臨時新增"
+            });
+
+            inputEl.value = "";
+            
+            const toast = document.getElementById('toast');
+            toast.innerText = "✅ 已新增臨時品項！";
+            toast.classList.remove('opacity-0'); 
+            setTimeout(() => toast.classList.add('opacity-0'), 2000);
+
+            renderDepartments(); // 重新畫畫面
+        }
+
+        // 全域點擊監聽器，用來關閉所有展開的下拉選單
+        document.addEventListener('click', function(e) {
+            document.querySelectorAll('[id^="customDropdownMenu-"]').forEach(menu => {
+                const deptId = menu.id.split('-')[1];
+                const btn = document.getElementById(`dropdownBtn-${deptId}`);
+                const input = document.getElementById(`newItemInput-${deptId}`);
+                
+                if (menu && !menu.classList.contains('hidden')) {
+                    if (!menu.contains(e.target) && (!btn || !btn.contains(e.target)) && e.target !== input) {
+                        menu.classList.add('hidden');
+                    }
+                }
+            });
+        });
+
+        function renderDepartments() {
+            let html = "";
+            let deptIndex = 0;
+
+            const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
+
+            for (let dept in groupedData) {
+                deptIndex++;
+                let deptId = `dept_${deptIndex}`; // 產生安全 ID
+
+                let hasClientSig = groupedData[dept].clientSig ? true : false;
+                let hasDriverSig = groupedData[dept].driverSig ? true : false;
+                let isCompleted = hasClientSig && hasDriverSig;
+
+                let actionButton = "";
+
+                if (isCompleted) {
+                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2">
+                        <span>✅ 已點收完畢</span>
+                        <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看簽名</button>
+                    </div>`;
+                } else if (hasClientSig && !hasDriverSig) {
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🚚 等待司機簽名確認</button>`;
+                } else if (!hasClientSig && hasDriverSig) {
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🏨 等待飯店確認簽名</button>`;
+                } else {
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md">📝 進行點交與簽名</button>`;
+                }
+
+                groupedData[dept].items.sort((a, b) => {
+                    let idxA = globalItemOrder[a.itemName] !== undefined ? globalItemOrder[a.itemName] : 9999;
+                    let idxB = globalItemOrder[b.itemName] !== undefined ? globalItemOrder[b.itemName] : 9999;
+                    return idxA - idxB;
+                });
+
+                let itemsHtml = groupedData[dept].items.map((item, idx) => {
+                    let isMatching = String(item.actualQty) === String(item.originalQty);
+                    let statusText = isMatching ? "✅ 相符" : "⚠️ 已修改";
+                    let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";
+                    
+                    return `
+                    <div class="border-b border-gray-100 py-4 last:border-0">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-black text-2xl text-gray-800">${item.itemName}</span>
+                            <div class="text-right">
+                                <span class="text-xs text-gray-400 block">盤點出貨</span>
+                                <span class="font-bold text-2xl text-gray-400">${item.originalQty}</span>
+                            </div>
+                        </div>
+                        ${item.auntNote ? `<div class="text-base text-orange-700 bg-orange-100 p-3 rounded-lg mb-3 font-bold border border-orange-200">📝 飯店備註: ${item.auntNote}</div>` : ''}
+                        
+                        <div class="bg-blue-50 p-3 rounded-lg border ${isMatching ? 'border-transparent' : 'border-red-300'}">
+                            <div class="flex justify-between items-center">
+                                <span class="font-bold text-blue-900">實收(請款)量：</span>
+                                <div class="flex items-center">
+                                    <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this.value)" value="${item.actualQty}" 
+                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${isCompleted ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
+                                           ${isCompleted ? 'disabled' : ''}>
+                                    <span id="status-${dept}-${idx}" class="${statusClass}">${statusText}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('');
+
+                // ★ 新增的下拉選單選項 HTML
+                let dropdownHtml = commonItems.map(val => 
+                    `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`
+                ).join('');
+
+                // ★ 司機臨時新增欄位 (如果已簽收則隱藏)
+                let addItemHtml = "";
+                if (!isCompleted) {
+                    addItemHtml = `
+                    <div class="mt-4 bg-indigo-50 p-4 rounded-xl border border-dashed border-indigo-300">
+                        <h3 class="text-sm font-black mb-2 text-indigo-800">➕ 臨時新增出貨品項</h3>
+                        <div class="flex gap-2 relative">
+                            <div class="relative flex-1">
+                                <input id="newItemInput-${deptId}" class="w-full h-full p-2 text-lg font-bold border border-indigo-200 rounded-lg outline-none focus:border-indigo-500 bg-white pr-10" placeholder="手打或選單 👉">
+                                <button id="dropdownBtn-${deptId}" onclick="toggleDropdown('${deptId}', event)" class="absolute right-1 top-1/2 transform -translate-y-1/2 p-1 bg-indigo-100 text-indigo-800 rounded-md font-bold shadow-sm border border-indigo-300 active:bg-indigo-200 flex items-center justify-center h-8 w-8">
+                                    <svg class="w-5 h-5 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                                </button>
+                                <div id="customDropdownMenu-${deptId}" class="hidden absolute z-[30000] w-full mt-1 max-h-60 overflow-y-auto bg-white border-2 border-indigo-300 rounded-xl shadow-2xl">
+                                    ${dropdownHtml}
+                                </div>
+                            </div>
+                            <button onclick="addNewItem('${deptId}', '${dept}')" class="px-4 bg-green-600 text-white rounded-lg font-bold text-lg shadow-md active:bg-green-700 whitespace-nowrap">新增</button>
+                        </div>
+                    </div>`;
+                }
+
+                html += `
+                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
+                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl">
+                        <h2 class="text-xl font-black text-center">${dept}</h2>
+                    </div>
+                    ${itemsHtml}
+                    ${addItemHtml}
+                    ${actionButton}
+                </div>`;
+            }
+            document.getElementById('departmentsContainer').innerHTML = html;
+        }
+
+        function setupCanvas(canvas, ctx) {
+            canvas.isModified = false;
+            function start(e) { e.preventDefault(); canvas.painting = true; draw(e); }
+            function draw(e) {
+                if(!canvas.painting) return; e.preventDefault();
+                canvas.isModified = true; 
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX || e.touches[0].clientX) - rect.left;
+                const y = (e.clientY || e.touches[0].clientY) - rect.top;
+                ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+            }
+            function stop(e) { e.preventDefault(); canvas.painting = false; ctx.beginPath(); }
+            canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, {passive: false});
+            canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
+            canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
+        }
+        setupCanvas(clientCanvas, clientCtx);
+        setupCanvas(driverCanvas, driverCtx);
+
+        function clearCanvas(ctx, canvas) { 
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            canvas.isModified = true; 
+        }
+
+        function openSignModal(deptName) {
+            activeDeptKey = deptName;
+            document.getElementById('modalDeptTitle').innerText = deptName;
+            
+            let existClient = groupedData[deptName].clientSig;
+            let existDriver = groupedData[deptName].driverSig;
+
+            document.getElementById('signModal').classList.remove('hidden');
+            requestAnimationFrame(() => {
+                [clientCanvas, driverCanvas].forEach(c => { c.width = c.offsetWidth; c.height = 160; c.isModified = false; });
+                [clientCtx, driverCtx].forEach(ctx => { ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, 500, 200); });
+                
+                if(existClient) { let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; }
+                if(existDriver) { let img = new Image(); img.onload = ()=> driverCtx.drawImage(img,0,0); img.src = existDriver; }
+            });
+        }
+        
+        function closeSignModal() { document.getElementById('signModal').classList.add('hidden'); }
+
+        async function submitVerify() {
+            let cBlank = !clientCtx.getImageData(0,0,clientCanvas.width,clientCanvas.height).data.some(c => c !== 0);
+            let dBlank = !driverCtx.getImageData(0,0,driverCanvas.width,driverCanvas.height).data.some(c => c !== 0);
+
+            let existClient = groupedData[activeDeptKey].clientSig;
+            let existDriver = groupedData[activeDeptKey].driverSig;
+            
+            let cBase64 = clientCanvas.isModified ? (cBlank ? "" : clientCanvas.toDataURL('image/png')) : (existClient || "");
+            let dBase64 = driverCanvas.isModified ? (dBlank ? "" : driverCanvas.toDataURL('image/png')) : (existDriver || "");
+
+            if (!cBase64 && !dBase64) return alert("請至少一方完成簽名！(司機或飯店)");
+
+            const btn = document.getElementById('submitBtn');
+            btn.innerText = "傳送中..."; btn.disabled = true;
+
+            let isNewDriverSig = driverCanvas.isModified;
+            let payloads = [];
+            let syncDepts = [];
+
+            let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
+                deptName: item.deptName,
+                itemName: item.itemName,
+                originalQty: item.originalQty,
+                auntNote: item.auntNote,
+                actualQty: item.actualQty, 
+                driverNote: item.driverNote
+            }));
+
+            payloads.push({
+                date: currentDate,
+                hotelKeyword: currentHotel,
+                deptName: activeDeptKey,
+                items: safeItemsForDatabase,
+                clientSig: cBase64,
+                driverSig: dBase64
+            });
+
+            if (isNewDriverSig && dBase64 !== "") {
+                for (let dept in groupedData) {
+                    if (dept !== activeDeptKey) {
+                        let existOtherDriver = groupedData[dept].driverSig;
+                        if (!existOtherDriver) {
+                            let deptItemsSafe = groupedData[dept].items.map(item => ({
+                                deptName: item.deptName,
+                                itemName: item.itemName,
+                                originalQty: item.originalQty,
+                                auntNote: item.auntNote,
+                                actualQty: item.actualQty,
+                                driverNote: item.driverNote
+                            }));
+                            payloads.push({
+                                date: currentDate,
+                                hotelKeyword: currentHotel,
+                                deptName: dept,
+                                items: deptItemsSafe,
+                                clientSig: groupedData[dept].clientSig || "", 
+                                driverSig: dBase64 
+                            });
+                            syncDepts.push(dept);
+                        }
+                    }
+                }
+            }
+
+            try {
+                // ★ 寫入單據與時光機軌跡
+                const savePromises = payloads.map(p => {
+                    const docId = `${p.date}_${p.hotelKeyword}_${p.deptName}`;
+                    const docRef = doc(db, 'logistics_records', docId);
+
+                    // 加入時光機發報
+                    addDoc(collection(db, 'history_logs'), {
+                        logDate: getLocalDateString(new Date()),
+                        timestamp: Date.now(),
+                        timeString: getExactTimeString(),
+                        operator: "🚚 物流點收系統",
+                        date: p.date,
+                        hotel: `${p.hotelKeyword} ${p.deptName}`,
+                        item: "物流點收單",
+                        field: "點交狀態",
+                        oldValue: "未點交",
+                        newValue: "雙方已簽收"
+                    });
+
+                    return setDoc(docRef, {
+                        date: p.date,
+                        hotelKeyword: p.hotelKeyword,
+                        deptName: p.deptName,
+                        items: p.items,
+                        clientSig: p.clientSig,
+                        driverSig: p.driverSig,
+                        timestamp: new Date().toLocaleString()
+                    }, { merge: true });
+                });
+
+                await Promise.all(savePromises);
+
+                btn.innerText = "確認送出"; btn.disabled = false;
+                
+                if (clientCanvas.isModified) groupedData[activeDeptKey].clientSig = cBase64;
+                if (driverCanvas.isModified) groupedData[activeDeptKey].driverSig = dBase64;
+                
+                if (isNewDriverSig && syncDepts.length > 0) {
+                    syncDepts.forEach(dept => {
+                        groupedData[dept].driverSig = dBase64;
+                    });
+                }
+
+                closeSignModal();
+                fetchData(true);
+                
+                const toast = document.getElementById('toast');
+                toast.innerText = (isNewDriverSig && syncDepts.length > 0)
+                    ? `✅ 已點收，並同步簽名至 ${syncDepts.length} 個部門！` 
+                    : "✅ 點收簽單已成功更新！";
+                
+                toast.classList.remove('opacity-0'); 
+                setTimeout(() => toast.classList.add('opacity-0'), 3000);
+
+            } catch (e) {
+                console.error(e);
+                btn.innerText = "確認送出"; btn.disabled = false;
+                alert("網路傳送失敗，請確認網路！");
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
