@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百麒物流 - 老闆專屬後台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基礎背景色與字體 */
+        body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
+        
+        input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+
+        .modern-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .modern-table th { background-color: #3b5bdb; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; }
+
+        .header-select { background-color: transparent; color: white; border: none; outline: none; font-weight: bold; font-size: 15px; cursor: pointer; appearance: none; padding-right: 15px; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right center; background-size: 12px; }
+        .header-select option { background-color: #ffffff; color: #333; }
+
+        .modern-table tr:nth-child(even) { background-color: #f8f9fc; }
+        .modern-table tr:nth-child(odd) { background-color: #ffffff; }
+        .modern-table tr:hover { background-color: #edf2ff; }
+        .modern-table td { padding: 12px 16px; border-bottom: 1px solid #e9ecef; vertical-align: middle; font-size: 14px; color: #343a40; }
+
+        .clean-input { width: 100%; background: transparent; border: 1px solid transparent; border-bottom: 1px dashed #adb5bd; padding: 6px 8px; color: #495057; font-size: 14px; transition: all 0.2s; border-radius: 4px; }
+        .clean-input:focus { background: #fff; border: 1px solid #3b5bdb; outline: none; box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.1); }
+
+        .sig-container { display: flex; justify-content: center; align-items: center; height: 35px; }
+        .sig-img { max-height: 100%; max-width: 80px; background-color: white; border: 1px solid #dee2e6; border-radius: 4px; cursor: zoom-in; transition: transform 0.2s ease-in-out; }
+        .sig-img:hover { transform: scale(3.5); position: relative; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+
+        .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
+        .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+        .excel-tab.active { background-color: white; color: #3b5bdb; border-top: 3px solid #3b5bdb; font-weight: 900; }
+        .excel-tab:hover:not(.active) { background-color: #f8f9fa; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        
+        /* 內部頁籤切換器 */
+        .view-toggle { display: flex; background: #e9ecef; padding: 4px; border-radius: 8px; gap: 4px; }
+        .toggle-btn { padding: 6px 16px; font-weight: bold; font-size: 14px; border-radius: 6px; cursor: pointer; transition: all 0.2s; color: #6c757d; }
+        .toggle-btn.active { background: white; color: #3b5bdb; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[200] font-bold flex items-center gap-2 transform translate-y-[-20px]">
+        <span>✅</span> <span>資料已自動儲存更新！</span>
+    </div>
+
+    <div class="max-w-[1400px] mx-auto">
+        <!-- 頂部標題區與視圖切換 -->
+        <div class="flex justify-between items-end mb-6 border-b pb-4">
+            <div class="flex items-center gap-6">
+                <h1 class="text-3xl font-black text-gray-900 tracking-tight">老闆專屬後台</h1>
+                
+                <!-- 單據與歷史軌跡切換開關 -->
+                <div class="view-toggle">
+                    <button id="btnViewMain" onclick="switchView('main')" class="toggle-btn active">📝 單據明細管理</button>
+                    <button id="btnViewHistory" onclick="switchView('history')" class="toggle-btn flex items-center gap-1"><span>🕵️‍♂️</span> 阿姨盤點流水帳</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- 視圖 1：單據明細管理 -->
+        <!-- ============================== -->
+        <div id="viewMain" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50">
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間查詢</span>
+                    <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-5 py-1.5 font-bold text-sm relative bg-blue-50/30">
+                        <input type="date" id="startDate" class="bg-transparent outline-none text-blue-700 w-[110px] z-10 relative cursor-pointer">
+                        <span>-</span>
+                        <input type="date" id="endDate" class="bg-transparent outline-none text-blue-700 w-[110px] z-10 relative cursor-pointer">
+                    </div>
+                    <span class="text-gray-500 font-medium text-sm ml-4">共 <span id="recordCount" class="font-bold text-blue-600">0</span> 筆單據</span>
+                </div>
+                <button onclick="loadData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-2">
+                    <span>下載明細</span>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table min-w-[1000px]">
+                    <thead>
+                        <tr>
+                            <th class="w-32"><div class="text-xs text-blue-200 mb-1 font-normal tracking-wider">交易日期</div><select id="fltDate" class="header-select w-full" onchange="applyFilters()"><option value="">單據日期 ▾</option></select></th>
+                            <th class="w-40"><div class="text-xs text-blue-200 mb-1 font-normal tracking-wider">對象</div><select id="fltHotel" class="header-select w-full" onchange="applyFilters()"><option value="">飯店/部門 ▾</option></select></th>
+                            <th class="w-36"><div class="text-xs text-blue-200 mb-1 font-normal tracking-wider">項目</div><select id="fltItem" class="header-select w-full" onchange="applyFilters()"><option value="">品項 ▾</option></select></th>
+                            <th class="w-24 text-center">現場數量<br><span class="text-xs text-blue-200 font-normal">(唯讀)</span></th>
+                            <th class="w-28 text-center">現場簽名</th>
+                            <th class="w-24 text-center">復點數量<br><span class="text-xs text-blue-200 font-normal">(唯讀)</span></th>
+                            <th class="w-28 text-center">復點簽名</th>
+                            <th class="w-60">精確復點時間 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                            <th class="w-48">備註摘要 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr><td colspan="9" class="py-20 text-center"><div class="inline-flex flex-col items-center"><svg class="animate-spin h-8 w-8 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- 視圖 2：阿姨盤點流水帳 -->
+        <!-- ============================== -->
+        <div id="viewHistory" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 z-50">
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-600 font-bold text-sm">查詢盤點日期：</span>
+                    <input type="date" id="historyDate" class="border border-gray-300 rounded px-3 py-1.5 font-bold text-sm text-gray-700 outline-none focus:border-blue-500 cursor-pointer">
+                </div>
+                <button onclick="loadHistory()" id="loadHistoryBtn" class="bg-gray-800 hover:bg-gray-900 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-2">
+                    <span>查詢盤點流水帳</span>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table min-w-[1000px]">
+                    <thead style="background-color: #495057;">
+                        <tr>
+                            <th style="background-color: #495057;" class="w-40">⏱️ 操作時間</th>
+                            <th style="background-color: #495057;" class="w-40">🏨 飯店/部門</th>
+                            <th style="background-color: #495057;" class="w-32">📦 品項</th>
+                            <th style="background-color: #495057;" class="w-24 text-center">現場數量</th>
+                            <th style="background-color: #495057;" class="w-32 text-center">現場簽名</th>
+                            <th style="background-color: #495057;" class="w-24 text-center">復點數量</th>
+                            <th style="background-color: #495057;" class="w-32 text-center">復點簽名</th>
+                            <th style="background-color: #495057;" class="w-48">📋 備註</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody">
+                        <tr><td colspan="8" class="py-20 text-center"><span class="text-gray-500 font-medium">請選擇日期並點擊「查詢盤點流水帳」</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ Excel 底部頁籤 (Tabs) -->
+    <div class="excel-bottom-bar">
+        <a href="boss_admin.html" class="excel-tab active">👑 老闆明細後台</a>
+        <a href="logistics.html" class="excel-tab">🚚 物流點收系統</a>
+        <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
+        <a href="index.html" class="excel-tab">🧹 盤點系統(首頁)</a>
+    </div>
+
+    <!-- Firebase 模組載入 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        // ★ 您的 Firebase 金鑰
+        const firebaseConfig = {
+            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
+            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
+            projectId: "hotel-inventory-3a1ad",
+            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
+            messagingSenderId: "363844184412",
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999",
+            measurementId: "G-NM1W9JT70F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let currentRecords = []; 
+        let filteredRecords = []; 
+
+        function getLocalDateString(dateObj) {
+            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        }
+        
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        document.getElementById('startDate').value = getLocalDateString(firstDay);
+        document.getElementById('endDate').value = getLocalDateString(today);
+        document.getElementById('historyDate').value = getLocalDateString(today); 
+
+        // 綁定給 HTML 呼叫
+        window.loadData = loadData;
+        window.applyFilters = applyFilters;
+        window.updateField = updateField;
+        window.autoFillTime = autoFillTime;
+        window.autoFillExactTime = autoFillExactTime;
+        window.switchView = switchView;
+        window.loadHistory = loadHistory;
+
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]');
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
+        }
+
+        // ==========================
+        // 介面切換邏輯
+        // ==========================
+        function switchView(view) {
+            if (view === 'main') {
+                document.getElementById('viewMain').style.display = 'flex';
+                document.getElementById('viewHistory').style.display = 'none';
+                document.getElementById('btnViewMain').classList.add('active');
+                document.getElementById('btnViewHistory').classList.remove('active');
+            } else {
+                document.getElementById('viewMain').style.display = 'none';
+                document.getElementById('viewHistory').style.display = 'flex';
+                document.getElementById('btnViewMain').classList.remove('active');
+                document.getElementById('btnViewHistory').classList.add('active');
+            }
+        }
+
+        // ==========================
+        // 阿姨盤點流水帳載入邏輯
+        // ==========================
+        async function loadHistory() {
+            const targetDate = document.getElementById('historyDate').value;
+            const tbody = document.getElementById('historyBody');
+            const btn = document.getElementById('loadHistoryBtn');
+            
+            btn.innerHTML = `查詢中...`; btn.disabled = true;
+            tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-gray-500 font-bold">讀取流水帳中...</td></tr>`;
+
+            try {
+                // 從 history_logs 讀取「屬於這一天單據」的阿姨提交紀錄
+                const q = query(collection(db, "history_logs"), where("date", "==", targetDate));
+                const querySnapshot = await getDocs(q);
+                
+                let historyRecords = [];
+                querySnapshot.forEach((docSnap) => {
+                    historyRecords.push(docSnap.data());
+                });
+
+                // 依據時間戳排序 (最新送出的在最上面)
+                historyRecords.sort((a, b) => b.timestamp - a.timestamp);
+
+                if (historyRecords.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" class="py-16 text-center text-gray-400 font-bold">這一天尚未有任何盤點提交紀錄。</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = historyRecords.map(r => {
+                    let auntSigHtml = r.signature ? `<img src="${r.signature}" class="sig-img">` : `<span class="text-xs text-gray-400">無</span>`;
+                    let supSigHtml = r.doubleSignature ? `<img src="${r.doubleSignature}" class="sig-img">` : `<span class="text-xs text-gray-400">無</span>`;
+
+                    return `
+                        <tr>
+                            <td class="font-mono text-gray-700 font-bold">${r.actionTime || '-'}</td>
+                            <td class="font-bold text-gray-800">${r.hotel}</td>
+                            <td class="text-blue-700 font-bold">${r.item}</td>
+                            <td class="text-center font-bold text-gray-800">${r.count || '-'}</td>
+                            <td class="text-center"><div class="sig-container justify-center">${auntSigHtml}</div></td>
+                            <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                            <td class="text-center"><div class="sig-container justify-center">${supSigHtml}</div></td>
+                            <td class="text-gray-600">${r.note || '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error("軌跡讀取失敗:", error);
+                tbody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+            } finally {
+                btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false;
+            }
+        }
+
+        // ==========================
+        // 單據載入與過濾邏輯
+        // ==========================
+        async function loadData() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const tbody = document.getElementById('tableBody');
+            const btn = document.getElementById('loadBtn');
+            
+            btn.innerHTML = `<svg class="animate-spin h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 載入中...`;
+            btn.disabled = true;
+            
+            try {
+                const q = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const querySnapshot = await getDocs(q);
+                
+                currentRecords = [];
+                querySnapshot.forEach((docSnap) => {
+                    const data = docSnap.data();
+                    data.docId = docSnap.id;
+                    currentRecords.push(data);
+                });
+
+                currentRecords.sort((a, b) => {
+                    if (a.date < b.date) return -1; if (a.date > b.date) return 1;
+                    if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
+                    return (a.item < b.item) ? -1 : 1;
+                });
+
+                populateDropdowns();
+                applyFilters();
+
+            } catch (error) {
+                console.error("讀取失敗:", error);
+                tbody.innerHTML = `<tr><td colspan="9" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+            } finally {
+                btn.innerHTML = `下載明細`; btn.disabled = false;
+            }
+        }
+
+        function populateDropdowns() {
+            const uniqueDates = [...new Set(currentRecords.map(r => r.date || ""))].filter(v=>v).sort();
+            const uniqueHotels = [...new Set(currentRecords.map(r => r.hotel || ""))].filter(v=>v).sort();
+            const uniqueItems = [...new Set(currentRecords.map(r => r.item || ""))].filter(v=>v).sort();
+
+            const fltDate = document.getElementById('fltDate');
+            const fltHotel = document.getElementById('fltHotel');
+            const fltItem = document.getElementById('fltItem');
+
+            const prevDate = fltDate.value; const prevHotel = fltHotel.value; const prevItem = fltItem.value;
+
+            fltDate.innerHTML = `<option value="">單據日期 ▾</option>` + uniqueDates.map(v => `<option value="${v}">${v}</option>`).join('');
+            fltHotel.innerHTML = `<option value="">飯店/部門 ▾</option>` + uniqueHotels.map(v => `<option value="${v}">${v}</option>`).join('');
+            fltItem.innerHTML = `<option value="">品項 ▾</option>` + uniqueItems.map(v => `<option value="${v}">${v}</option>`).join('');
+
+            if (uniqueDates.includes(prevDate)) fltDate.value = prevDate;
+            if (uniqueHotels.includes(prevHotel)) fltHotel.value = prevHotel;
+            if (uniqueItems.includes(prevItem)) fltItem.value = prevItem;
+        }
+
+        function applyFilters() {
+            const fDate = document.getElementById('fltDate').value;
+            const fHotel = document.getElementById('fltHotel').value;
+            const fItem = document.getElementById('fltItem').value;
+
+            filteredRecords = currentRecords.filter(r => {
+                const matchDate = (fDate === "") || (r.date === fDate);
+                const matchHotel = (fHotel === "") || (r.hotel === fHotel);
+                const matchItem = (fItem === "") || (r.item === fItem);
+                return matchDate && matchHotel && matchItem;
+            });
+
+            document.getElementById('recordCount').innerText = filteredRecords.length;
+            renderTable(filteredRecords);
+        }
+
+        function renderTable(dataToRender) {
+            const tbody = document.getElementById('tableBody');
+
+            if (dataToRender.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="p-16 text-center text-gray-500 font-bold text-base">目前區間內沒有符合的明細紀錄。</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = dataToRender.map(r => {
+                let auntSigHtml = r.signature ? `<img src="${r.signature}" class="sig-img" title="阿姨現場簽名">` : `<span class="text-xs text-gray-400">未簽名</span>`;
+                let supSigHtml = r.doubleSignature ? `<img src="${r.doubleSignature}" class="sig-img" title="主管復點簽名">` : `<span class="text-xs text-gray-400">未簽名</span>`;
+
+                return `
+                    <tr>
+                        <td><input type="date" value="${r.date || ''}" class="clean-input font-mono" onblur="updateField('${r.docId}', 'date', this.value, this)"></td>
+                        <td class="font-bold text-gray-800">${r.hotel}</td>
+                        <td class="text-blue-700 font-bold">${r.item}</td>
+                        <td class="text-center font-bold text-gray-600">${r.count || '-'}</td>
+                        <td class="text-center"><div class="sig-container justify-center">${auntSigHtml}</div></td>
+                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                        <td class="text-center"><div class="sig-container justify-center">${supSigHtml}</div></td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="time_${r.docId}" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px] tracking-tight" placeholder="尚未記錄" onblur="updateField('${r.docId}', 'doubleSignDate', this.value, this)">
+                                <div class="flex flex-col gap-1">
+                                    <button onclick="autoFillExactTime('${r.docId}')" title="填入現在精確時間 (看監視器用)" class="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200">⌚</button>
+                                    <button onclick="autoFillTime('${r.docId}')" title="強制填入 23:59:59 (首頁亮燈用)" class="text-[10px] px-1.5 py-0.5 bg-orange-50 text-orange-500 rounded hover:bg-orange-100 border border-orange-200">💡</button>
+                                </div>
+                            </div>
+                        </td>
+                        <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateField('${r.docId}', 'note', this.value, this)"></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // ==========================
+        // 單純更新主資料庫 (不記錄老闆編輯)
+        // ==========================
+        async function updateField(docId, field, newValue, inputElement) {
+            const record = currentRecords.find(r => r.docId === docId);
+            if (!record) return;
+            
+            const oldValue = record[field] || '';
+            const finalNewValue = newValue.trim();
+            if (oldValue === finalNewValue) return; 
+
+            inputElement.style.opacity = '0.5';
+
+            try {
+                const docRef = doc(db, 'inventory_records', docId);
+                await setDoc(docRef, { 
+                    [field]: finalNewValue,
+                    timestamp: new Date().toLocaleString() 
+                }, { merge: true });
+
+                record[field] = finalNewValue;
+                inputElement.style.opacity = '1';
+                showToast();
+
+            } catch (error) {
+                console.error("更新失敗:", error);
+                inputElement.style.color = 'red'; 
+                alert("更新失敗，請檢查網路連線！");
+            }
+        }
+
+        function getExactTimeString() {
+            const now = new Date();
+            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
+
+        async function autoFillExactTime(docId) {
+            const exactTime = getExactTimeString();
+            const timeInput = document.getElementById(`time_${docId}`);
+            timeInput.value = exactTime;
+            updateField(docId, 'doubleSignDate', exactTime, timeInput);
+        }
+
+        async function autoFillTime(docId) {
+            const record = currentRecords.find(r => r.docId === docId);
+            const dateStr = record ? record.date : document.getElementById('startDate').value;
+            const fakeTime = `${dateStr} 23:59:59`; 
+            const timeInput = document.getElementById(`time_${docId}`);
+            timeInput.value = fakeTime;
+            updateField(docId, 'doubleSignDate', fakeTime, timeInput);
+        }
+
+        loadData();
+
+    </script>
+</body>
+</html>
