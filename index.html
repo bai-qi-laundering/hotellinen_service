@@ -1,0 +1,829 @@
+{\rtf1\ansi\ansicpg950\cocoartf2709
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 <!DOCTYPE html>\
+<html lang="zh-TW">\
+<head>\
+    <meta charset="UTF-8">\
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\
+    <title>\uc0\u39151 \u24215 \u24067 \u21697 \u30436 \u40670 \u31995 \u32113  (\u26997 \u36895 \u29256 )</title>\
+    <script src="https://cdn.tailwindcss.com"></script>\
+    <style>\
+        body \{ background-color: #f3f4f6; touch-action: manipulation; \}\
+        .main-container \{ max-width: 500px; margin: 0 auto; \}\
+        \
+        input[type="date"]::-webkit-calendar-picker-indicator \{ \
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;\
+        \}\
+\
+        #signCanvas \{ display: block; width: 100%; height: 220px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; \}\
+        #calcModal \{ transition: transform 0.3s ease-in-out; \}\
+        .calc-btn \{ user-select: none; transition: background 0.1s; \}\
+        .calc-btn:active \{ background-color: #d1d5db; transform: scale(0.95); \}\
+    </style>\
+</head>\
+<body class="p-3 pb-32 relative overflow-x-hidden">\
+    \
+    <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 bg-green-700 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold">\
+        \uc0\u9989  \u25976 \u37327 \u24050 \u23531 \u20837 \u38642 \u31471 \u65281 \
+    </div>\
+\
+    <div id="msgModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[20000]">\
+        <div class="bg-white p-6 rounded-3xl w-full max-w-sm text-center shadow-2xl">\
+            <div id="msgIcon" class="text-6xl mb-4">\uc0\u9888 \u65039 </div>\
+            <h3 id="msgText" class="text-xl font-bold text-gray-800 mb-6 leading-relaxed whitespace-pre-line break-words">\uc0\u25552 \u31034 \u35338 \u24687 </h3>\
+            <button onclick="closeMsg()" class="w-full py-4 bg-blue-600 text-white rounded-xl font-black text-xl shadow-md active:bg-blue-700">\uc0\u25105 \u30693 \u36947 \u20102 </button>\
+        </div>\
+    </div>\
+\
+    <div class="main-container">\
+        <!-- ==================== \uc0\u12304 \u39318 \u38913 \u65306 \u39151 \u24215 \u36984 \u25799 \u20837 \u21475 \u22823 \u24307 \u12305  ==================== -->\
+        <div id="homeView">\
+            <div class="flex justify-between items-center mb-6 mt-4 px-1">\
+                <div class="flex items-center gap-2">\
+                    <h1 class="text-4xl font-black text-gray-800">\uc0\u36984 \u25799 \u39151 \u24215 </h1>\
+                    <span id="syncIndicator" class="text-xs text-green-600 font-bold opacity-0 transition-opacity duration-500">\uc0\u9679 \u21363 \u26178 \u21516 \u27493 \u20013 </span>\
+                </div>\
+                \
+                <div class="flex flex-col gap-2 w-1/2">\
+                    <div class="flex gap-2">\
+                        <button onclick="syncSettingsFromSheet(event)" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-purple-200 flex-1">\
+                            \uc0\u9881 \u65039  \u26356 \u26032 \u35373 \u23450 \
+                        </button>\
+                        <button onclick="manualRefresh()" class="bg-blue-100 text-blue-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-blue-200 flex-1">\
+                            \uc0\u55357 \u56580  \u25163 \u21205 \u37325 \u36617 \
+                        </button>\
+                    </div>\
+                    <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">\
+                        \uc0\u55357 \u56549  \u21560 \u21462 \u33290 \u30436 \u40670 \u36039 \u26009 \
+                    </button>\
+                </div>\
+            </div>\
+            \
+            <div class="bg-white p-3 rounded-2xl shadow-sm mb-4 border border-gray-200 flex items-center justify-between">\
+                <div class="font-bold text-gray-700 text-base">\uc0\u55357 \u56998  \u20736 \u34920 \u26495 \u29128 \u34399 \u26085 \u26399 \u65306 </div>\
+                <div class="relative w-36 bg-orange-50 rounded-lg h-10 flex items-center justify-center border border-orange-200">\
+                    <div id="homeDateDisplay" class="w-full text-center font-bold text-orange-900 pointer-events-none"></div>\
+                    <input type="date" id="homeDatePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="homeDateChanged()">\
+                </div>\
+            </div>\
+\
+            <div class="bg-white p-5 rounded-2xl shadow-sm mb-6 flex flex-col gap-4 border border-gray-200">\
+                <div class="relative w-full h-16">\
+                    <span class="absolute left-5 top-4 text-gray-400 text-3xl">\uc0\u55357 \u56589 </span>\
+                    <input id="searchInput" class="w-full h-full border-2 border-blue-200 focus:border-blue-500 rounded-xl text-2xl font-bold pl-16 pr-4 outline-none" placeholder="\uc0\u25628 \u23563 \u39151 \u24215 \u21517 \u31281 ..." oninput="renderHome(true)">\
+                </div>\
+            </div>\
+\
+            <div id="hotelGrid" class="grid grid-cols-3 gap-3 pb-10">\
+                <!-- \uc0\u38928 \u35373 \u30059 \u38754 \u20840 \u31354  -->\
+            </div>\
+        </div>\
+\
+        <!-- ==================== \uc0\u12304 \u20839 \u38913 \u65306 \u39151 \u24215 \u37096 \u38272 \u30436 \u40670 \u12305  ==================== -->\
+        <div id="hotelView" class="hidden">\
+            <div class="flex items-center gap-3 mb-4 mt-2">\
+                <button onclick="goHome()" class="bg-gray-800 text-white px-5 py-3 rounded-xl font-black text-xl shadow-md active:bg-gray-700 flex-shrink-0">\
+                    \uc0\u11013 \u65039  \u22238 \u39318 \u38913 \
+                </button>\
+                <h1 id="currentBaseHotelTitle" class="text-3xl font-black text-blue-900 flex-1 text-center truncate px-2">\
+                    \uc0\u39151 \u24215 \u21517 \u31281 \
+                </h1>\
+            </div>\
+\
+            <div class="bg-white p-4 rounded-xl shadow-sm mb-5 border border-gray-200 flex flex-col gap-3">\
+                <div class="relative w-full">\
+                    <select id="deptSelect" onchange="changeDept(this.value)" class="w-full text-center font-black text-2xl p-4 outline-none bg-blue-100 border-2 border-blue-300 rounded-xl text-blue-900 appearance-none shadow-sm cursor-pointer">\
+                    </select>\
+                    <div class="pointer-events-none absolute inset-y-0 right-4 flex items-center px-2 text-blue-900">\
+                        <svg class="fill-current h-8 w-8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>\
+                    </div>\
+                </div>\
+\
+                <div class="relative w-full bg-gray-50 rounded-xl h-14 flex items-center justify-center border border-gray-200 mt-2">\
+                    <span class="absolute left-4 text-xl">\uc0\u55357 \u56517 </span>\
+                    <div id="dateDisplay" class="w-full text-center font-black text-xl pointer-events-none text-gray-800"></div>\
+                    <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">\
+                </div>\
+            </div>\
+\
+            <div id="itemsList" class="space-y-4"></div>\
+\
+            <div class="mt-8 bg-blue-50 p-5 rounded-2xl shadow-sm border-2 border-dashed border-blue-300">\
+                <h2 class="text-xl font-black mb-3 text-blue-800">\uc0\u10133  \u25214 \u19981 \u21040 \u21697 \u38917 \u65311 \u20170 \u26085 \u33256 \u26178 \u26032 \u22686 </h2>\
+                <div class="flex gap-2 relative">\
+                    <div class="relative flex-1">\
+                        <input id="newItemInput" class="w-full h-full p-4 text-xl font-bold border-2 border-blue-200 rounded-xl outline-none focus:border-blue-500 bg-white pr-14" placeholder="\uc0\u25171 \u23383 \u25110 \u40670 \u31661 \u38957  \u55357 \u56393 ">\
+                        \
+                        <button id="dropdownBtn" onclick="toggleDropdown(event)" class="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 bg-blue-100 text-blue-800 rounded-lg font-bold shadow-sm border border-blue-300 active:bg-blue-200 flex items-center justify-center h-10 w-10">\
+                            <svg class="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>\
+                        </button>\
+\
+                        <div id="customDropdownMenu" class="hidden absolute z-[30000] w-full mt-2 max-h-64 overflow-y-auto bg-white border-2 border-blue-300 rounded-xl shadow-2xl">\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u26041 \u24062 ')">\u26041 \u24062 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u24202 \u22666 ')">\u24202 \u22666 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u26517 \u38957 ')">\u26517 \u38957 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u24202 \u21253 ')">\u24202 \u21253 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u32701 \u27611 \u34987 ')">\u32701 \u27611 \u34987 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u25265 \u26517 \u22871 ')">\u25265 \u26517 \u22871 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u32622 \u29289 \u22666 ')">\u32622 \u29289 \u22666 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u23344 \u20818 \u24202 \u22285 \u32068 ')">\u23344 \u20818 \u24202 \u22285 \u32068 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u23344 \u20818 \u24202 \u21253 /\u35033 ')">\u23344 \u20818 \u24202 \u21253 /\u35033 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u23344 \u20818 \u34987 \u22871 ')">\u23344 \u20818 \u34987 \u22871 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u23344 \u20818 \u26517 \u22871 ')">\u23344 \u20818 \u26517 \u22871 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u23344 \u20818 \u24202 \u22285 ')">\u23344 \u20818 \u24202 \u22285 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u26700 \u35033 ')">\u26700 \u35033 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u35242 \u23376 \u24202 \u21934 ')">\u35242 \u23376 \u24202 \u21934 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u35242 \u23376 \u34987 \u22871 ')">\u35242 \u23376 \u34987 \u22871 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u28092 \u34987 ')">\u28092 \u34987 </div>\
+                            <div class="p-4 border-b border-gray-100 text-2xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('\uc0\u38272 \u31806 ')">\u38272 \u31806 </div>\
+                        </div>\
+                    </div>\
+                    \
+                    <button onclick="addNewItem()" class="p-4 bg-green-600 text-white rounded-xl font-black text-xl shadow-md active:bg-green-700 whitespace-nowrap">\uc0\u26032 \u22686 </button>\
+                </div>\
+            </div>\
+            <div class="h-10"></div>\
+        </div>\
+    </div>\
+\
+    <!-- \uc0\u31805 \u21517 \u26495  Modal -->\
+    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000]" onclick="if(event.target === this) closeSign()">\
+        <div class="bg-white p-4 rounded-3xl w-full max-w-sm" onclick="event.stopPropagation()">\
+            <div class="flex justify-between items-center mb-3">\
+                <h2 id="signModalTitle" class="text-lg font-black text-blue-800">\uc0\u31805 \u21517 \u35299 \u37782 </h2>\
+                <button onclick="clearCanvas()" class="text-sm text-red-500 font-bold px-3 py-2 rounded-lg bg-red-50 border border-red-200 shadow-sm active:bg-red-100">\uc0\u28165 \u38500 \u37325 \u23531 </button>\
+            </div>\
+            <canvas id="signCanvas"></canvas>\
+            <div class="mt-4 flex gap-2">\
+                <button onclick="closeSign()" class="flex-1 py-4 bg-gray-200 text-gray-700 rounded-xl font-bold text-xl">\uc0\u21462 \u28040 </button>\
+                <button onclick="confirmSignature()" class="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold text-xl shadow-md active:bg-blue-700">\uc0\u30906 \u35469 \u31805 \u21517 </button>\
+            </div>\
+        </div>\
+    </div>\
+\
+    <!-- \uc0\u35336 \u31639 \u27231 \u37749 \u30436  Modal -->\
+    <div id="calcModal" class="fixed inset-x-0 bottom-0 transform translate-y-full bg-gray-100 shadow-[0_-5px_15px_rgba(0,0,0,0.2)] rounded-t-3xl z-[10001] max-w-md mx-auto">\
+        <div class="p-4">\
+            <div class="flex justify-between items-center mb-3">\
+                <span id="calcTitle" class="font-bold text-gray-500 text-base">\uc0\u27491 \u22312 \u35336 \u31639 \u65306 </span>\
+                <button onclick="closeCalc()" class="text-red-600 font-bold px-4 py-2 bg-red-100 rounded-lg active:bg-red-200">\uc0\u38364 \u38281 </button>\
+            </div>\
+            <div id="calcDisplay" class="w-full bg-white border-2 border-blue-400 rounded-xl h-16 mb-4 flex items-center justify-end px-4 text-4xl font-black text-gray-800 tracking-wider overflow-hidden">0</div>\
+            <div class="grid grid-cols-4 gap-2 h-64">\
+                <button onclick="calcPress('7')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">7</button>\
+                <button onclick="calcPress('8')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">8</button>\
+                <button onclick="calcPress('9')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">9</button>\
+                <button onclick="calcPress('+')" class="calc-btn bg-blue-100 text-blue-700 rounded-xl text-4xl font-black shadow-sm border border-blue-200">\uc0\u65291 </button>\
+                \
+                <button onclick="calcPress('4')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">4</button>\
+                <button onclick="calcPress('5')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">5</button>\
+                <button onclick="calcPress('6')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">6</button>\
+                <button onclick="calcPress('-')" class="calc-btn bg-red-100 text-red-700 rounded-xl text-4xl font-black shadow-sm border border-red-200">\uc0\u65293 </button>\
+                \
+                <button onclick="calcPress('1')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">1</button>\
+                <button onclick="calcPress('2')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">2</button>\
+                <button onclick="calcPress('3')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">3</button>\
+                <button onclick="calcBackspace()" class="calc-btn bg-gray-200 text-gray-700 rounded-xl text-xl font-bold shadow-sm active:bg-gray-300">\uc0\u36864 \u26684 </button>\
+                \
+                <button onclick="calcClear()" class="calc-btn bg-gray-200 text-gray-700 rounded-xl text-xl font-bold shadow-sm active:bg-gray-300">\uc0\u28165 \u38500 </button>\
+                <button onclick="calcPress('0')" class="calc-btn bg-white rounded-xl text-3xl font-bold shadow-sm border border-gray-200">0</button>\
+                <button onclick="calcConfirm()" class="calc-btn col-span-2 bg-green-600 text-white rounded-xl text-2xl font-black shadow-sm active:bg-green-700">\uc0\u30906 \u23450 \u20006 \u20786 \u23384 </button>\
+            </div>\
+        </div>\
+    </div>\
+\
+    <!-- ==========================================\
+         \uc0\u9733  1. \u30636 \u38291 \u32362 \u35069 \u26680 \u24515  + \u28961 \u30165 DOM\u26356 \u26032 \u25216 \u34899 \
+         ========================================== -->\
+    <script>\
+        const API_URL = "https://script.google.com/macros/s/AKfycbyPrkLoz1QNrynxKK09CWgMNbuePWCmQdtmx8Iqwq9l90xk0ZGZSOc-N-bkTePyXb4RVA/exec";\
+        const todayHotels = ["\uc0\u27472 \u36938 ", "H2O", "\u33457 \u23395 \u65313 \u39208 ", "\u33457 \u23395 \u65315 \u39208 ", "\u33457 \u23395 ", "\u25463 \u20013 \u27491 ", "\u25991 \u19971 ", "\u22909 \u20845 "]; \
+\
+        let masterData = []; \
+        let userInputs = \{\}; \
+        let hotelStructure = \{\}; \
+        let allBaseHotels = [];  \
+        let currentBaseHotel = ""; \
+        let currentDept = "";      \
+        let currentHotelName = ""; \
+        let activeCategory = ""; \
+        let activeItem = "";\
+        let activeRole = ""; \
+        let calcExpr = "";\
+        let painting = false;\
+\
+        const canvas = document.getElementById('signCanvas');\
+        const ctx = canvas.getContext('2d');\
+\
+        // \uc0\u9733  \u26680 \u24515 \u24037 \u20855 \u65306 \u29986 \u29983 \u19981 \u26371 \u34909 \u31361 \u30340 \u23433 \u20840  ID\u65292 \u29992 \u20358 \u20570 \u28961 \u30165 \u26356 \u26032 \
+        window.getSafeId = function(str) \{\
+            return "id_" + Array.from(str).map(c => c.charCodeAt(0).toString(16)).join('_');\
+        \};\
+\
+        function getLocalDateString(dateObj) \{ return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; \}\
+\
+        function getLocalTimeString(dateObj) \{\
+            const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');\
+            const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');\
+            return `$\{y\}-$\{m\}-$\{d\} $\{h\}:$\{min\}:$\{s\}`;\
+        \}\
+\
+        function buildHotelStructure() \{\
+            hotelStructure = \{\}; allBaseHotels = [];\
+            masterData.forEach(t => \{\
+                let base = t.baseName; let dept = t.deptName;\
+                if (base && !hotelStructure[base]) \{ hotelStructure[base] = []; allBaseHotels.push(base); \}\
+                if (base && !hotelStructure[base].includes(dept)) hotelStructure[base].push(dept);\
+            \});\
+        \}\
+\
+        function saveToLocal() \{\
+            try \{\
+                localStorage.setItem('inventory_masterData', JSON.stringify(masterData));\
+                let keys = Object.keys(userInputs).sort().reverse();\
+                let recentInputs = \{\};\
+                for (let i = 0; i < Math.min(30, keys.length); i++) \{\
+                    recentInputs[keys[i]] = userInputs[keys[i]];\
+                \}\
+                localStorage.setItem('inventory_userInputs', JSON.stringify(recentInputs));\
+            \} catch (e) \{ console.log("Local storage error", e); \}\
+        \}\
+\
+        function instantBoot() \{\
+            const today = new Date();\
+            document.getElementById('homeDatePicker').value = getLocalDateString(today);\
+            document.getElementById('homeDateDisplay').innerText = `$\{today.getMonth() + 1\}\uc0\u26376 $\{today.getDate()\}\u26085 `;\
+\
+            try \{\
+                const cachedMaster = localStorage.getItem('inventory_masterData');\
+                const cachedInputs = localStorage.getItem('inventory_userInputs');\
+                if (cachedMaster) \{\
+                    masterData = JSON.parse(cachedMaster); buildHotelStructure();\
+                    if (cachedInputs) userInputs = JSON.parse(cachedInputs);\
+                    renderHome(true); \
+                \} else \{\
+                    document.getElementById('hotelGrid').innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-xl">\uc0\u35531 \u40670 \u25802 \u19978 \u26041 \u12304 \u9881 \u65039  \u26356 \u26032 \u35373 \u23450 \u12305 \u36617 \u20837 \u28165 \u21934 </div>`;\
+                \}\
+            \} catch (e) \{ console.error("\uc0\u24555 \u21462 \u35712 \u21462 \u22833 \u25943 ", e); \}\
+        \}\
+        \
+        instantBoot();\
+\
+        // =========================================================================\
+        // \uc0\u9733  \u28961 \u30165 \u26356 \u26032 \u65306 \u39318 \u38913 \u20736 \u34920 \u26495 \
+        // =========================================================================\
+        function renderHome(forceRebuild = false) \{\
+            const keyword = document.getElementById('searchInput').value.trim().toLowerCase();\
+            const filtered = allBaseHotels.filter(c => c.toLowerCase().includes(keyword));\
+            const grid = document.getElementById('hotelGrid');\
+            \
+            let needsRebuild = forceRebuild || grid.children.length === 0;\
+\
+            // \uc0\u27298 \u26597 \u30059 \u38754 \u19978 \u26159 \u19981 \u26159 \u26377 \u23569 \u25353 \u37397  (\u38450 \u21574 )\
+            if (!needsRebuild) \{\
+                filtered.forEach(c => \{\
+                    if (!document.getElementById(`btn_$\{window.getSafeId(c)\}`)) needsRebuild = true;\
+                \});\
+            \}\
+            \
+            if (filtered.length > 0) \{\
+                let htmlContent = "";\
+                filtered.forEach(c => \{\
+                    let isOrange = false;\
+                    const safeId = window.getSafeId(c);\
+                    const targetDate = document.getElementById('homeDatePicker').value;\
+                    let depts = hotelStructure[c] || [];\
+                    let targetDept = depts.includes("\uc0\u25151 \u21209 ") ? "\u25151 \u21209 " : (depts[0] || "");\
+                    let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);\
+                    let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "\uc0\u25151 \u21209 " ? (c + " \u25151 \u21209 ") : (c + " " + targetDept));\
+                    let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);\
+                    let targetItems = []; let canCheck = false;\
+                    \
+                    if (targetDept === "\uc0\u25151 \u21209 ") \{\
+                        let pillowIdx = templateItems.findIndex(i => (i || "").trim() === "\uc0\u26517 \u22871 ");\
+                        if (pillowIdx !== -1) targetItems = templateItems.slice(pillowIdx + 1);\
+                        else targetItems = [...templateItems];\
+                        canCheck = true;\
+                    \} else if (targetDept !== "") \{\
+                        targetItems = [...templateItems]; canCheck = true;\
+                    \}\
+                    \
+                    if (canCheck) \{\
+                        let foundCompletedDocOnTargetDate = false;\
+                        for (let d in userInputs) \{\
+                            let docInputs = userInputs[d][fullHotelName];\
+                            if (!docInputs) continue;\
+                            const customItems = Object.keys(docInputs).filter(item => !templateItems.includes(item));\
+                            let allItemsToCheck = targetItems.concat(customItems);\
+                            if (allItemsToCheck.length === 0) continue;\
+\
+                            let isAllSigned = true; let docCompletedDate = '';\
+                            for (let item of allItemsToCheck) \{\
+                                let u = docInputs[item];\
+                                if (!u || !u.doubleSignature) \{ isAllSigned = false; break; \}\
+                                let signTime = u.doubleSignDate || (d + " 23:59:59");\
+                                if (signTime > docCompletedDate) docCompletedDate = signTime;\
+                            \}\
+                            if (isAllSigned && docCompletedDate.startsWith(targetDate)) \{\
+                                foundCompletedDocOnTargetDate = true; break;\
+                            \}\
+                        \}\
+                        isOrange = foundCompletedDocOnTargetDate;\
+                    \}\
+\
+                    let btnClasses = isOrange ? "bg-orange-500 border-2 border-orange-600 shadow-lg active:bg-orange-600 text-white" : "bg-white border-2 border-blue-200 shadow-md active:bg-blue-100 text-blue-900";\
+                    let shadowStyle = isOrange ? "text-shadow: 1px 1px 0px rgba(0,0,0,0.3);" : "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3);";\
+\
+                    if (needsRebuild) \{\
+                        htmlContent += `<button id="btn_$\{safeId\}" onclick="goToHotel('$\{c\}')" class="$\{btnClasses\} rounded-2xl p-1 transition-colors flex items-center justify-center aspect-square">\
+                                            <span id="span_$\{safeId\}" class="text-3xl font-black break-words w-full text-center leading-tight tracking-wide" style="font-weight: 900; $\{shadowStyle\}">$\{c\}</span>\
+                                        </button>`;\
+                    \} else \{\
+                        // \uc0\u9733  \u28961 \u30165 \u26356 \u26032 \u65306 \u21482 \u26367 \u25563 \u38991 \u33394 \u65292 \u19981 \u37325 \u21047 \u30059 \u38754 \u65281 \
+                        document.getElementById(`btn_$\{safeId\}`).className = `$\{btnClasses\} rounded-2xl p-1 transition-colors flex items-center justify-center aspect-square`;\
+                        document.getElementById(`span_$\{safeId\}`).style = `font-weight: 900; $\{shadowStyle\}`;\
+                    \}\
+                \});\
+\
+                if (needsRebuild) grid.innerHTML = htmlContent;\
+\
+            \} else \{\
+                grid.innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-2xl">\uc0\u25214 \u19981 \u21040 \u39151 \u24215 </div>`;\
+            \}\
+        \}\
+\
+        function getTargetDateStr(baseName) \{\
+            const today = new Date();\
+            if (todayHotels.some(keyword => baseName.includes(keyword))) return getLocalDateString(today);\
+            const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);\
+            return getLocalDateString(tomorrow);\
+        \}\
+\
+        function goToHotel(baseName) \{\
+            currentBaseHotel = baseName;\
+            document.getElementById('datePicker').value = getTargetDateStr(baseName);\
+            document.getElementById('dateDisplay').innerText = `$\{new Date(getTargetDateStr(baseName)).getMonth() + 1\}\uc0\u26376 $\{new Date(getTargetDateStr(baseName)).getDate()\}\u26085 `;\
+\
+            let depts = hotelStructure[baseName] || [];\
+            currentDept = depts.includes("\uc0\u25151 \u21209 ") ? "\u25151 \u21209 " : (depts[0] || "");\
+            \
+            document.getElementById('homeView').classList.add('hidden');\
+            document.getElementById('hotelView').classList.remove('hidden');\
+            document.getElementById('currentBaseHotelTitle').innerText = baseName;\
+            \
+            let html = "";\
+            depts.forEach(d => \{\
+                let selected = (d === currentDept) ? "selected" : "";\
+                html += `<option value="$\{d\}" $\{selected\}>\uc0\u55357 \u56514  $\{d\}</option>`;\
+            \});\
+            document.getElementById('deptSelect').innerHTML = html;\
+\
+            updateCurrentHotelName();\
+            renderItems(true); // \uc0\u20999 \u25563 \u39151 \u24215 \u24517 \u38920 \u24375 \u21046 \u37325 \u32362 \
+        \}\
+\
+        function updateCurrentHotelName() \{\
+            let target = masterData.find(d => d.baseName === currentBaseHotel && d.deptName === currentDept);\
+            currentHotelName = target ? target.hotel : (currentDept === "\uc0\u25151 \u21209 " ? currentBaseHotel : (currentBaseHotel + " " + currentDept));\
+        \}\
+\
+        function changeDept(newDept) \{ currentDept = newDept; updateCurrentHotelName(); renderItems(true); \}\
+        function goHome() \{ document.getElementById('homeView').classList.remove('hidden'); document.getElementById('hotelView').classList.add('hidden'); document.getElementById('searchInput').value = ""; renderHome(true); \}\
+        function homeDateChanged() \{ const d = new Date(document.getElementById('homeDatePicker').value); document.getElementById('homeDateDisplay').innerText = `$\{d.getMonth() + 1\}\uc0\u26376 $\{d.getDate()\}\u26085 `; renderHome(true); \}\
+        function dateChanged() \{ const d = new Date(document.getElementById('datePicker').value); document.getElementById('dateDisplay').innerText = `$\{d.getFullYear()\}\uc0\u24180 $\{d.getMonth() + 1\}\u26376 $\{d.getDate()\}\u26085 `; if(currentHotelName) renderItems(true); \}\
+\
+        // =========================================================================\
+        // \uc0\u9733  \u28961 \u30165 \u26356 \u26032 \u65306 \u20839 \u38913 \u30436 \u40670 \u38917 \u30446  (\u32085 \u23565 \u19981 \u24178 \u25854 \u25171 \u23383 )\
+        // =========================================================================\
+        function renderItems(forceRebuild = false) \{\
+            const dateStr = document.getElementById('datePicker').value;\
+            if (!currentHotelName) return;\
+            let displayItems = masterData.filter(d => d.hotel === currentHotelName).map(d => d.item);\
+            \
+            const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || \{\};\
+            for (let itemName in todayInputs) \{ if (!displayItems.includes(itemName)) displayItems.push(itemName); \}\
+\
+            const itemsList = document.getElementById('itemsList');\
+            let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.dataset.hotel !== currentHotelName;\
+\
+            // \uc0\u27298 \u26597 \u30059 \u38754 \u19978 \u26159 \u19981 \u26159 \u26377 \u23569 \u21345 \u29255  (\u20363 \u22914 \u26377 \u26032 \u38917 \u30446 \u21152 \u20837 )\
+            if (!needsRebuild) \{\
+                displayItems.forEach(itemName => \{\
+                    if (!document.getElementById(`card_$\{window.getSafeId(itemName)\}`)) needsRebuild = true;\
+                \});\
+            \}\
+\
+            if (needsRebuild) \{\
+                itemsList.dataset.hotel = currentHotelName;\
+                itemsList.innerHTML = ""; // \uc0\u28310 \u20633 \u37325 \u24314 \
+            \}\
+\
+            let htmlContent = "";\
+            displayItems.forEach(itemName => \{\
+                const safeId = window.getSafeId(itemName);\
+                const u = todayInputs[itemName] || \{\};\
+                \
+                const count = (u.count !== undefined && u.count !== null && u.count !== '') ? u.count : '';\
+                const doubleCount = (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? u.doubleCount : '';\
+                const hasSigned = u.hasSigned || false; const doubleHasSigned = u.doubleHasSigned || false;\
+                const isSubmitted = u.isSubmitted || false; const supSignedEver = u.doubleSignature ? true : false;\
+                const isSaving = u.isSaving || false; const saveError = u.saveError || false;\
+                const loadingSvg = `<svg class="animate-spin h-4 w-4 text-gray-500 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;\
+                \
+                let auntDisplayClass = hasSigned ? "bg-white text-gray-800 border-blue-300 shadow-inner" : "bg-gray-100 text-gray-400 border-gray-300";\
+                let auntText = count !== "" ? count : (hasSigned ? "\uc0\u36664 \u20837 \u25976 \u37327 " : "\u55357 \u56594 ");\
+                let auntActionButton = "";\
+                if (isSaving) auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">$\{loadingSvg\} \uc0\u23531 \u20837 \u20013 ...</div>`;\
+                else if (supSignedEver) \{ auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300">\uc0\u55357 \u56594  \u24050 \u34987 \u35079 \u40670 \u37782 \u23450 </div>`; auntDisplayClass = "bg-gray-200 text-gray-500 border-gray-300"; \}\
+                else if (saveError) auntActionButton = `<button onclick="window.firebaseSubmit('$\{currentHotelName\}', '$\{itemName\}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">\uc0\u10060  \u23531 \u20837 \u22833 \u25943  (\u40670 \u27492 \u37325 \u20659 )</button>`;\
+                else if (isSubmitted && !hasSigned) auntActionButton = `<button onclick="openSign('$\{currentHotelName\}', '$\{itemName\}', 'aunt')" class="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-sm active:bg-gray-200">\uc0\u9989  \u23384 \u27284 \u25104 \u21151 (\u40670 \u27492 \u37325 \u31805 )</button>`;\
+                else if (hasSigned) auntActionButton = `<div class="w-full py-2 bg-blue-100 text-blue-700 rounded-lg font-bold text-sm text-center border border-blue-200 animate-pulse">\uc0\u55357 \u56390  \u35531 \u36664 \u20837 \u25976 \u37327 </div>`;\
+                else auntActionButton = `<button onclick="openSign('$\{currentHotelName\}', '$\{itemName\}', 'aunt')" class="w-full py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-blue-700">\uc0\u31532 \u19968 \u27493 -\u31805 \u21517 </button>`;\
+\
+                let supDisplayClass = doubleHasSigned ? "bg-white text-blue-800 border-green-500 shadow-inner" : "bg-white text-blue-400 border-blue-200";\
+                let supText = doubleCount !== "" ? doubleCount : (doubleHasSigned ? "\uc0\u36664 \u20837 \u25976 \u37327 " : "\u31561 \u24453 \u36664 \u20837 ");\
+                let supActionButton = "";\
+                if (isSaving) supActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">$\{loadingSvg\} \uc0\u23531 \u20837 \u20013 ...</div>`;\
+                else if (saveError) supActionButton = `<button onclick="window.firebaseSubmit('$\{currentHotelName\}', '$\{itemName\}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">\uc0\u10060  \u23531 \u20837 \u22833 \u25943  (\u40670 \u27492 \u37325 \u20659 )</button>`;\
+                else if (isSubmitted && !doubleHasSigned && u.doubleSignature) supActionButton = `<button onclick="openSign('$\{currentHotelName\}', '$\{itemName\}', 'sup')" class="w-full py-2 bg-green-50 text-green-700 rounded-lg font-bold text-sm text-center border border-green-200 shadow-sm active:bg-green-100">\uc0\u9989  \u35079 \u40670 \u23436 \u25104 (\u37325 \u31805 )</button>`;\
+                else if (doubleHasSigned) supActionButton = `<div class="w-full py-2 bg-orange-50 text-orange-600 rounded-lg font-bold text-sm text-center border border-orange-200 animate-pulse">\uc0\u55357 \u56390  \u35531 \u36664 \u20837 \u25976 \u37327 </div>`;\
+                else supActionButton = `<button onclick="openSign('$\{currentHotelName\}', '$\{itemName\}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">\uc0\u31532 \u20108 \u27493 -\u35079 \u40670 \u31805 \u21517 </button>`;\
+\
+                let cardClass = supSignedEver ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";\
+\
+                if (needsRebuild) \{\
+                    htmlContent += `\
+                    <div id="card_$\{safeId\}" class="$\{cardClass\} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300">\
+                        <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">$\{itemName\}</div>\
+                        <div class="flex gap-2 mb-4 relative z-20">\
+                            <div id="aunt_bg_$\{safeId\}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between $\{supSignedEver ? 'opacity-60' : ''\}">\
+                                <div class="text-sm font-bold text-gray-500 mb-2 text-center">\uc0\u29694 \u22580 \u25976 \u37327 </div>\
+                                <div id="aunt_box_$\{safeId\}" onclick="handleItemClick('$\{itemName\}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 $\{auntDisplayClass\}">$\{auntText\}</div>\
+                                <div id="aunt_action_$\{safeId\}">$\{auntActionButton\}</div>\
+                            </div>\
+                            <div class="flex-1 bg-blue-50 rounded-xl p-3 border border-blue-200 flex flex-col justify-between">\
+                                <div class="text-sm font-bold text-blue-700 mb-2 text-center">\uc0\u35079 \u40670 \u25976 \u37327 </div>\
+                                <div id="sup_box_$\{safeId\}" onclick="handleItemClick('$\{itemName\}', 'sup')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 $\{supDisplayClass\}">$\{supText\}</div>\
+                                <div id="sup_action_$\{safeId\}">$\{supActionButton\}</div>\
+                            </div>\
+                        </div>\
+                        <input type="text" id="note_$\{safeId\}" oninput="handleInput('$\{dateStr\}', '$\{currentHotelName\}', '$\{itemName\}', 'note', this.value)" onchange="window.firebaseSubmit('$\{currentHotelName\}', '$\{itemName\}')" value="$\{u.note || ''\}" $\{isSaving ? 'disabled' : ''\} class="w-full p-3 border border-gray-200 rounded-xl text-base outline-none bg-gray-50 relative z-20 focus:border-blue-500" placeholder="\uc0\u55357 \u56541  \u40670 \u27492 \u21487 \u23531 \u20633 \u35387 (\u23531 \u23436 \u33258 \u21205 \u23384 )">\
+                    </div>`;\
+                \} else \{\
+                    // \uc0\u9733  \u28961 \u30165 \u26356 \u26032 \u65306 \u21482 \u26367 \u25563 \u35041 \u38754 \u30340 \u20839 \u23481 \u65281 \u22914 \u26524 \u20351 \u29992 \u32773 \u27491 \u22312 \u25171 \u23383 \u65292 \u32085 \u23565 \u19981 \u24178 \u25854 \u20182 \u65281 \
+                    document.getElementById(`card_$\{safeId\}`).className = `$\{cardClass\} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300`;\
+                    document.getElementById(`aunt_bg_$\{safeId\}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between $\{supSignedEver ? 'opacity-60' : ''\}`;\
+                    \
+                    document.getElementById(`aunt_box_$\{safeId\}`).className = `px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 $\{auntDisplayClass\}`;\
+                    document.getElementById(`aunt_box_$\{safeId\}`).innerHTML = auntText;\
+                    document.getElementById(`aunt_action_$\{safeId\}`).innerHTML = auntActionButton;\
+\
+                    document.getElementById(`sup_box_$\{safeId\}`).className = `px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 $\{supDisplayClass\}`;\
+                    document.getElementById(`sup_box_$\{safeId\}`).innerHTML = supText;\
+                    document.getElementById(`sup_action_$\{safeId\}`).innerHTML = supActionButton;\
+\
+                    let noteInput = document.getElementById(`note_$\{safeId\}`);\
+                    // \uc0\u9888 \u65039  \u26368 \u37325 \u35201 \u30340 \u19968 \u34892 \u65306 \u22914 \u26524 \u28216 \u27161 \u22312 \u36889 \u20491 \u20633 \u35387 \u27396 \u35041 \u65292 \u31995 \u32113 \u12300 \u32085 \u23565 \u19981 \u12301 \u26367 \u25563 \u20182 \u30340 \u25991 \u23383 \u65281 \
+                    if (noteInput && document.activeElement !== noteInput) \{\
+                        noteInput.value = u.note || '';\
+                        noteInput.disabled = isSaving;\
+                    \}\
+                \}\
+            \});\
+\
+            if (needsRebuild) \{\
+                itemsList.innerHTML = htmlContent;\
+            \}\
+        \}\
+\
+        function handleInput(date, category, item, field, value) \{\
+            if (!userInputs[date]) userInputs[date] = \{\};\
+            if (!userInputs[date][category]) userInputs[date][category] = \{\};\
+            if (!userInputs[date][category][item]) userInputs[date][category][item] = \{ count: '', note: '', hasSigned: false, isSubmitted: false, signature: '', doubleCount: '', doubleSignature: '', doubleHasSigned: false, doubleSignDate: '', isSaving: false, saveError: false \};\
+            userInputs[date][category][item][field] = value;\
+            saveToLocal(); \
+        \}\
+\
+        function handleItemClick(item, role) \{\
+            const dateStr = document.getElementById('datePicker').value;\
+            const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || \{\};\
+            if (u.isSaving) return; \
+            if (role === 'aunt') \{\
+                if (u.doubleSignature) return showMessage("\uc0\u55357 \u56594  \u35079 \u40670 \u20154 \u21729 \u24050 \u31805 \u21517 \u65281 \\n\u29694 \u22580 \u25976 \u37327 \u24050 \u34987 \u23436 \u20840 \u37782 \u23450 \u65292 \u28961 \u27861 \u20462 \u25913 \u22217 \u65281 ");\
+                if (!u.hasSigned) return openSign(currentHotelName, item, 'aunt');\
+                openCalc(currentHotelName, item, 'aunt');\
+            \} else if (role === 'sup') \{\
+                if (!u.doubleHasSigned) return openSign(currentHotelName, item, 'sup');\
+                openCalc(currentHotelName, item, 'sup');\
+            \}\
+        \}\
+\
+        // \uc0\u31805 \u21517 \u26495 \u33287 \u35336 \u31639 \u27231 \
+        function setupCanvas() \{\
+            canvas.isModified = false; canvas.isLocked = false; \
+            function start(e) \{ if (canvas.isLocked) return showMessage("\uc0\u55357 \u56594  \u24517 \u38920 \u37325 \u26032 \u31805 \u21517 \u25165 \u33021 \u20462 \u25913 \u25976 \u37327 \u65281 \\n\u55357 \u56393  \u35531 \u20808 \u40670 \u25802 \u21491 \u19978 \u35282 \u30340 \u12304 \u28165 \u38500 \u37325 \u23531 \u12305 \u25353 \u37397 \u12290 "); painting = true; draw(e); \}\
+            function draw(e) \{ if(!painting) return; e.preventDefault(); canvas.isModified = true; const rect = canvas.getBoundingClientRect(); const x = (e.clientX || e.touches[0].clientX) - rect.left; const y = (e.clientY || e.touches[0].clientY) - rect.top; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y); \}\
+            function stop() \{ painting = false; ctx.beginPath(); \}\
+            canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, \{passive: false\});\
+            canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, \{passive: false\});\
+            canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);\
+        \}\
+        setupCanvas();\
+\
+        function clearCanvas() \{ ctx.clearRect(0, 0, canvas.width, canvas.height); canvas.isModified = true; canvas.isLocked = false; const titleEl = document.getElementById('signModalTitle'); titleEl.innerText = activeRole === 'aunt' ? "\uc0\u35531 \u29694 \u22580 \u20154 \u21729 \u31805 \u19978 \u26032 \u21517 \u23383 " : "\u35531 \u35079 \u40670 \u20154 \u21729 \u31805 \u19978 \u26032 \u21517 \u23383 "; titleEl.className = "text-lg font-black text-blue-800"; \}\
+        function closeSign() \{ document.getElementById('signModal').classList.add('hidden'); \}\
+        function openSign(category, item, role) \{ \
+            activeCategory = category; activeItem = item; activeRole = role; document.getElementById('signModal').classList.remove('hidden'); \
+            const dateStr = document.getElementById('datePicker').value;\
+            const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || \{\};\
+            const existingSig = role === 'aunt' ? u.signature : u.doubleSignature;\
+            requestAnimationFrame(() => \{\
+                canvas.width = canvas.offsetWidth || 300; canvas.height = 220; canvas.isModified = false; \
+                ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, canvas.width, canvas.height);\
+                canvas.isLocked = (u.isSubmitted && existingSig && !u.saveError) ? true : false;\
+                const titleEl = document.getElementById('signModalTitle');\
+                if (canvas.isLocked) \{ titleEl.innerText = "\uc0\u55357 \u56594  \u35531 \u20808 \u25353 \u12304 \u28165 \u38500 \u37325 \u23531 \u12305 \u25165 \u33021 \u20462 \u25913 "; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; \} \
+                else \{ titleEl.innerText = role === 'aunt' ? "\uc0\u31532 \u19968 \u27493 \u65306 \u29694 \u22580 \u20154 \u21729 \u31805 \u21517 \u35299 \u37782 " : "\u31532 \u20108 \u27493 \u65306 \u35079 \u40670 \u20154 \u21729 \u31805 \u21517 "; titleEl.className = "text-lg font-black text-blue-800"; \}\
+                if (existingSig) \{ let img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0); img.src = existingSig; \}\
+            \});\
+        \}\
+        function confirmSignature() \{\
+            if (canvas.isLocked) return showMessage("\uc0\u55357 \u56594  \u24744 \u23578 \u26410 \u37325 \u26032 \u31805 \u21517 \u65281 \\n\u55357 \u56393  \u35531 \u20808 \u40670 \u25802 \u21491 \u19978 \u35282 \u30340 \u12304 \u28165 \u38500 \u37325 \u23531 \u12305 \u20006 \u31805 \u19978 \u26032 \u21517 \u23383 \u12290 ");\
+            if (!ctx.getImageData(0,0,canvas.width,canvas.height).data.some(c => c !== 0)) return showMessage("\uc0\u35531 \u20808 \u22312 \u31354 \u30333 \u34389 \u31805 \u21517 \u21908 \u65281 ");\
+            const sigBase64 = canvas.toDataURL('image/png'); const dateStr = document.getElementById('datePicker').value; \
+            if (activeRole === 'aunt') \{ handleInput(dateStr, activeCategory, activeItem, 'signature', sigBase64); handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); \} \
+            else \{ handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigBase64); handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); \}\
+            handleInput(dateStr, activeCategory, activeItem, 'isSubmitted', false); handleInput(dateStr, activeCategory, activeItem, 'saveError', false);\
+            closeSign(); renderItems(true); openCalc(activeCategory, activeItem, activeRole); \
+        \}\
+\
+        function openCalc(hotel, item, role) \{\
+            activeCategory = hotel; activeItem = item; activeRole = role;\
+            const dateStr = document.getElementById('datePicker').value;\
+            document.getElementById('calcTitle').innerText = `$\{role === 'aunt' ? '\uc0\u29694 \u22580 \u20154 \u21729 ' : '\u35079 \u40670 \u20154 \u21729 '\}\u27491 \u22312 \u35336 \u31639 \u65306 $\{item\}`;\
+            const u = (userInputs[dateStr] && userInputs[dateStr][hotel] && userInputs[dateStr][hotel][item]) || \{\};\
+            let c = (role === 'aunt') ? u.count : u.doubleCount;\
+            calcExpr = String((c !== undefined && c !== null && c !== '') ? c : "");\
+            document.getElementById('calcDisplay').innerText = calcExpr || "0";\
+            document.getElementById('calcModal').classList.remove('translate-y-full');\
+        \}\
+        function closeCalc() \{ document.getElementById('calcModal').classList.add('translate-y-full'); \}\
+        function calcPress(val) \{ calcExpr += val; document.getElementById('calcDisplay').innerText = calcExpr; \}\
+        function calcBackspace() \{ calcExpr = calcExpr.slice(0, -1); document.getElementById('calcDisplay').innerText = calcExpr || "0"; \}\
+        function calcClear() \{ calcExpr = ""; document.getElementById('calcDisplay').innerText = "0"; \}\
+        function calcConfirm() \{\
+            let finalValue = 0;\
+            try \{ finalValue = /^[0-9\\+\\-]+$/.test(calcExpr) ? Function("return " + calcExpr)() : (parseInt(calcExpr) || 0); \} catch (e) \{ finalValue = 0; \}\
+            const dateStr = document.getElementById('datePicker').value;\
+            if (activeRole === 'aunt') \{\
+                handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);\
+                const u = (userInputs[dateStr] && userInputs[dateStr][activeCategory] && userInputs[dateStr][activeCategory][activeItem]) || \{\};\
+                if (!u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);\
+            \} else handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);\
+            closeCalc(); renderItems(true); window.firebaseSubmit(activeCategory, activeItem);\
+        \}\
+\
+        function addNewItem() \{\
+            const inputEl = document.getElementById('newItemInput'); const newItemName = inputEl.value.trim(); const dateStr = document.getElementById('datePicker').value;\
+            if (!newItemName) return showMessage("\uc0\u35531 \u36664 \u20837 \u35201 \u26032 \u22686 \u30340 \u21697 \u38917 \u21517 \u31281 \u21908 \u65281 ");\
+            const inTemplate = masterData.some(d => d.hotel === currentHotelName && d.item === newItemName);\
+            const inToday = userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][newItemName];\
+            if (inTemplate || inToday) return showMessage("\uc0\u36889 \u20491 \u21697 \u38917 \u24050 \u32147 \u22312 \u30070 \u22825 \u30340 \u21015 \u34920 \u35041 \u38754 \u22217 \u65281 ");\
+            handleInput(dateStr, currentHotelName, newItemName, 'count', '');\
+            inputEl.value = ""; showToast("\uc0\u9989  \u24050 \u28858 \u24744 \u26032 \u22686 \u33256 \u26178 \u21697 \u38917 \u65281 "); renderItems(true); \
+            setTimeout(() => \{ window.scrollTo(\{ top: document.body.scrollHeight, behavior: 'smooth' \}); \}, 100);\
+        \}\
+        function toggleDropdown(e) \{ e.stopPropagation(); document.getElementById('customDropdownMenu').classList.toggle('hidden'); \}\
+        function selectOption(val) \{ document.getElementById('newItemInput').value = val; document.getElementById('customDropdownMenu').classList.add('hidden'); \}\
+        document.addEventListener('click', function(e) \{ const menu = document.getElementById('customDropdownMenu'); const btn = document.getElementById('dropdownBtn'); const input = document.getElementById('newItemInput'); if (menu && !menu.classList.contains('hidden')) \{ if (!menu.contains(e.target) && e.target !== btn && !btn.contains(e.target) && e.target !== input) menu.classList.add('hidden'); \} \});\
+        function showMessage(text, isError = true) \{ document.getElementById('msgText').innerText = text; document.getElementById('msgIcon').innerText = isError ? "\uc0\u9888 \u65039 " : "\u55357 \u56481 "; document.getElementById('msgModal').classList.remove('hidden'); \}\
+        function closeMsg() \{ document.getElementById('msgModal').classList.add('hidden'); \}\
+        function showToast(text) \{ const toast = document.getElementById('toast'); toast.innerText = text; toast.classList.remove('opacity-0'); setTimeout(() => toast.classList.add('opacity-0'), 2500); \}\
+        \
+    </script>\
+\
+    <!-- ==========================================\
+         \uc0\u9733  2. \u23526 \u26178 \u30435 \u32893 \u22120  (Real-time Snapshot)\u65306 \u21029 \u20154 \u25171 \u23383 \u65292 \u36889 \u35041 \u30636 \u38291 \u25913 \u35722 \
+         ========================================== -->\
+    <script type="module">\
+        let db;\
+        let isFirebaseLoaded = false;\
+\
+        async function initFirebaseAndSync() \{\
+            try \{\
+                const \{ initializeApp \} = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");\
+                // \uc0\u9733  \u23566 \u20837  onSnapshot (\u23526 \u26178 \u30435 \u32893 )\
+                const \{ getFirestore, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot \} = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");\
+\
+                const firebaseConfig = \{\
+                    apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4", authDomain: "hotel-inventory-3a1ad.firebaseapp.com",\
+                    projectId: "hotel-inventory-3a1ad", storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",\
+                    messagingSenderId: "363844184412", appId: "1:363844184412:web:66cdd6425d53bde75f3999", measurementId: "G-NM1W9JT70F"\
+                \};\
+\
+                const app = initializeApp(firebaseConfig);\
+                db = getFirestore(app);\
+                isFirebaseLoaded = true;\
+\
+                // \uc0\u21021 \u22987 \u21270 \u36617 \u20837 \u39151 \u24215 \u35373 \u23450 \
+                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));\
+                if (templateDoc.exists() && templateDoc.data().items) \{\
+                    masterData = templateDoc.data().items;\
+                    buildHotelStructure();\
+                \}\
+\
+                // \uc0\u9733  \u26680 \u24515 \u20778 \u21270 \u65306 \u38283 \u21855 \u28961 \u30165 \u21363 \u26178 \u30435 \u32893 \u65281 \
+                // \uc0\u21482 \u35201  Firebase \u19968 \u26377 \u39080 \u21561 \u33609 \u21205 \u65292 \u36889 \u27573 \u31243 \u24335 \u23601 \u26371 \u30636 \u38291 \u34987 \u21914 \u37266 \u65281 \
+                const thirtyDaysAgoDate = new Date();\
+                thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30);\
+                const thirtyDaysAgoStr = getLocalDateString(thirtyDaysAgoDate);\
+                const recordsQ = query(collection(db, 'inventory_records'), where("date", ">=", thirtyDaysAgoStr));\
+\
+                onSnapshot(recordsQ, (snapshot) => \{\
+                    let dataChanged = false;\
+                    \
+                    snapshot.docChanges().forEach((change) => \{\
+                        if (change.type === "added" || change.type === "modified") \{\
+                            const r = change.doc.data();\
+                            let dDate = String(r.date || "").replace(/\\//g, '-').trim();\
+                            if(!userInputs[dDate]) userInputs[dDate] = \{\};\
+                            if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = \{\};\
+                            \
+                            let local = userInputs[dDate][r.hotel][r.item];\
+                            // \uc0\u38450 \u34909 \u31361 \u27231 \u21046 \u65306 \u22914 \u26524 \u36889 \u25903 \u25163 \u27231 \u27491 \u22312 \u21162 \u21147 \u23384 \u36889 \u31558 \u36039 \u26009 \u65292 \u23601 \u20808 \u19981 \u35201 \u35731 \u22806 \u38754 \u30340 \u36039 \u26009 \u33995 \u36942 \u21435 \
+                            if (local && local.isSaving) return; \
+                            \
+                            userInputs[dDate][r.hotel][r.item] = \{ \
+                                count: r.count || "", note: r.note || "", \
+                                hasSigned: false, isSubmitted: true, signature: r.signature || "", \
+                                doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", \
+                                doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",\
+                                isSaving: false, saveError: false\
+                            \};\
+                            dataChanged = true;\
+                        \}\
+                    \});\
+\
+                    if (dataChanged) \{\
+                        saveToLocal();\
+                        // \uc0\u9733  \u21628 \u21483 \u28961 \u30165 \u26356 \u26032  (\u20659 \u20837  false \u20195 \u34920 \u32085 \u23565 \u19981 \u25749 \u27584 \u37325 \u24314 \u30059 \u38754 )\
+                        if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(false);\
+                        else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);\
+                    \}\
+                \});\
+\
+                window.fetchSpecificDateData = async function(targetDateStr) \{\
+                    if (!isFirebaseLoaded) return;\
+                    showToast("\uc0\u9729 \u65039  \u27491 \u22312 \u35519 \u38321 \u27511 \u21490 \u36039 \u26009 ...");\
+                    try \{\
+                        const q = query(collection(db, 'inventory_records'), where("date", "==", targetDateStr));\
+                        const snap = await getDocs(q);\
+                        let hasData = false;\
+                        snap.forEach(docSnap => \{\
+                            const r = docSnap.data();\
+                            let dDate = String(r.date || "").replace(/\\//g, '-').trim();\
+                            if(!userInputs[dDate]) userInputs[dDate] = \{\};\
+                            if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = \{\};\
+                            userInputs[dDate][r.hotel][r.item] = \{ \
+                                count: r.count || "", note: r.note || "", \
+                                hasSigned: false, isSubmitted: true, signature: r.signature || "", \
+                                doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", \
+                                doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",\
+                                isSaving: false, saveError: false\
+                            \};\
+                            hasData = true;\
+                        \});\
+                        if(hasData) \{\
+                            saveToLocal();\
+                            if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(true);\
+                            else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(true);\
+                        \} else showToast("\uc0\u27492 \u26085 \u26399 \u28961 \u30436 \u40670 \u36039 \u26009 \u12290 ");\
+                    \} catch(e) \{ console.error(e); \}\
+                \}\
+\
+                const originalHomeDateChanged = window.homeDateChanged;\
+                window.homeDateChanged = function() \{\
+                    originalHomeDateChanged();\
+                    checkAndFetchSpecificDate(document.getElementById('homeDatePicker').value);\
+                \}\
+                const originalDateChanged = window.dateChanged;\
+                window.dateChanged = function() \{\
+                    originalDateChanged();\
+                    checkAndFetchSpecificDate(document.getElementById('datePicker').value);\
+                \}\
+\
+                function checkAndFetchSpecificDate(dateStr) \{\
+                    if (!userInputs[dateStr] || Object.keys(userInputs[dateStr]).length === 0) \{\
+                        window.fetchSpecificDateData(dateStr);\
+                    \}\
+                \}\
+\
+                window.firebaseSubmit = async function(category, item) \{\
+                    if (!isFirebaseLoaded) return showMessage("\uc0\u36899 \u32218 \u20013 \u65292 \u35531 \u31245 \u31561 \u19968 \u31186 \u65281 ");\
+                    const dateStr = document.getElementById('datePicker').value;\
+                    const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;\
+                    if (!u || (!u.signature && !u.doubleSignature)) return; \
+\
+                    handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); \
+                    renderItems(false); // \uc0\u9733  \u23384 \u27284 \u26178 \u21482 \u31168 \u23567 \u22280 \u22280 \u65292 \u32085 \u23565 \u19981 \u38275 \u23631 \
+\
+                    const payload = \{ \
+                        date: dateStr, hotel: category, item: item, \
+                        count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', \
+                        note: u.note || '', signature: u.signature || '', \
+                        doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', \
+                        doubleSignature: u.doubleSignature || '', doubleSignDate: u.doubleSignDate || '',\
+                        timestamp: new Date().toLocaleString() \
+                    \};\
+\
+                    try \{\
+                        const safeItem = item.replace(/\\//g, '-');\
+                        await setDoc(doc(db, 'inventory_records', `$\{dateStr\}_$\{category\}_$\{safeItem\}`), payload);\
+\
+                        try \{\
+                            await addDoc(collection(db, 'history_logs'), \{\
+                                logDate: getLocalDateString(new Date()), timestamp: Date.now(),\
+                                actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,\
+                                item: item, count: payload.count, doubleCount: payload.doubleCount,\
+                                signature: payload.signature, doubleSignature: payload.doubleSignature, note: payload.note\
+                            \});\
+                        \} catch (logErr) \{\}\
+\
+                        handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'isSubmitted', true); \
+                        handleInput(dateStr, category, item, 'hasSigned', false); handleInput(dateStr, category, item, 'doubleHasSigned', false); \
+                        saveToLocal(); \
+                        renderItems(false); // \uc0\u9733  \u23384 \u27284 \u25104 \u21151 \u65292 \u28961 \u30165 \u20999 \u25563 \u32160 \u33394 \u21246 \u21246 \
+                    \} catch(e) \{\
+                        handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);\
+                        saveToLocal(); renderItems(false); showMessage("\uc0\u9888 \u65039  \u32178 \u36335 \u36899 \u32218 \u19981 \u31337 \u65281 \u35531 \u40670 \u25802 \u32005 \u33394 \u25353 \u37397 \u37325 \u20659 \u65281 ");\
+                    \}\
+                \};\
+\
+                window.syncSettingsFromSheet = async function(event) \{\
+                    if (!isFirebaseLoaded) return;\
+                    const btn = event.currentTarget; const originalText = btn.innerText; btn.innerText = "\uc0\u9203  \u19979 \u36617 \u20013 ..."; btn.disabled = true;\
+                    try \{\
+                        const res = await fetch(`$\{API_URL\}?action=getInventoryData&t=$\{new Date().getTime()\}`);\
+                        const data = await res.json();\
+                        if (data.template && data.template.length > 0) \{\
+                            await setDoc(doc(db, 'inventory_config', 'master_template'), \{ items: data.template \});\
+                            showToast("\uc0\u9989  \u35373 \u23450 \u21516 \u27493 \u23436 \u25104 \u65281 "); \
+                            setTimeout(()=>location.reload(), 1000);\
+                        \} else showMessage("\uc0\u25235 \u21040 \u30340 \u35373 \u23450 \u26159 \u31354 \u30340 \u65281 ");\
+                    \} catch (e) \{ showMessage("\uc0\u21516 \u27493 \u22833 \u25943 \u65306 " + e.message); \} \
+                    finally \{ btn.innerText = originalText; btn.disabled = false; \}\
+                \};\
+\
+                window.syncOldInventoryFromSheet = async function(event) \{\
+                    if (!isFirebaseLoaded) return;\
+                    const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "\uc0\u9203  \u21560 \u21462 \u20013 ..."; btn.disabled = true;\
+                    try \{\
+                        const res = await fetch(`$\{API_URL\}?action=getInventoryData&t=$\{new Date().getTime()\}`);\
+                        const data = await res.json();\
+                        if (data.records && data.records.length > 0) \{\
+                            btn.innerHTML = "\uc0\u9203  \u23531 \u20837 \u20013 ...";\
+                            const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];\
+                            const recordChunks = chunkArray(data.records, 450);\
+                            for (let i = 0; i < recordChunks.length; i++) \{\
+                                const batch = writeBatch(db);\
+                                recordChunks[i].forEach(r => \{\
+                                    let dateStr = String(r.date || "").replace(/\\//g, '-').trim();\
+                                    let hotelStr = String(r.hotel || "").trim();\
+                                    let itemStr = String(r.item || "").trim();\
+                                    if(!dateStr || !hotelStr || !itemStr) return;\
+                                    const safeItem = itemStr.replace(/\\//g, '-');\
+                                    batch.set(doc(db, 'inventory_records', `$\{dateStr\}_$\{hotelStr\}_$\{safeItem\}`.replace(/[\\/\\\\?%*:|"<>]/g, '-')), \{\
+                                        date: dateStr, hotel: hotelStr, item: itemStr,\
+                                        count: String(r.count || ""), note: r.note || "", signature: r.signature || "",\
+                                        doubleCount: String(r.doubleCount || ""), doubleSignature: r.doubleSignature || "",\
+                                        doubleSignDate: r.doubleSignDate || "", timestamp: new Date().toLocaleString()\
+                                    \}, \{ merge: true \});\
+                                \});\
+                                await batch.commit();\
+                            \}\
+                            showMessage(`\uc0\u9989  \u25104 \u21151 \u21560 \u20837 \u33290 \u32000 \u37636 \u65281 `, false);\
+                        \} else showMessage("\uc0\u27794 \u26377 \u33290 \u36039 \u26009 \u65281 ");\
+                    \} catch (e) \{ showMessage("\uc0\u21560 \u21462 \u22833 \u25943 \u65281 "); \} \
+                    finally \{ btn.innerHTML = originalText; btn.disabled = false; \}\
+                \};\
+\
+                // \uc0\u9733  \u25163 \u21205 \u37325 \u25972 \u37749 \u65292 \u29694 \u22312 \u21482 \u38656 \u35201 \u37325 \u25972 \u30059 \u38754 \u21363 \u21487 \u65292 \u22240 \u28858 \u36039 \u26009 \u24050 \u32147 \u26159 \u23526 \u26178 \u36899 \u32218 \u20102 \
+                window.manualRefresh = function() \{\
+                    location.reload();\
+                \};\
+\
+            \} catch (error) \{\
+                console.error("Firebase \uc0\u22833 \u25943 ", error);\
+            \}\
+        \}\
+\
+        initFirebaseAndSync();\
+    </script>\
+</body>\
+</html>\
+}
