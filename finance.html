@@ -1,726 +1,718 @@
-{\rtf1\ansi\ansicpg950\cocoartf2709
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百麒物流 - 財務月結對帳單</title>
+    <!-- 引入 Excel 匯出套件 -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <style>
+        /* 專業 Excel 風格 */
+        body { font-family: 'Arial', sans-serif; background-color: #f4f6f8; color: #000; padding: 20px; font-size: 14px; }
+        
+        /* 頂部控制面板設計 */
+        .control-panel { border: 1px solid #aaa; padding: 20px; margin-bottom: 25px; background-color: #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-radius: 8px;}
+        .panel-title { margin-top: 0; color: #1f2937; font-size: 24px; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; }
+        
+        .flex-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; }
+        .date-input { padding: 6px 10px; border: 1px solid #ccc; font-size: 15px; border-radius: 4px; font-weight: bold; }
+        
+        button { padding: 8px 16px; border: 1px solid #555; background-color: #e0e0e0; cursor: pointer; font-weight: bold; border-radius: 6px; transition: 0.2s;}
+        button:hover { background-color: #ccc; }
+        .btn-25 { background-color: #f59e0b; color: white; border-color: #d97706; }
+        .btn-25:hover { background-color: #d97706; }
+        .btn-end { background-color: #8b5cf6; color: white; border-color: #7c3aed; }
+        .btn-end:hover { background-color: #7c3aed; }
+        .btn-select-all { background-color: #3b82f6; color: white; border-color: #2563eb; }
+        .btn-select-all:hover { background-color: #2563eb; }
+        
+        .btn-excel { background-color: #107c41; color: white; border-color: #0b5e31; font-size: 16px; padding: 10px 20px;}
+        .btn-excel:hover { background-color: #0c6132; }
+        .btn-load { background-color: #1e3a8a; color: white; border-color: #1e3a8a; font-size: 16px; padding: 10px 20px;}
+        .btn-load:hover { background-color: #1e40af; }
 
-\f0\fs24 \cf0 <!DOCTYPE html>\
-<html lang="zh-TW">\
-<head>\
-    <meta charset="UTF-8">\
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">\
-    <title>\uc0\u30334 \u40594 \u29289 \u27969  - \u36001 \u21209 \u26376 \u32080 \u23565 \u24115 \u21934 </title>\
-    <!-- \uc0\u24341 \u20837  Excel \u21295 \u20986 \u22871 \u20214  -->\
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>\
-    <style>\
-        /* \uc0\u23560 \u26989  Excel \u39080 \u26684  */\
-        body \{ font-family: 'Arial', sans-serif; background-color: #f4f6f8; color: #000; padding: 20px; font-size: 14px; \}\
-        \
-        /* \uc0\u38914 \u37096 \u25511 \u21046 \u38754 \u26495 \u35373 \u35336  */\
-        .control-panel \{ border: 1px solid #aaa; padding: 20px; margin-bottom: 25px; background-color: #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-radius: 8px;\}\
-        .panel-title \{ margin-top: 0; color: #1f2937; font-size: 24px; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; \}\
-        \
-        .flex-row \{ display: flex; align-items: center; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; \}\
-        .date-input \{ padding: 6px 10px; border: 1px solid #ccc; font-size: 15px; border-radius: 4px; font-weight: bold; \}\
-        \
-        button \{ padding: 8px 16px; border: 1px solid #555; background-color: #e0e0e0; cursor: pointer; font-weight: bold; border-radius: 6px; transition: 0.2s;\}\
-        button:hover \{ background-color: #ccc; \}\
-        .btn-25 \{ background-color: #f59e0b; color: white; border-color: #d97706; \}\
-        .btn-25:hover \{ background-color: #d97706; \}\
-        .btn-end \{ background-color: #8b5cf6; color: white; border-color: #7c3aed; \}\
-        .btn-end:hover \{ background-color: #7c3aed; \}\
-        .btn-select-all \{ background-color: #3b82f6; color: white; border-color: #2563eb; \}\
-        .btn-select-all:hover \{ background-color: #2563eb; \}\
-        \
-        .btn-excel \{ background-color: #107c41; color: white; border-color: #0b5e31; font-size: 16px; padding: 10px 20px;\}\
-        .btn-excel:hover \{ background-color: #0c6132; \}\
-        .btn-load \{ background-color: #1e3a8a; color: white; border-color: #1e3a8a; font-size: 16px; padding: 10px 20px;\}\
-        .btn-load:hover \{ background-color: #1e40af; \}\
-\
-        /* \uc0\u26680 \u21462 \u26041 \u22602 \u28165 \u21934 \u35373 \u35336  */\
-        .search-box \{ padding: 8px 12px; border: 2px solid #3b82f6; font-size: 15px; border-radius: 6px; width: 250px; outline: none; \}\
-        .search-box:focus \{ border-color: #1e40af; \}\
-        .checkbox-container \{ \
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; \
-            margin-top: 15px; max-height: 250px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; background: #f9f9f9; border-radius: 6px;\
-        \}\
-        .cb-label \{ display: inline-flex; align-items: center; background: #fff; border: 1px solid #ccc; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; user-select: none; font-weight: bold; color: #444;\}\
-        .cb-label:hover \{ background: #eef2ff; border-color: #93c5fd; \}\
-        .cb-label input \{ margin-right: 8px; transform: scale(1.3); cursor: pointer;\}\
-        \
-        /* \uc0\u21312 \u22602 \u27161 \u38988 \u35373 \u35336  */\
-        .dept-title \{ font-size: 20px; font-weight: 900; margin-top: 40px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 3px solid #1e3a8a; padding-bottom: 5px; \}\
-        .summary-title \{ font-size: 16px; font-weight: bold; margin-top: 15px; margin-bottom: 10px; color: #0b5e31; display: flex; align-items: center; \}\
-        .summary-title::before \{ content: "\uc0\u55357 \u56522 "; margin-right: 8px; \}\
-\
-        .excel-table \{ width: 100%; border-collapse: collapse; margin-bottom: 20px; background-color: #fff; \}\
-        .excel-table th, .excel-table td \{ border: 1px solid #000; padding: 8px 10px; text-align: left; vertical-align: middle; \}\
-        .excel-table th \{ background-color: #e2efda; font-weight: bold; text-align: center; \} \
-        .summary-table th \{ background-color: #fff2cc; \} \
-        \
-        /* \uc0\u27396 \u23532 \u35373 \u23450  */\
-        .col-date \{ width: 100px; text-align: center; \}\
-        .col-dept \{ width: auto; white-space: nowrap; \}\
-        .col-item \{ width: 150px; \}\
-        .col-qty-readonly \{ width: 80px; text-align: right; color: #666; background-color: #f9f9f9; \}\
-        .col-qty-edit \{ width: 90px; text-align: right; \}\
-        .col-price \{ width: 80px; text-align: right; \}\
-        .col-amount \{ width: 110px; text-align: right; font-weight: bold; \}\
-        .col-note \{ width: 180px; \}\
-\
-        .text-right \{ text-align: right; \}\
-        .text-center \{ text-align: center; \}\
-        .text-bold \{ font-weight: bold; \}\
-        \
-        .edit-input \{ width: 100%; border: 2px solid #90caf9; padding: 6px; box-sizing: border-box; background-color: #e3f2fd; font-weight: bold; font-family: inherit; font-size: 15px;\}\
-        .edit-input:focus \{ outline: none; border-color: #1976d2; background-color: #fff; \}\
-        .qty-input \{ text-align: right; \}\
-\
-        .subtotal-row td \{ font-weight: bold; background-color: #fce4d6; font-size: 15px;\}\
-        .grand-total-section \{ margin-top: 50px; border: 3px double #000; background-color: #fff; padding: 20px;\}\
-        .grand-total-row td \{ font-weight: 900; background-color: #ffffcc; font-size: 18px;\} \
-        .tax-row td \{ font-weight: 900; background-color: #ddebf7; font-size: 18px; color: #c00000;\}\
-\
-        .msg-box \{ padding: 20px; text-align: center; font-weight: bold; border: 1px solid #aaa; margin-top: 20px; background-color: #fff;\}\
-\
-        @media print \{\
-            .no-print \{ display: none !important; \}\
-            body \{ padding: 0; background-color: #fff;\}\
-            .dept-title \{ margin-top: 30px; page-break-after: avoid; \}\
-            .excel-table \{ page-break-inside: avoid; \}\
-            .excel-table th, .excel-table td \{ border: 1px solid #000 !important; \}\
-            .excel-table th \{ background-color: #e2efda !important; -webkit-print-color-adjust: exact; \}\
-            .summary-table th \{ background-color: #fff2cc !important; -webkit-print-color-adjust: exact; \}\
-            .subtotal-row td \{ background-color: #fce4d6 !important; -webkit-print-color-adjust: exact; \}\
-            .grand-total-section \{ border: 2px solid #000 !important; \}\
-            .grand-total-row td \{ background-color: #ffffcc !important; -webkit-print-color-adjust: exact; \}\
-            .tax-row td \{ background-color: #ddebf7 !important; -webkit-print-color-adjust: exact; \}\
-            \
-            .edit-input \{ border: none !important; background: transparent !important; padding: 0 !important; \}\
-            .edit-input::-webkit-outer-spin-button, .edit-input::-webkit-inner-spin-button \{ -webkit-appearance: none; margin: 0; \}\
-            .edit-input[type=number] \{ -moz-appearance: textfield; \}\
-        \}\
-    </style>\
-</head>\
-<body>\
-\
-    <div class="no-print control-panel">\
-        <h2 class="panel-title">\uc0\u30334 \u40594 \u29289 \u27969  \u55357 \u56508  \u36001 \u21209 \u22810 \u32173 \u32080 \u24115 \u31995 \u32113  (\u26997 \u36895 \u29256 )</h2>\
-        \
-        <div class="flex-row">\
-            <span style="font-weight: bold; font-size: 16px;">\uc0\u32080 \u24115 \u21312 \u38291 \u35373 \u23450 \u65306 </span>\
-            <label>\uc0\u36215 \u22987 \u65306 </label><input type="date" id="startDatePicker" class="date-input">\
-            <label>\uc0\u32080 \u26463 \u65306 </label><input type="date" id="endDatePicker" class="date-input">\
-        </div>\
-        \
-        <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">\
-            <div class="flex-row" style="background: #fdf6e3; padding: 10px; border-radius: 8px;">\
-                <label style="font-size: 16px; font-weight: bold; color: #b45309;">1. \uc0\u24555 \u36895 \u36617 \u20837 \u32676 \u32068 \u21517 \u21934 \u65306 </label>\
-                <button class="btn-25" onclick="checkGroup('25')">\uc0\u9745 \u65039  \u19968 \u37749 \u20840 \u36984  25\u34399 \u32080 \u24115 \u39151 \u24215 </button>\
-                <button class="btn-end" onclick="checkGroup('end')">\uc0\u9745 \u65039  \u19968 \u37749 \u20840 \u36984  \u26376 \u24213 \u32080 \u24115 \u39151 \u24215 </button>\
-                <button onclick="clearChecks()">\uc0\u55357 \u56626  \u28165 \u31354 \u25152 \u26377 \u21246 \u36984 </button>\
-            </div>\
-            \
-            <div class="flex-row" style="background: #eff6ff; padding: 10px; border-radius: 8px; margin-top: 10px;">\
-                <label style="font-size: 16px; font-weight: bold; color: #1d4ed8;">2. \uc0\u38364 \u37749 \u23383 \u36942 \u28670  (\u33258 \u35330 \u36984 \u21934 )\u65306 </label>\
-                <input type="text" id="cbSearch" class="search-box" oninput="filterCheckboxes()" placeholder="\uc0\u20363 \u22914 \u25171 \u12302 \u25991 \u12303 \u25110 \u12302 \u25991 \u26053 \u12303 ...">\
-                <button class="btn-select-all" onclick="selectAllVisible()">\uc0\u9745 \u65039  \u20840 \u36984 \u19979 \u26041 \u30446 \u21069 \u39023 \u31034 \u30340 \u39151 \u24215 </button>\
-            </div>\
-        </div>\
-\
-        <div id="checkboxContainer" class="checkbox-container">\
-            <span style="color: #2563eb; font-weight: bold; font-size: 16px;">\uc0\u55357 \u56580  \u27491 \u22312 \u24478 \u24460 \u21488 \u21516 \u27493 \u26368 \u26032 \u39151 \u24215 \u21517 \u21934 ...</span>\
-        </div>\
-\
-        <div style="margin-top: 20px; border-top: 2px solid #1f2937; padding-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">\
-            <button class="btn-load" onclick="fetchData()">\uc0\u11015 \u65039  \u36617 \u20837 \u22577 \u34920  (\u35336 \u31639 \u21246 \u36984 \u30340 \u21517 \u21934 )</button>\
-            <button class="btn-excel" onclick="exportToExcel()">\uc0\u55357 \u56522  \u21295 \u20986  Excel</button>\
-            <button onclick="window.print()" style="font-size: 16px; padding: 10px 20px;">\uc0\u55357 \u56744 \u65039  \u21015 \u21360  / \u21295 \u20986  PDF</button>\
-            \
-            <!-- \uc0\u9733  \u26032 \u22686 \u65306 \u23560 \u23660 \u30340 \u29289 \u27969 \u33290 \u36039 \u26009 \u21560 \u21462 \u25353 \u37397  -->\
-            <button id="syncLogisticsBtn" onclick="syncLogisticsFromGoogleSheet()" style="background-color: #fef08a; color: #854d0e; border-color: #fde047; font-size: 16px; padding: 10px 20px; margin-left: auto;">\
-                \uc0\u55357 \u56549  \u35036 \u25937 \u65306 \u21560 \u21462 \u33290 \u29256 \u29289 \u27969 \u33287 \u31805 \u21517  (\u24478 \u35430 \u31639 \u34920 )\
-            </button>\
-        </div>\
-    </div>\
-\
-    <div id="printHeader" style="text-align: center; margin-bottom: 15px;">\
-        <h2 style="font-size: 24px; margin-bottom: 5px;">\uc0\u30334 \u40594 \u29289 \u27969  - \u39151 \u24215 \u40670 \u20132 \u35531 \u27454 \u26126 \u32048 \u34920 </h2>\
-        <p id="printInfo" style="margin: 0; font-weight: bold; color: #555; font-size: 16px;"></p>\
-    </div>\
-\
-    <div id="resultsContainer">\
-        <div class="msg-box no-print text-gray-500">\uc0\u35531 \u35373 \u23450 \u21312 \u38291 \u12289 \u21246 \u36984 \u19978 \u26041 \u39151 \u24215 \u24460 \u65292 \u40670 \u25802 \u12300 \u36617 \u20837 \u22577 \u34920 \u12301 \u25353 \u37397 </div>\
-    </div>\
-\
-    <!-- \uc0\u9733  \u24341 \u20837  Firebase \u27169 \u32068  -->\
-    <script type="module">\
-        import \{ initializeApp \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";\
-        // \uc0\u9733  \u21152 \u20837  writeBatch \u27169 \u32068 \u29992 \u26044 \u22823 \u37327 \u23531 \u20837 \
-        import \{ getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, writeBatch \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";\
-\
-        // \uc0\u9733  \u24744 \u30340  Firebase \u37329 \u38000 \
-        const firebaseConfig = \{\
-            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",\
-            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",\
-            projectId: "hotel-inventory-3a1ad",\
-            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",\
-            messagingSenderId: "363844184412",\
-            appId: "1:363844184412:web:66cdd6425d53bde75f3999",\
-            measurementId: "G-NM1W9JT70F"\
-        \};\
-\
-        const app = initializeApp(firebaseConfig);\
-        const db = getFirestore(app);\
-\
-        // \uc0\u35430 \u31639 \u34920 \u20173 \u20316 \u28858 \u21934 \u20729 \u20358 \u28304 \u65292 \u20063 \u20316 \u28858 \u36889 \u27425 \u33290 \u36039 \u26009 \u21560 \u21462 \u20358 \u28304 \
-        const API_URL = "https://script.google.com/macros/s/AKfycbyPrkLoz1QNrynxKK09CWgMNbuePWCmQdtmx8Iqwq9l90xk0ZGZSOc-N-bkTePyXb4RVA/exec";\
-\
-        // ==========================================\
-        // \uc0\u55356 \u57320  \u20839 \u24314 \u23560 \u23660 \u30340 \u20841 \u22823 \u32080 \u24115 \u32676 \u32068 \u21517 \u21934 \
-        // ==========================================\
-        const group25 = [\
-            "\uc0\u33391 \u19968 ", "\u33391 \u35199 ", "\u33391 \u31449 \u21069 ", "\u33521 \u36842 \u26684 ", "\u23500 \u37326 ", "\u23500 \u27773 ", "\u23500 \u37326 \u21046 \u26381 ",\
-            "\uc0\u28982 \u19968 -\u25151 \u21209 ", "\u28982 \u19968 -\u39184 \u24307 ", "H2O-\u34892 \u25919 ", "H2O-\u25151 \u21209 ", "H2O-\u35199 \u39184 ", "H2O-\u20013 \u39184 ",\
-            "\uc0\u33457 \u23395 -C\u39208 ", "\u33457 \u23395 -A\u39208 ", "\u33457 \u23395 -\u35064 \u28271 ", "\u33457 \u23395 -\u39184 \u24307 ", "\u33457 \u23395 -\u21046 \u26381 ", "H2O-\u23458 \u34915 ",\
-            "\uc0\u27954 \u38555 -\u25151 \u21209 ", "\u22825 \u23376 \u38307 ", "\u27954 \u38555 -\u39184 \u24307 ", "\u39515 \u39208 -\u25151 \u21209 ", "\u25215 \u20740 ", "\u25215 \u20740 \u39184 \u24307 ", "\u25215 \u20740 \u20241 \u38290 ",\
-            "\uc0\u25215 \u20740 \u21046 \u26381 ", "\u39515 \u39208 -\u27861 \u39184 ", "\u25215 \u20740 \u20581 \u36523 \u25151 ", "\u25215 \u20740 25F\u26085 \u26009 ", "\u28982 \u19968 -\u21046 \u26381 ", "\u28982 \u19968 -\u23458 \u34915 ",\
-            "\uc0\u33802 \u29305 \u34183 \u24237 ", "\u39515 \u39208 -\u39184 \u37202 \u39208 ", "\u24085 \u37457 ", "\u25215 \u20740 27F BAR KAO", "\u25215 \u20740 22F\u20181 \u22899 \u27155 ",\
-            "\uc0\u20505 \u24037 \u25152 ", "\u28982 \u19968 -\u35703 \u33178 ", "\u25215 \u20740 B1F\u20013 \u39184 \u24307 ", "\u39515 \u39208 -\u21046 \u26381 ", "\u39515 \u39208 -\u23458 \u34915 "\
-        ];\
-\
-        const groupEnd = [\
-            "\uc0\u25463 \u31449 \u21069 ", "\u25463 \u20013 \u27491 ", "\u27472 \u36938 ", "\u37406 \u24609 ", "\u23470 \u36062 ", "\u23478 \u21644 ", "\u31197 \u20108 ", "\u31197 \u33455 ", "\u27604 \u27472 ",\
-            "\uc0\u39409 \u39389 ", "\u21916 \u36948 \u32114 ", "\u27850 \u24605 \u34892 \u26053 ", "\u30318 \u23460 ", "\u23194 \u21147 \u27850 ", "\u24040 \u34507 ", "\u32769 \u26032 ", "\u27704 \u24515 ",\
-            "\uc0\u38597 \u27138 ", "\u31119 \u23458 \u20358 ", "\u26519 \u26862 ", "\u24314 \u24037 ", "\u40232 \u40670 \u26855 ", "\u39640 \u24300 ", "\u38957 \u31561 \u33369 ", "\u27827 \u30036 ",\
-            "\uc0\u22909 \u22320 \u26041 ", "\u22909 \u22320 \u26041 -\u20845 \u21512 \u39208 ", "\u25991 \u26053 ", "\u25991 \u26053 -\u19971 \u36066 \u39208 ", "\u25991 \u26053 -\u19968 \u24515 \u39208 ", "\u31166 \u39848 ",\
-            "\uc0\u26085 \u33322 ", "\u26085 \u33322 -\u20241 \u38290 \u20013 \u24515 ", "\u26085 \u33322 -\u39184 \u24307 ", "\u26085 \u33322 -\u21046 \u26381 ", "\u40718 \u29579 -\u23500 \u22283 \u24215 ",\
-            "\uc0\u40718 \u29579 -\u19971 \u36066 \u24215 ", "\u28961 \u32769 \u37707 ", "\u31166 \u23507 ", "\u38597 \u27138 \u21313 \u21051 "\
-        ];\
-\
-        let currentReportData = [];\
-        let globalItemOrder = \{\}; \
-\
-        // \uc0\u32129 \u23450 \u21040 \u20840 \u22495 \u20197 \u20415  HTML \u21628 \u21483 \
-        window.checkGroup = checkGroup;\
-        window.clearChecks = clearChecks;\
-        window.filterCheckboxes = filterCheckboxes;\
-        window.selectAllVisible = selectAllVisible;\
-        window.fetchData = fetchData;\
-        window.exportToExcel = exportToExcel;\
-        window.updateQty = updateQty;\
-        window.updateNote = updateNote;\
-        window.syncLogisticsFromGoogleSheet = syncLogisticsFromGoogleSheet; // \uc0\u9733  \u32129 \u23450 \u26032 \u21151 \u33021 \
-\
-        function formatMoney(num) \{\
-            return Number(num).toLocaleString('en-US', \{ minimumFractionDigits: 2, maximumFractionDigits: 2 \});\
-        \}\
-\
-        window.onload = async function() \{\
-            const today = new Date();\
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);\
-            \
-            document.getElementById('startDatePicker').value = firstDay.toISOString().split('T')[0];\
-            document.getElementById('endDatePicker').value = today.toISOString().split('T')[0];\
-            document.getElementById('printHeader').style.display = 'none'; \
-            \
-            await loadTemplateCheckboxes();\
-        \};\
-\
-        // \uc0\u9733  \u26997 \u36895 \u29256 \u65306 \u24478  Firebase \u36617 \u20837 \u21517 \u21934 \
-        async function loadTemplateCheckboxes() \{\
-            const container = document.getElementById('checkboxContainer');\
-            try \{\
-                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));\
-                let template = [];\
-                if (templateDoc.exists() && templateDoc.data().items) \{\
-                    template = templateDoc.data().items;\
-                \}\
-\
-                globalItemOrder = \{\};\
-                let uniqueHotels = new Set();\
-\
-                template.forEach((t, idx) => \{\
-                    if (globalItemOrder[t.item] === undefined) \{\
-                        globalItemOrder[t.item] = idx;\
-                    \}\
-                    uniqueHotels.add(t.hotel); // \uc0\u20363 \u22914  "H2O \u25151 \u21209 "\
-                \});\
-\
-                let html = "";\
-                Array.from(uniqueHotels).sort().forEach(h => \{\
-                    html += `<label class="cb-label"><input type="checkbox" class="hotel-cb" value="$\{h\}"> $\{h\}</label>`;\
-                \});\
-                container.innerHTML = html;\
-            \} catch(e) \{\
-                container.innerHTML = "<span style='color:red;'>\uc0\u28961 \u27861 \u36617 \u20837 \u39151 \u24215 \u28165 \u21934 \u65292 \u35531 \u27298 \u26597 \u32178 \u36335 \u36899 \u32218 </span>";\
-            \}\
-        \}\
-\
-        function filterCheckboxes() \{\
-            const keyword = document.getElementById('cbSearch').value.toLowerCase().replace(/\\s+/g, '');\
-            const labels = document.querySelectorAll('.cb-label');\
-            labels.forEach(label => \{\
-                const val = label.innerText.toLowerCase().replace(/\\s+/g, '');\
-                if (val.includes(keyword)) \{\
-                    label.style.display = 'inline-flex';\
-                \} else \{\
-                    label.style.display = 'none';\
-                \}\
-            \});\
-        \}\
-\
-        function clearChecks() \{\
-            document.querySelectorAll('.hotel-cb').forEach(cb => cb.checked = false);\
-            document.getElementById('cbSearch').value = '';\
-            filterCheckboxes();\
-        \}\
-\
-        function selectAllVisible() \{\
-            document.querySelectorAll('.cb-label').forEach(label => \{\
-                if (label.style.display !== 'none') \{\
-                    label.querySelector('.hotel-cb').checked = true;\
-                \}\
-            \});\
-        \}\
-\
-        function checkGroup(type) \{\
-            clearChecks(); \
-            const listToMatch = type === '25' ? group25 : groupEnd;\
-            const cbs = document.querySelectorAll('.hotel-cb');\
-\
-            cbs.forEach(cb => \{\
-                let val = cb.value.replace(/\\s+/g, '').replace(/-/g, '');\
-                \
-                let shouldCheck = listToMatch.some(item => \{\
-                    let normalizedItem = item.replace(/\\s+/g, '').replace(/-/g, '');\
-                    return val === normalizedItem || val.includes(normalizedItem);\
-                \});\
-                if (shouldCheck) cb.checked = true;\
-            \});\
-        \}\
-\
-        // ==========================================\
-        // \uc0\u9733  \u35036 \u25937 \u27231 \u21046 \u65306 \u24478  Google \u35430 \u31639 \u34920 \u24375 \u21046 \u25226 \u33290 \u30340 \u29289 \u27969 \u31805 \u21517 \u21560 \u36914  Firebase\
-        // ==========================================\
-        async function syncLogisticsFromGoogleSheet() \{\
-            const startDate = document.getElementById('startDatePicker').value;\
-            const endDate = document.getElementById('endDatePicker').value;\
-            const selectedHotelsArray = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);\
-\
-            if (selectedHotelsArray.length === 0) \{\
-                alert("\uc0\u9888 \u65039  \u37679 \u35492 \u65306 \u35531 \u20808 \u21246 \u36984 \u24744 \u24819 \u21560 \u21462 \u33290 \u36039 \u26009 \u30340 \u39151 \u24215 \u65281 \\n\u65288 \u55357 \u56481  \u24314 \u35696 \u65306 \u19968 \u27425 \u21246 \u36984 \u23569 \u25976 \u24190 \u38291 \u23601 \u22909 \u65292 \u25110 \u32773 \u31995 \u32113 \u26371 \u33258 \u21205 \u20998 \u25209 \u24171 \u24744 \u25235 \u65281 \u65289 ");\
-                return;\
-            \}\
-\
-            const btn = document.getElementById('syncLogisticsBtn');\
-            const originalText = btn.innerHTML;\
-            btn.innerHTML = "\uc0\u9203  \u27491 \u22312 \u36328 \u28023 \u21560 \u21462 \u20013 ... (\u36039 \u26009 \u40848 \u22823 \u35531 \u31245 \u20505 )";\
-            btn.disabled = true;\
-\
-            try \{\
-                let allRecords = [];\
-                const chunkSize = 5; // \uc0\u9733  \u38450 \u30070 \u27231 \u27231 \u21046 \u65306 \u27599 \u27425 \u21482 \u21521  Google \u35201  5 \u38291 \u39151 \u24215 \u30340 \u36039 \u26009 \
-\
-                // \uc0\u20998 \u25209 \u21435  Google \u35430 \u31639 \u34920 \u25235 \u33290 \u30340 \u32080 \u24115 \u36039 \u26009 \
-                for (let i = 0; i < selectedHotelsArray.length; i += chunkSize) \{\
-                    const batchHotels = selectedHotelsArray.slice(i, i + chunkSize).join(',');\
-                    btn.innerHTML = `\uc0\u9203  \u27491 \u22312 \u21560 \u21462 \u31532  $\{Math.floor(i/chunkSize)+1\} \u25209 \u36039 \u26009 ...`;\
-                    \
-                    const res = await fetch(`$\{API_URL\}?action=getFinanceData&startDate=$\{startDate\}&endDate=$\{endDate\}&hotel=$\{encodeURIComponent(batchHotels)\}&t=$\{new Date().getTime()\}`);\
-                    const data = await res.json();\
-\
-                    if (data.status === "error" || data.error) \{\
-                        throw new Error(data.message || data.error || "Google \uc0\u35430 \u31639 \u34920 \u31471 \u30332 \u29983 \u26410 \u30693 \u37679 \u35492 ");\
-                    \}\
-                    if (data.records) \{\
-                        allRecords = allRecords.concat(data.records);\
-                    \}\
-                \}\
-\
-                if (allRecords.length > 0) \{\
-                    const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];\
-                    const recordChunks = chunkArray(allRecords, 450);\
-\
-                    let totalImported = 0;\
-\
-                    // \uc0\u19968 \u25209 \u19968 \u25209 \u23531 \u20837  Firebase \u30340  logistics_records\
-                    for (let i = 0; i < recordChunks.length; i++) \{\
-                        const batch = writeBatch(db);\
-                        recordChunks[i].forEach(r => \{\
-                            if (!r.clientSig && !r.driverSig) return; \
-\
-                            let dateStr = r.date || "";\
-                            let deptStr = r.dept || r.deptName || "";\
-                            let hotelKw = r.hotelKeyword || deptStr.split(/[ -]/)[0] || deptStr;\
-                            let items = [];\
-                            try \{ items = JSON.parse(r.verifyJson); \} catch(e) \{ \}\
-\
-                            // \uc0\u28165 \u38500 \u26012 \u32218 \u31561 \u38750 \u27861 \u23383 \u20803 \u38450 \u30070 \u27231 \
-                            const docId = `$\{dateStr\}_$\{hotelKw\}_$\{deptStr\}`.replace(/[\\/\\\\?%*:|"<>]/g, '-');\
-                            const docRef = doc(db, 'logistics_records', docId);\
-\
-                            batch.set(docRef, \{\
-                                date: dateStr,\
-                                hotelKeyword: hotelKw,\
-                                deptName: deptStr,\
-                                items: items,\
-                                clientSig: r.clientSig || "",\
-                                driverSig: r.driverSig || "",\
-                                timestamp: new Date().toLocaleString()\
-                            \}, \{ merge: true \});\
-                            \
-                            totalImported++;\
-                        \});\
-                        await batch.commit();\
-                    \}\
-                    \
-                    alert(`\uc0\u9989  \u25644 \u23478 \u22823 \u25104 \u21151 \u65281 \\n\u25104 \u21151 \u23559  $\{totalImported\} \u31558 \u12300 \u33290 \u29289 \u27969 \u31805 \u21517 \u33287 \u40670 \u25910 \u32000 \u37636 \u12301 \u21560 \u20837  Firebase \u26997 \u36895 \u36039 \u26009 \u24235 \u65281 \\n\\n\u29694 \u22312 \u35531 \u40670 \u25802 \u34253 \u33394 \u30340 \u12300 \u36617 \u20837 \u22577 \u34920 \u12301 \u65292 \u24744 \u23601 \u26371 \u30475 \u21040 \u20197 \u21069 \u30340 \u21934 \u25818 \u36890 \u36890 \u22238 \u20358 \u20102 \u65281 `);\
-                \} else \{\
-                    alert("\uc0\u9888 \u65039  \u35430 \u31639 \u34920 \u20013 \u27794 \u26377 \u31526 \u21512 \u27492 \u21312 \u38291 \u33287 \u39151 \u24215 \u30340 \u33290 \u29289 \u27969 \u31805 \u21517 \u36039 \u26009 \u21908 \u65281 ");\
-                \}\
-            \} catch (error) \{\
-                console.error(error);\
-                alert("\uc0\u10060  \u21560 \u21462 \u22833 \u25943 \u65292 \u21407 \u22240 \u65306 \\n" + error.message + "\\n\\n\u55357 \u56481  \u24314 \u35696 \u28204 \u35430 \u65306 \u35531 \u37325 \u26032 \u25972 \u29702 \u32178 \u38913 \u65292 \u20808 \u35430 \u33879 \u12302 \u21482 \u21246 \u36984  1 \u38291 \u39151 \u24215 \u12303 \u25353 \u21560 \u21462 \u30475 \u30475 \u65281 ");\
-            \} finally \{\
-                btn.innerHTML = originalText;\
-                btn.disabled = false;\
-            \}\
-        \}\
-\
-        // \uc0\u9733  \u26997 \u36895 \u29256 \u65306 \u24478  Firebase \u25235 \u29289 \u27969 \u32080 \u24115 \u32000 \u37636 \u65292 \u21934 \u20729 \u20381 \u28982 \u24478  Google \u35430 \u31639 \u34920 \u25235 \
-        async function fetchData() \{\
-            const startDate = document.getElementById('startDatePicker').value;\
-            const endDate = document.getElementById('endDatePicker').value;\
-            const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);\
-            \
-            if (selectedHotels.length === 0) \{\
-                if(!confirm("\uc0\u9888 \u65039  \u24744 \u23578 \u26410 \u21246 \u36984 \u20219 \u20309 \u39151 \u24215 \u65281 \\n\\n\u25353 \u19979 \u12300 \u30906 \u23450 \u12301 \u23559 \u36617 \u20837 \u12304 \u20840 \u37096 \u12305 \u39151 \u24215 \u36039 \u26009 \u65288 \u22914 \u26524 \u21934 \u37327 \u24456 \u22810 \u65292 \u36889 \u21487 \u33021 \u38656 \u35201 \u19968 \u40670 \u26178 \u38291 \u65289 \u12290 \\n\u25353 \u19979 \u12300 \u21462 \u28040 \u12301 \u36820 \u22238 \u20808 \u21246 \u36984 \u39151 \u24215 \u12290 ")) return;\
-            \}\
-\
-            const container = document.getElementById('resultsContainer');\
-            document.getElementById('printHeader').style.display = 'block';\
-            document.getElementById('printInfo').innerText = `\uc0\u32080 \u31639 \u21312 \u38291 \u65306 $\{startDate\} \u33267  $\{endDate\}`;\
-            container.innerHTML = `<div class="msg-box no-print" style="color: #2563eb;">\uc0\u9881 \u65039  \u27491 \u22312 \u36328 \u37096 \u38272 \u26997 \u36895 \u25235 \u21462 \u36039 \u26009 \u33287 \u35336 \u31639 \u20013 ... \u35531 \u31245 \u20505 </div>`;\
-            \
-            try \{\
-                // 1. \uc0\u24478  Firebase \u25235 \u21462 \u30070 \u26376 \u21934 \u25818 \
-                const logQ = query(collection(db, "logistics_records"), \
-                                   where("date", ">=", startDate), \
-                                   where("date", "<=", endDate));\
-                const logSnap = await getDocs(logQ);\
-\
-                let fbRecords = [];\
-                logSnap.forEach(docSnap => \{\
-                    let d = docSnap.data();\
-                    \
-                    // \uc0\u24517 \u38920 \u38617 \u26041 \u31805 \u31456 \u25165 \u31639 \u32080 \u24115 \u21934 \
-                    if (!d.clientSig || !d.driverSig) return;\
-                    \
-                    // \uc0\u37325 \u32068 \u21517 \u31281 \u20351 \u20854 \u33287 \u12300 \u20729 \u26684 \u32317 \u34920 \u12301 \u19968 \u33268 \
-                    let deptStr = d.hotelKeyword === d.deptName ? d.hotelKeyword : `$\{d.hotelKeyword\} $\{d.deptName\}`;\
-                    if(d.deptName && d.deptName.includes(d.hotelKeyword)) deptStr = d.deptName;\
-\
-                    // \uc0\u36942 \u28670 \u25152 \u36984 \u39151 \u24215 \
-                    if (selectedHotels.length > 0) \{\
-                        let match = selectedHotels.some(h => deptStr.includes(h) || h.includes(deptStr) || d.hotelKeyword.includes(h));\
-                        if (!match) return;\
-                    \}\
-\
-                    fbRecords.push(\{\
-                        verifyJson: JSON.stringify(d.items || []),\
-                        clientSig: d.clientSig,\
-                        driverSig: d.driverSig,\
-                        date: d.date,\
-                        dept: deptStr\
-                    \});\
-                \});\
-\
-                if(fbRecords.length === 0) \{\
-                    container.innerHTML = `<div class="msg-box no-print" style="color: red;">\uc0\u27492 \u26781 \u20214 \u19979 \u25214 \u19981 \u21040 \u20219 \u20309 \u24050 \u38617 \u26041 \u31805 \u25910 \u30340 \u40670 \u20132 \u32000 \u37636 \u12290 <br>\u22914 \u26524 \u24744 \u30906 \u23450 \u20043 \u21069 \u26377 \u40670 \u20132 \u36942 \u65292 \u35531 \u40670 \u25802 \u19978 \u26041 \u30340 \u12300 \u55357 \u56549  \u21560 \u21462 \u33290 \u29256 \u29289 \u27969 \u33287 \u31805 \u21517 \u12301 \u25353 \u37397 \u20358 \u35036 \u25937 \u33290 \u36039 \u26009 \u65281 </div>`;\
-                    return;\
-                \}\
-\
-                // 2. \uc0\u21521  Google Apps Script \u25235 \u21462 \u12300 \u20729 \u26684 \u32317 \u34920 \u12301  (\u30906 \u20445 \u21934 \u20729 \u38568 \u26178 \u26159 \u26368 \u26032 )\
-                let combinedPrices = \{\};\
-                let targetHotels = selectedHotels.length > 0 ? selectedHotels : ["\uc0\u20840 \u37096 "];\
-                const chunkSize = 5; // \uc0\u9733  \u38450 \u30070 \u27231 \u27231 \u21046 \u65306 \u20998 \u25209 \u21521  Google \u25235 \u21462 \u20729 \u26684 \u34920 \
-\
-                for (let i = 0; i < targetHotels.length; i += chunkSize) \{\
-                    const batchHotels = targetHotels.slice(i, i + chunkSize).join(',');\
-                    const res = await fetch(`$\{API_URL\}?action=getFinanceData&startDate=$\{startDate\}&endDate=$\{endDate\}&hotel=$\{encodeURIComponent(batchHotels)\}&t=$\{new Date().getTime()\}`);\
-                    const data = await res.json();\
-                    if (data.prices) \{\
-                        Object.assign(combinedPrices, data.prices);\
-                    \}\
-                \}\
-                \
-                processData(fbRecords, combinedPrices);\
-\
-            \} catch(err) \{\
-                console.error(err);\
-                container.innerHTML = `<div class="msg-box no-print" style="color: red;">\uc0\u35712 \u21462 \u22833 \u25943 \u65306 \u35531 \u27298 \u26597 \u32178 \u36335 \u36899 \u32218 \u25110 \u28187 \u23569 \u21246 \u36984 \u30340 \u39151 \u24215 \u25976 \u37327 \u20877 \u35430 \u19968 \u27425 \u12290 </div>`;\
-            \}\
-        \}\
-\
-        function processData(records, priceMap) \{\
-            currentReportData = [];\
-            \
-            records.forEach((record) => \{\
-                let items = [];\
-                try \{ items = JSON.parse(record.verifyJson); \} catch(e) \{ return; \}\
-                \
-                let dateStr = record.date || "";\
-                let deptStr = record.dept || record.deptName || "";\
-\
-                items.forEach((item) => \{\
-                    // Firebase \uc0\u23384 \u36914 \u20358 \u30340  actualQty \u21363 \u28858 \u29289 \u27969 \u32080 \u24115 \u25976 \u37327 \
-                    let actualQty = parseInt(item.actualQty) || 0;\
-                    if (actualQty === 0) return; \
-\
-                    let itemName = item.itemName || "";\
-                    let unitPrice = priceMap[deptStr + "_" + itemName] !== undefined ? priceMap[deptStr + "_" + itemName] : (priceMap[itemName] || 0);\
-\
-                    currentReportData.push(\{\
-                        date: dateStr,\
-                        dept: deptStr,\
-                        item: itemName,\
-                        originalQty: actualQty,\
-                        qty: actualQty,         \
-                        price: Number(unitPrice) || 0,\
-                        note: item.auntNote || item.driverNote || ""\
-                    \});\
-                \});\
-            \});\
-\
-            if (currentReportData.length === 0) \{\
-                document.getElementById('resultsContainer').innerHTML = `<div class="msg-box no-print">\uc0\u35442 \u21312 \u38291 \u20839 \u23578 \u28961 \u26377 \u25928 \u19988 \u24050 \u31805 \u31456 \u30340 \u35531 \u27454 \u38917 \u30446 \u12290 </div>`;\
-                return;\
-            \}\
-\
-            currentReportData.sort((a, b) => \{\
-                let deptCmp = a.dept.localeCompare(b.dept);\
-                if (deptCmp !== 0) return deptCmp;\
-\
-                let dateCmp = a.date.localeCompare(b.date);\
-                if (dateCmp !== 0) return dateCmp;\
-\
-                let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;\
-                let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;\
-                return idxA - idxB;\
-            \});\
-            \
-            currentReportData.forEach((row, idx) => \{ row.globalIndex = idx; \});\
-\
-            renderReport();\
-        \}\
-\
-        function updateQty(globalIndex, val) \{\
-            currentReportData[globalIndex].qty = parseInt(val) || 0;\
-            renderReport(); \
-        \}\
-\
-        function updateNote(globalIndex, val) \{\
-            currentReportData[globalIndex].note = val;\
-        \}\
-\
-        function renderReport() \{\
-            let html = "";\
-            let grandTotalAmount = 0;\
-\
-            let depts = [...new Set(currentReportData.map(r => r.dept))];\
-\
-            depts.forEach(dept => \{\
-                let deptData = currentReportData.filter(r => r.dept === dept);\
-\
-                html += `<div class="dept-title">\uc0\u55356 \u57320  \u12304 $\{dept\}\u12305 \u27599 \u26085 \u26126 \u32048 </div>`;\
-                html += `\
-                    <table class="excel-table">\
-                        <thead>\
-                            <tr>\
-                                <th class="col-date">\uc0\u40670 \u20132 \u26085 \u26399 </th>\
-                                <th class="col-item">\uc0\u21697 \u38917 \u21517 \u31281 </th>\
-                                <th class="col-qty-readonly" title="\uc0\u21496 \u27231 \u30070 \u21021 \u40670 \u20132 \u30906 \u35469 \u30340 \u25976 \u37327 ">\u29289 \u27969 \u40670 \u20132 \u37327 </th>\
-                                <th class="col-qty-edit" title="\uc0\u36001 \u21209 \u21487 \u20462 \u25913 \u27492 \u25976 \u37327 \u20358 \u35519 \u25972 \u35531 \u27454 ">\u35531 \u27454 \u25976 \u37327 \u55357 \u56541 </th>\
-                                <th class="col-price">\uc0\u21934 \u20729 </th>\
-                                <th class="col-amount">\uc0\u37329 \u38989 </th>\
-                                <th class="col-note">\uc0\u36001 \u21209 \u20633 \u35387 \u55357 \u56541 </th>\
-                            </tr>\
-                        </thead>\
-                        <tbody>\
-                `;\
-\
-                deptData.forEach((row) => \{\
-                    let subtotal = row.qty * row.price;\
-                    html += `\
-                    <tr>\
-                        <td class="col-date">$\{row.date\}</td>\
-                        <td class="col-item text-bold">$\{row.item\}</td>\
-                        <td class="col-qty-readonly">$\{row.originalQty\}</td>\
-                        <td class="col-qty-edit">\
-                            <input type="number" class="edit-input qty-input" value="$\{row.qty\}" onchange="updateQty($\{row.globalIndex\}, this.value)">\
-                        </td>\
-                        <td class="col-price">$\{formatMoney(row.price)\}</td>\
-                        <td class="col-amount">$\{formatMoney(subtotal)\}</td>\
-                        <td class="col-note">\
-                            <input type="text" class="edit-input" value="$\{row.note\}" onchange="updateNote($\{row.globalIndex\}, this.value)" placeholder="\uc0\u21487 \u20633 \u35387 \u25187 \u27454 \u21407 \u22240 ">\
-                        </td>\
-                    </tr>\
-                    `;\
-                \});\
-                html += `</tbody></table>`;\
-\
-                html += `<div class="summary-title">\uc0\u12304 $\{dept\}\u12305 \u24067 \u21697 \u24409 \u25972 </div>`;\
-                html += `\
-                    <table class="excel-table summary-table" style="width: 70%; margin-left: 0;">\
-                        <thead>\
-                            <tr>\
-                                <th class="col-item">\uc0\u21697 \u38917 \u21517 \u31281 </th>\
-                                <th class="col-qty-edit">\uc0\u35531 \u27454 \u32317 \u25976 \u37327 </th>\
-                                <th class="col-price">\uc0\u21934 \u20729 </th>\
-                                <th class="col-amount">\uc0\u32317 \u37329 \u38989  (\u26410 \u31237 )</th>\
-                            </tr>\
-                        </thead>\
-                        <tbody>\
-                `;\
-\
-                let summaryMap = \{\};\
-                deptData.forEach(row => \{\
-                    if (!summaryMap[row.item]) \{\
-                        summaryMap[row.item] = \{ item: row.item, qty: 0, price: row.price, amount: 0 \};\
-                    \}\
-                    summaryMap[row.item].qty += row.qty;\
-                    summaryMap[row.item].amount += (row.qty * row.price);\
-                \});\
-\
-                let deptSubtotalAmount = 0;\
-                \
-                Object.values(summaryMap).sort((a, b) => \{\
-                    let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;\
-                    let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;\
-                    return idxA - idxB;\
-                \}).forEach(row => \{\
-                    html += `\
-                    <tr>\
-                        <td class="col-item text-bold">$\{row.item\}</td>\
-                        <td class="text-right">$\{row.qty\}</td>\
-                        <td class="col-price">$\{formatMoney(row.price)\}</td>\
-                        <td class="col-amount">$\{formatMoney(row.amount)\}</td>\
-                    </tr>\
-                    `;\
-                    deptSubtotalAmount += row.amount;\
-                \});\
-\
-                grandTotalAmount += deptSubtotalAmount;\
-\
-                html += `\
-                        <tr class="subtotal-row">\
-                            <td colspan="2" class="text-right">\uc0\u12304 $\{dept\}\u12305  \u24409 \u25972 \u23567 \u35336 \u65306 </td>\
-                            <td></td>\
-                            <td class="text-right col-amount">$\{formatMoney(deptSubtotalAmount)\}</td>\
-                        </tr>\
-                        </tbody>\
-                    </table>\
-                `;\
-            \});\
-\
-            let taxAmount = grandTotalAmount * 0.05;\
-            let totalWithTax = grandTotalAmount + taxAmount;\
-\
-            html += `\
-                <div class="grand-total-section">\
-                    <h2 style="margin-top: 0; color: #b91c1c; text-align: center;">\uc0\u55357 \u56496  \u32080 \u31639 \u22823 \u24409 \u25972 </h2>\
-                    <table class="excel-table" style="width: 60%; margin: 0 auto;">\
-                        <tr class="grand-total-row">\
-                            <td class="text-right">\uc0\u21508 \u37096 \u38272 \u32317 \u35336 \u37329 \u38989  (\u26410 \u31237 )\u65306 </td>\
-                            <td class="text-right col-amount">NT$ $\{formatMoney(grandTotalAmount)\}</td>\
-                        </tr>\
-                        <tr class="tax-row">\
-                            <td class="text-right">\uc0\u21508 \u37096 \u38272 \u32317 \u35336 \u37329 \u38989  (\u21547 \u31237  5%)\u65306 </td>\
-                            <td class="text-right col-amount">NT$ $\{formatMoney(totalWithTax)\}</td>\
-                        </tr>\
-                    </table>\
-                </div>\
-            `;\
-\
-            document.getElementById('resultsContainer').innerHTML = html;\
-        \}\
-\
-        function exportToExcel() \{\
-            if (currentReportData.length === 0) \{\
-                alert("\uc0\u35531 \u20808 \u36617 \u20837 \u22577 \u34920 \u20877 \u21295 \u20986 \u65281 ");\
-                return;\
-            \}\
-\
-            const startDate = document.getElementById('startDatePicker').value;\
-            const endDate = document.getElementById('endDatePicker').value;\
-\
-            let wb = XLSX.utils.book_new();\
-            let exportData = [];\
-\
-            exportData.push(["\uc0\u30334 \u40594 \u29289 \u27969  - \u39151 \u24215 \u40670 \u20132 \u35531 \u27454 \u26126 \u32048 \u33287 \u24409 \u25972 \u34920 "]);\
-            exportData.push(["\uc0\u32080 \u31639 \u21312 \u38291 :", `$\{startDate\} ~ $\{endDate\}`]);\
-            exportData.push([]); \
-\
-            let depts = [...new Set(currentReportData.map(r => r.dept))];\
-            let grandTotalAmount = 0;\
-\
-            depts.forEach(dept => \{\
-                let deptData = currentReportData.filter(r => r.dept === dept);\
-\
-                exportData.push([`\uc0\u55356 \u57320  \u12304 $\{dept\}\u12305 \u27599 \u26085 \u26126 \u32048 `]);\
-                exportData.push(["\uc0\u40670 \u20132 \u26085 \u26399 ", "\u21697 \u38917 \u21517 \u31281 ", "\u29289 \u27969 \u40670 \u20132 \u37327 ", "\u35531 \u27454 \u25976 \u37327 ", "\u21934 \u20729 ", "\u37329 \u38989 ", "\u36001 \u21209 \u20633 \u35387 "]);\
-                \
-                deptData.forEach(row => \{\
-                    let rawAmount = row.qty * row.price; \
-                    exportData.push([row.date, row.item, row.originalQty, row.qty, row.price, rawAmount, row.note]);\
-                \});\
-\
-                exportData.push([]); \
-\
-                exportData.push([`\uc0\u55357 \u56522  \u12304 $\{dept\}\u12305 \u24067 \u21697 \u24409 \u25972 `]);\
-                exportData.push(["\uc0\u21697 \u38917 \u21517 \u31281 ", "\u35531 \u27454 \u32317 \u25976 \u37327 ", "\u21934 \u20729 ", "\u32317 \u37329 \u38989  (\u26410 \u31237 )"]);\
-\
-                let summaryMap = \{\};\
-                deptData.forEach(row => \{\
-                    if (!summaryMap[row.item]) \{\
-                        summaryMap[row.item] = \{ item: row.item, qty: 0, price: row.price, amount: 0 \};\
-                    \}\
-                    summaryMap[row.item].qty += row.qty;\
-                    summaryMap[row.item].amount += (row.qty * row.price);\
-                \});\
-\
-                let deptSubtotalAmount = 0;\
-                \
-                Object.values(summaryMap).sort((a, b) => \{\
-                    let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;\
-                    let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;\
-                    return idxA - idxB;\
-                \}).forEach(row => \{\
-                    exportData.push([row.item, row.qty, row.price, row.amount]);\
-                    deptSubtotalAmount += row.amount;\
-                \});\
-\
-                exportData.push(["", `\uc0\u12304 $\{dept\}\u12305  \u24409 \u25972 \u23567 \u35336 \u65306 `, "", deptSubtotalAmount]);\
-                exportData.push([]); \
-                exportData.push([]); \
-\
-                grandTotalAmount += deptSubtotalAmount;\
-            \});\
-\
-            let taxAmount = Math.round(grandTotalAmount * 0.05 * 100) / 100;\
-            let totalWithTax = grandTotalAmount + taxAmount;\
-\
-            exportData.push(["\uc0\u55357 \u56496  \u32080 \u31639 \u22823 \u24409 \u25972 "]);\
-            exportData.push(["", "", "\uc0\u21508 \u37096 \u38272 \u32317 \u35336 \u37329 \u38989  (\u26410 \u31237 )\u65306 ", grandTotalAmount]);\
-            exportData.push(["", "", "\uc0\u21508 \u37096 \u38272 \u32317 \u35336 \u37329 \u38989  (\u21547 \u31237  5%)\u65306 ", totalWithTax]);\
-\
-            let ws = XLSX.utils.aoa_to_sheet(exportData);\
-            XLSX.utils.book_append_sheet(wb, ws, "\uc0\u36001 \u21209 \u22577 \u34920 ");\
-            XLSX.writeFile(wb, `\uc0\u30334 \u40594 \u36001 \u21209 \u22577 \u34920 _$\{startDate\}_\u33267 _$\{endDate\}.xlsx`);\
-        \}\
-    </script>\
-</body>\
-</html>\
-}
+        /* 核取方塊清單設計 */
+        .search-box { padding: 8px 12px; border: 2px solid #3b82f6; font-size: 15px; border-radius: 6px; width: 250px; outline: none; }
+        .search-box:focus { border-color: #1e40af; }
+        .checkbox-container { 
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; 
+            margin-top: 15px; max-height: 250px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; background: #f9f9f9; border-radius: 6px;
+        }
+        .cb-label { display: inline-flex; align-items: center; background: #fff; border: 1px solid #ccc; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; user-select: none; font-weight: bold; color: #444;}
+        .cb-label:hover { background: #eef2ff; border-color: #93c5fd; }
+        .cb-label input { margin-right: 8px; transform: scale(1.3); cursor: pointer;}
+        
+        /* 區塊標題設計 */
+        .dept-title { font-size: 20px; font-weight: 900; margin-top: 40px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 3px solid #1e3a8a; padding-bottom: 5px; }
+        .summary-title { font-size: 16px; font-weight: bold; margin-top: 15px; margin-bottom: 10px; color: #0b5e31; display: flex; align-items: center; }
+        .summary-title::before { content: "📊"; margin-right: 8px; }
+
+        .excel-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background-color: #fff; }
+        .excel-table th, .excel-table td { border: 1px solid #000; padding: 8px 10px; text-align: left; vertical-align: middle; }
+        .excel-table th { background-color: #e2efda; font-weight: bold; text-align: center; } 
+        .summary-table th { background-color: #fff2cc; } 
+        
+        /* 欄寬設定 */
+        .col-date { width: 100px; text-align: center; }
+        .col-dept { width: auto; white-space: nowrap; }
+        .col-item { width: 150px; }
+        .col-qty-readonly { width: 80px; text-align: right; color: #666; background-color: #f9f9f9; }
+        .col-qty-edit { width: 90px; text-align: right; }
+        .col-price { width: 80px; text-align: right; }
+        .col-amount { width: 110px; text-align: right; font-weight: bold; }
+        .col-note { width: 180px; }
+
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .text-bold { font-weight: bold; }
+        
+        .edit-input { width: 100%; border: 2px solid #90caf9; padding: 6px; box-sizing: border-box; background-color: #e3f2fd; font-weight: bold; font-family: inherit; font-size: 15px;}
+        .edit-input:focus { outline: none; border-color: #1976d2; background-color: #fff; }
+        .qty-input { text-align: right; }
+
+        .subtotal-row td { font-weight: bold; background-color: #fce4d6; font-size: 15px;}
+        .grand-total-section { margin-top: 50px; border: 3px double #000; background-color: #fff; padding: 20px;}
+        .grand-total-row td { font-weight: 900; background-color: #ffffcc; font-size: 18px;} 
+        .tax-row td { font-weight: 900; background-color: #ddebf7; font-size: 18px; color: #c00000;}
+
+        .msg-box { padding: 20px; text-align: center; font-weight: bold; border: 1px solid #aaa; margin-top: 20px; background-color: #fff;}
+
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0; background-color: #fff;}
+            .dept-title { margin-top: 30px; page-break-after: avoid; }
+            .excel-table { page-break-inside: avoid; }
+            .excel-table th, .excel-table td { border: 1px solid #000 !important; }
+            .excel-table th { background-color: #e2efda !important; -webkit-print-color-adjust: exact; }
+            .summary-table th { background-color: #fff2cc !important; -webkit-print-color-adjust: exact; }
+            .subtotal-row td { background-color: #fce4d6 !important; -webkit-print-color-adjust: exact; }
+            .grand-total-section { border: 2px solid #000 !important; }
+            .grand-total-row td { background-color: #ffffcc !important; -webkit-print-color-adjust: exact; }
+            .tax-row td { background-color: #ddebf7 !important; -webkit-print-color-adjust: exact; }
+            
+            .edit-input { border: none !important; background: transparent !important; padding: 0 !important; }
+            .edit-input::-webkit-outer-spin-button, .edit-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+            .edit-input[type=number] { -moz-appearance: textfield; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="no-print control-panel">
+        <h2 class="panel-title">百麒物流 💼 財務多維結帳系統 (極速版)</h2>
+        
+        <div class="flex-row">
+            <span style="font-weight: bold; font-size: 16px;">結帳區間設定：</span>
+            <label>起始：</label><input type="date" id="startDatePicker" class="date-input">
+            <label>結束：</label><input type="date" id="endDatePicker" class="date-input">
+        </div>
+        
+        <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
+            <div class="flex-row" style="background: #fdf6e3; padding: 10px; border-radius: 8px;">
+                <label style="font-size: 16px; font-weight: bold; color: #b45309;">1. 快速載入群組名單：</label>
+                <button class="btn-25" onclick="checkGroup('25')">☑️ 一鍵全選 25號結帳飯店</button>
+                <button class="btn-end" onclick="checkGroup('end')">☑️ 一鍵全選 月底結帳飯店</button>
+                <button onclick="clearChecks()">🔲 清空所有勾選</button>
+            </div>
+            
+            <div class="flex-row" style="background: #eff6ff; padding: 10px; border-radius: 8px; margin-top: 10px;">
+                <label style="font-size: 16px; font-weight: bold; color: #1d4ed8;">2. 關鍵字過濾 (自訂選單)：</label>
+                <input type="text" id="cbSearch" class="search-box" oninput="filterCheckboxes()" placeholder="例如打『文』或『文旅』...">
+                <button class="btn-select-all" onclick="selectAllVisible()">☑️ 全選下方目前顯示的飯店</button>
+            </div>
+        </div>
+
+        <div id="checkboxContainer" class="checkbox-container">
+            <span style="color: #2563eb; font-weight: bold; font-size: 16px;">🔄 正在從後台同步最新飯店名單...</span>
+        </div>
+
+        <div style="margin-top: 20px; border-top: 2px solid #1f2937; padding-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-load" onclick="fetchData()">⬇️ 載入報表 (計算勾選的名單)</button>
+            <button class="btn-excel" onclick="exportToExcel()">📊 匯出 Excel</button>
+            <button onclick="window.print()" style="font-size: 16px; padding: 10px 20px;">🖨️ 列印 / 匯出 PDF</button>
+            
+            <!-- ★ 新增：專屬的物流舊資料吸取按鈕 -->
+            <button id="syncLogisticsBtn" onclick="syncLogisticsFromGoogleSheet()" style="background-color: #fef08a; color: #854d0e; border-color: #fde047; font-size: 16px; padding: 10px 20px; margin-left: auto;">
+                📥 補救：吸取舊版物流與簽名 (從試算表)
+            </button>
+        </div>
+    </div>
+
+    <div id="printHeader" style="text-align: center; margin-bottom: 15px;">
+        <h2 style="font-size: 24px; margin-bottom: 5px;">百麒物流 - 飯店點交請款明細表</h2>
+        <p id="printInfo" style="margin: 0; font-weight: bold; color: #555; font-size: 16px;"></p>
+    </div>
+
+    <div id="resultsContainer">
+        <div class="msg-box no-print text-gray-500">請設定區間、勾選上方飯店後，點擊「載入報表」按鈕</div>
+    </div>
+
+    <!-- ★ 引入 Firebase 模組 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        // ★ 加入 writeBatch 模組用於大量寫入
+        import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        // ★ 您的 Firebase 金鑰
+        const firebaseConfig = {
+            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
+            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
+            projectId: "hotel-inventory-3a1ad",
+            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
+            messagingSenderId: "363844184412",
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999",
+            measurementId: "G-NM1W9JT70F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 試算表仍作為單價來源，也作為這次舊資料吸取來源
+        const API_URL = "https://script.google.com/macros/s/AKfycbyPrkLoz1QNrynxKK09CWgMNbuePWCmQdtmx8Iqwq9l90xk0ZGZSOc-N-bkTePyXb4RVA/exec";
+
+        // ==========================================
+        // 🏨 內建專屬的兩大結帳群組名單
+        // ==========================================
+        const group25 = [
+            "良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服",
+            "然一-房務", "然一-餐廳", "H2O-行政", "H2O-房務", "H2O-西餐", "H2O-中餐",
+            "花季-C館", "花季-A館", "花季-裸湯", "花季-餐廳", "花季-制服", "H2O-客衣",
+            "洲際-房務", "天子閣", "洲際-餐廳", "驛館-房務", "承億", "承億餐廳", "承億休閒",
+            "承億制服", "驛館-法餐", "承億健身房", "承億25F日料", "然一-制服", "然一-客衣",
+            "萊特薇庭", "驛館-餐酒館", "帕鉑", "承億27F BAR KAO", "承億22F仕女樓",
+            "候工所", "然一-護膚", "承億B1F中餐廳", "驛館-制服", "驛館-客衣"
+        ];
+
+        const groupEnd = [
+            "捷站前", "捷中正", "歐遊", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐",
+            "駱駝", "喜達絲", "泊思行旅", "癮室", "媚力泊", "巨蛋", "老新", "永心",
+            "雅樂", "福客來", "林森", "建工", "鴨點棧", "高廬", "頭等艙", "河畔",
+            "好地方", "好地方-六合館", "文旅", "文旅-七賢館", "文旅-一心館", "禾鮨",
+            "日航", "日航-休閒中心", "日航-餐廳", "日航-制服", "鼎王-富國店",
+            "鼎王-七賢店", "無老鍋", "禾寓", "雅樂十刻"
+        ];
+
+        let currentReportData = [];
+        let globalItemOrder = {}; 
+
+        // 綁定到全域以便 HTML 呼叫
+        window.checkGroup = checkGroup;
+        window.clearChecks = clearChecks;
+        window.filterCheckboxes = filterCheckboxes;
+        window.selectAllVisible = selectAllVisible;
+        window.fetchData = fetchData;
+        window.exportToExcel = exportToExcel;
+        window.updateQty = updateQty;
+        window.updateNote = updateNote;
+        window.syncLogisticsFromGoogleSheet = syncLogisticsFromGoogleSheet; // ★ 綁定新功能
+
+        function formatMoney(num) {
+            return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        window.onload = async function() {
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            
+            document.getElementById('startDatePicker').value = firstDay.toISOString().split('T')[0];
+            document.getElementById('endDatePicker').value = today.toISOString().split('T')[0];
+            document.getElementById('printHeader').style.display = 'none'; 
+            
+            await loadTemplateCheckboxes();
+        };
+
+        // ★ 極速版：從 Firebase 載入名單
+        async function loadTemplateCheckboxes() {
+            const container = document.getElementById('checkboxContainer');
+            try {
+                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
+                let template = [];
+                if (templateDoc.exists() && templateDoc.data().items) {
+                    template = templateDoc.data().items;
+                }
+
+                globalItemOrder = {};
+                let uniqueHotels = new Set();
+
+                template.forEach((t, idx) => {
+                    if (globalItemOrder[t.item] === undefined) {
+                        globalItemOrder[t.item] = idx;
+                    }
+                    uniqueHotels.add(t.hotel); // 例如 "H2O 房務"
+                });
+
+                let html = "";
+                Array.from(uniqueHotels).sort().forEach(h => {
+                    html += `<label class="cb-label"><input type="checkbox" class="hotel-cb" value="${h}"> ${h}</label>`;
+                });
+                container.innerHTML = html;
+            } catch(e) {
+                container.innerHTML = "<span style='color:red;'>無法載入飯店清單，請檢查網路連線</span>";
+            }
+        }
+
+        function filterCheckboxes() {
+            const keyword = document.getElementById('cbSearch').value.toLowerCase().replace(/\s+/g, '');
+            const labels = document.querySelectorAll('.cb-label');
+            labels.forEach(label => {
+                const val = label.innerText.toLowerCase().replace(/\s+/g, '');
+                if (val.includes(keyword)) {
+                    label.style.display = 'inline-flex';
+                } else {
+                    label.style.display = 'none';
+                }
+            });
+        }
+
+        function clearChecks() {
+            document.querySelectorAll('.hotel-cb').forEach(cb => cb.checked = false);
+            document.getElementById('cbSearch').value = '';
+            filterCheckboxes();
+        }
+
+        function selectAllVisible() {
+            document.querySelectorAll('.cb-label').forEach(label => {
+                if (label.style.display !== 'none') {
+                    label.querySelector('.hotel-cb').checked = true;
+                }
+            });
+        }
+
+        function checkGroup(type) {
+            clearChecks(); 
+            const listToMatch = type === '25' ? group25 : groupEnd;
+            const cbs = document.querySelectorAll('.hotel-cb');
+
+            cbs.forEach(cb => {
+                let val = cb.value.replace(/\s+/g, '').replace(/-/g, '');
+                
+                let shouldCheck = listToMatch.some(item => {
+                    let normalizedItem = item.replace(/\s+/g, '').replace(/-/g, '');
+                    return val === normalizedItem || val.includes(normalizedItem);
+                });
+                if (shouldCheck) cb.checked = true;
+            });
+        }
+
+        // ==========================================
+        // ★ 補救機制：從 Google 試算表強制把舊的物流簽名吸進 Firebase
+        // ==========================================
+        async function syncLogisticsFromGoogleSheet() {
+            const startDate = document.getElementById('startDatePicker').value;
+            const endDate = document.getElementById('endDatePicker').value;
+            const selectedHotelsArray = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
+
+            if (selectedHotelsArray.length === 0) {
+                alert("⚠️ 錯誤：請先勾選您想吸取舊資料的飯店！\n（💡 建議：一次勾選少數幾間就好，或者系統會自動分批幫您抓！）");
+                return;
+            }
+
+            const btn = document.getElementById('syncLogisticsBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = "⏳ 正在跨海吸取中... (資料龐大請稍候)";
+            btn.disabled = true;
+
+            try {
+                let allRecords = [];
+                const chunkSize = 5; // ★ 防當機機制：每次只向 Google 要 5 間飯店的資料
+
+                // 分批去 Google 試算表抓舊的結帳資料
+                for (let i = 0; i < selectedHotelsArray.length; i += chunkSize) {
+                    const batchHotels = selectedHotelsArray.slice(i, i + chunkSize).join(',');
+                    btn.innerHTML = `⏳ 正在吸取第 ${Math.floor(i/chunkSize)+1} 批資料...`;
+                    
+                    const res = await fetch(`${API_URL}?action=getFinanceData&startDate=${startDate}&endDate=${endDate}&hotel=${encodeURIComponent(batchHotels)}&t=${new Date().getTime()}`);
+                    const data = await res.json();
+
+                    if (data.status === "error" || data.error) {
+                        throw new Error(data.message || data.error || "Google 試算表端發生未知錯誤");
+                    }
+                    if (data.records) {
+                        allRecords = allRecords.concat(data.records);
+                    }
+                }
+
+                if (allRecords.length > 0) {
+                    const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
+                    const recordChunks = chunkArray(allRecords, 450);
+
+                    let totalImported = 0;
+
+                    // 一批一批寫入 Firebase 的 logistics_records
+                    for (let i = 0; i < recordChunks.length; i++) {
+                        const batch = writeBatch(db);
+                        recordChunks[i].forEach(r => {
+                            if (!r.clientSig && !r.driverSig) return; 
+
+                            let dateStr = r.date || "";
+                            let deptStr = r.dept || r.deptName || "";
+                            let hotelKw = r.hotelKeyword || deptStr.split(/[ -]/)[0] || deptStr;
+                            let items = [];
+                            try { items = JSON.parse(r.verifyJson); } catch(e) { }
+
+                            // 清除斜線等非法字元防當機
+                            const docId = `${dateStr}_${hotelKw}_${deptStr}`.replace(/[\/\\?%*:|"<>]/g, '-');
+                            const docRef = doc(db, 'logistics_records', docId);
+
+                            batch.set(docRef, {
+                                date: dateStr,
+                                hotelKeyword: hotelKw,
+                                deptName: deptStr,
+                                items: items,
+                                clientSig: r.clientSig || "",
+                                driverSig: r.driverSig || "",
+                                timestamp: new Date().toLocaleString()
+                            }, { merge: true });
+                            
+                            totalImported++;
+                        });
+                        await batch.commit();
+                    }
+                    
+                    alert(`✅ 搬家大成功！\n成功將 ${totalImported} 筆「舊物流簽名與點收紀錄」吸入 Firebase 極速資料庫！\n\n現在請點擊藍色的「載入報表」，您就會看到以前的單據通通回來了！`);
+                } else {
+                    alert("⚠️ 試算表中沒有符合此區間與飯店的舊物流簽名資料喔！");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("❌ 吸取失敗，原因：\n" + error.message + "\n\n💡 建議測試：請重新整理網頁，先試著『只勾選 1 間飯店』按吸取看看！");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // ★ 極速版：從 Firebase 抓物流結帳紀錄，單價依然從 Google 試算表抓
+        async function fetchData() {
+            const startDate = document.getElementById('startDatePicker').value;
+            const endDate = document.getElementById('endDatePicker').value;
+            const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
+            
+            if (selectedHotels.length === 0) {
+                if(!confirm("⚠️ 您尚未勾選任何飯店！\n\n按下「確定」將載入【全部】飯店資料（如果單量很多，這可能需要一點時間）。\n按下「取消」返回先勾選飯店。")) return;
+            }
+
+            const container = document.getElementById('resultsContainer');
+            document.getElementById('printHeader').style.display = 'block';
+            document.getElementById('printInfo').innerText = `結算區間：${startDate} 至 ${endDate}`;
+            container.innerHTML = `<div class="msg-box no-print" style="color: #2563eb;">⚙️ 正在跨部門極速抓取資料與計算中... 請稍候</div>`;
+            
+            try {
+                // 1. 從 Firebase 抓取當月單據
+                const logQ = query(collection(db, "logistics_records"), 
+                                   where("date", ">=", startDate), 
+                                   where("date", "<=", endDate));
+                const logSnap = await getDocs(logQ);
+
+                let fbRecords = [];
+                logSnap.forEach(docSnap => {
+                    let d = docSnap.data();
+                    
+                    // 必須雙方簽章才算結帳單
+                    if (!d.clientSig || !d.driverSig) return;
+                    
+                    // 重組名稱使其與「價格總表」一致
+                    let deptStr = d.hotelKeyword === d.deptName ? d.hotelKeyword : `${d.hotelKeyword} ${d.deptName}`;
+                    if(d.deptName && d.deptName.includes(d.hotelKeyword)) deptStr = d.deptName;
+
+                    // 過濾所選飯店
+                    if (selectedHotels.length > 0) {
+                        let match = selectedHotels.some(h => deptStr.includes(h) || h.includes(deptStr) || d.hotelKeyword.includes(h));
+                        if (!match) return;
+                    }
+
+                    fbRecords.push({
+                        verifyJson: JSON.stringify(d.items || []),
+                        clientSig: d.clientSig,
+                        driverSig: d.driverSig,
+                        date: d.date,
+                        dept: deptStr
+                    });
+                });
+
+                if(fbRecords.length === 0) {
+                    container.innerHTML = `<div class="msg-box no-print" style="color: red;">此條件下找不到任何已雙方簽收的點交紀錄。<br>如果您確定之前有點交過，請點擊上方的「📥 吸取舊版物流與簽名」按鈕來補救舊資料！</div>`;
+                    return;
+                }
+
+                // 2. 向 Google Apps Script 抓取「價格總表」 (確保單價隨時是最新)
+                let combinedPrices = {};
+                let targetHotels = selectedHotels.length > 0 ? selectedHotels : ["全部"];
+                const chunkSize = 5; // ★ 防當機機制：分批向 Google 抓取價格表
+
+                for (let i = 0; i < targetHotels.length; i += chunkSize) {
+                    const batchHotels = targetHotels.slice(i, i + chunkSize).join(',');
+                    const res = await fetch(`${API_URL}?action=getFinanceData&startDate=${startDate}&endDate=${endDate}&hotel=${encodeURIComponent(batchHotels)}&t=${new Date().getTime()}`);
+                    const data = await res.json();
+                    if (data.prices) {
+                        Object.assign(combinedPrices, data.prices);
+                    }
+                }
+                
+                processData(fbRecords, combinedPrices);
+
+            } catch(err) {
+                console.error(err);
+                container.innerHTML = `<div class="msg-box no-print" style="color: red;">讀取失敗：請檢查網路連線或減少勾選的飯店數量再試一次。</div>`;
+            }
+        }
+
+        function processData(records, priceMap) {
+            currentReportData = [];
+            
+            records.forEach((record) => {
+                let items = [];
+                try { items = JSON.parse(record.verifyJson); } catch(e) { return; }
+                
+                let dateStr = record.date || "";
+                let deptStr = record.dept || record.deptName || "";
+
+                items.forEach((item) => {
+                    // Firebase 存進來的 actualQty 即為物流結帳數量
+                    let actualQty = parseInt(item.actualQty) || 0;
+                    if (actualQty === 0) return; 
+
+                    let itemName = item.itemName || "";
+                    let unitPrice = priceMap[deptStr + "_" + itemName] !== undefined ? priceMap[deptStr + "_" + itemName] : (priceMap[itemName] || 0);
+
+                    currentReportData.push({
+                        date: dateStr,
+                        dept: deptStr,
+                        item: itemName,
+                        originalQty: actualQty,
+                        qty: actualQty,         
+                        price: Number(unitPrice) || 0,
+                        note: item.auntNote || item.driverNote || ""
+                    });
+                });
+            });
+
+            if (currentReportData.length === 0) {
+                document.getElementById('resultsContainer').innerHTML = `<div class="msg-box no-print">該區間內尚無有效且已簽章的請款項目。</div>`;
+                return;
+            }
+
+            currentReportData.sort((a, b) => {
+                let deptCmp = a.dept.localeCompare(b.dept);
+                if (deptCmp !== 0) return deptCmp;
+
+                let dateCmp = a.date.localeCompare(b.date);
+                if (dateCmp !== 0) return dateCmp;
+
+                let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;
+                let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;
+                return idxA - idxB;
+            });
+            
+            currentReportData.forEach((row, idx) => { row.globalIndex = idx; });
+
+            renderReport();
+        }
+
+        function updateQty(globalIndex, val) {
+            currentReportData[globalIndex].qty = parseInt(val) || 0;
+            renderReport(); 
+        }
+
+        function updateNote(globalIndex, val) {
+            currentReportData[globalIndex].note = val;
+        }
+
+        function renderReport() {
+            let html = "";
+            let grandTotalAmount = 0;
+
+            let depts = [...new Set(currentReportData.map(r => r.dept))];
+
+            depts.forEach(dept => {
+                let deptData = currentReportData.filter(r => r.dept === dept);
+
+                html += `<div class="dept-title">🏨 【${dept}】每日明細</div>`;
+                html += `
+                    <table class="excel-table">
+                        <thead>
+                            <tr>
+                                <th class="col-date">點交日期</th>
+                                <th class="col-item">品項名稱</th>
+                                <th class="col-qty-readonly" title="司機當初點交確認的數量">物流點交量</th>
+                                <th class="col-qty-edit" title="財務可修改此數量來調整請款">請款數量📝</th>
+                                <th class="col-price">單價</th>
+                                <th class="col-amount">金額</th>
+                                <th class="col-note">財務備註📝</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                deptData.forEach((row) => {
+                    let subtotal = row.qty * row.price;
+                    html += `
+                    <tr>
+                        <td class="col-date">${row.date}</td>
+                        <td class="col-item text-bold">${row.item}</td>
+                        <td class="col-qty-readonly">${row.originalQty}</td>
+                        <td class="col-qty-edit">
+                            <input type="number" class="edit-input qty-input" value="${row.qty}" onchange="updateQty(${row.globalIndex}, this.value)">
+                        </td>
+                        <td class="col-price">${formatMoney(row.price)}</td>
+                        <td class="col-amount">${formatMoney(subtotal)}</td>
+                        <td class="col-note">
+                            <input type="text" class="edit-input" value="${row.note}" onchange="updateNote(${row.globalIndex}, this.value)" placeholder="可備註扣款原因">
+                        </td>
+                    </tr>
+                    `;
+                });
+                html += `</tbody></table>`;
+
+                html += `<div class="summary-title">【${dept}】布品彙整</div>`;
+                html += `
+                    <table class="excel-table summary-table" style="width: 70%; margin-left: 0;">
+                        <thead>
+                            <tr>
+                                <th class="col-item">品項名稱</th>
+                                <th class="col-qty-edit">請款總數量</th>
+                                <th class="col-price">單價</th>
+                                <th class="col-amount">總金額 (未稅)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                let summaryMap = {};
+                deptData.forEach(row => {
+                    if (!summaryMap[row.item]) {
+                        summaryMap[row.item] = { item: row.item, qty: 0, price: row.price, amount: 0 };
+                    }
+                    summaryMap[row.item].qty += row.qty;
+                    summaryMap[row.item].amount += (row.qty * row.price);
+                });
+
+                let deptSubtotalAmount = 0;
+                
+                Object.values(summaryMap).sort((a, b) => {
+                    let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;
+                    let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;
+                    return idxA - idxB;
+                }).forEach(row => {
+                    html += `
+                    <tr>
+                        <td class="col-item text-bold">${row.item}</td>
+                        <td class="text-right">${row.qty}</td>
+                        <td class="col-price">${formatMoney(row.price)}</td>
+                        <td class="col-amount">${formatMoney(row.amount)}</td>
+                    </tr>
+                    `;
+                    deptSubtotalAmount += row.amount;
+                });
+
+                grandTotalAmount += deptSubtotalAmount;
+
+                html += `
+                        <tr class="subtotal-row">
+                            <td colspan="2" class="text-right">【${dept}】 彙整小計：</td>
+                            <td></td>
+                            <td class="text-right col-amount">${formatMoney(deptSubtotalAmount)}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                `;
+            });
+
+            let taxAmount = grandTotalAmount * 0.05;
+            let totalWithTax = grandTotalAmount + taxAmount;
+
+            html += `
+                <div class="grand-total-section">
+                    <h2 style="margin-top: 0; color: #b91c1c; text-align: center;">💰 結算大彙整</h2>
+                    <table class="excel-table" style="width: 60%; margin: 0 auto;">
+                        <tr class="grand-total-row">
+                            <td class="text-right">各部門總計金額 (未稅)：</td>
+                            <td class="text-right col-amount">NT$ ${formatMoney(grandTotalAmount)}</td>
+                        </tr>
+                        <tr class="tax-row">
+                            <td class="text-right">各部門總計金額 (含稅 5%)：</td>
+                            <td class="text-right col-amount">NT$ ${formatMoney(totalWithTax)}</td>
+                        </tr>
+                    </table>
+                </div>
+            `;
+
+            document.getElementById('resultsContainer').innerHTML = html;
+        }
+
+        function exportToExcel() {
+            if (currentReportData.length === 0) {
+                alert("請先載入報表再匯出！");
+                return;
+            }
+
+            const startDate = document.getElementById('startDatePicker').value;
+            const endDate = document.getElementById('endDatePicker').value;
+
+            let wb = XLSX.utils.book_new();
+            let exportData = [];
+
+            exportData.push(["百麒物流 - 飯店點交請款明細與彙整表"]);
+            exportData.push(["結算區間:", `${startDate} ~ ${endDate}`]);
+            exportData.push([]); 
+
+            let depts = [...new Set(currentReportData.map(r => r.dept))];
+            let grandTotalAmount = 0;
+
+            depts.forEach(dept => {
+                let deptData = currentReportData.filter(r => r.dept === dept);
+
+                exportData.push([`🏨 【${dept}】每日明細`]);
+                exportData.push(["點交日期", "品項名稱", "物流點交量", "請款數量", "單價", "金額", "財務備註"]);
+                
+                deptData.forEach(row => {
+                    let rawAmount = row.qty * row.price; 
+                    exportData.push([row.date, row.item, row.originalQty, row.qty, row.price, rawAmount, row.note]);
+                });
+
+                exportData.push([]); 
+
+                exportData.push([`📊 【${dept}】布品彙整`]);
+                exportData.push(["品項名稱", "請款總數量", "單價", "總金額 (未稅)"]);
+
+                let summaryMap = {};
+                deptData.forEach(row => {
+                    if (!summaryMap[row.item]) {
+                        summaryMap[row.item] = { item: row.item, qty: 0, price: row.price, amount: 0 };
+                    }
+                    summaryMap[row.item].qty += row.qty;
+                    summaryMap[row.item].amount += (row.qty * row.price);
+                });
+
+                let deptSubtotalAmount = 0;
+                
+                Object.values(summaryMap).sort((a, b) => {
+                    let idxA = globalItemOrder[a.item] !== undefined ? globalItemOrder[a.item] : 9999;
+                    let idxB = globalItemOrder[b.item] !== undefined ? globalItemOrder[b.item] : 9999;
+                    return idxA - idxB;
+                }).forEach(row => {
+                    exportData.push([row.item, row.qty, row.price, row.amount]);
+                    deptSubtotalAmount += row.amount;
+                });
+
+                exportData.push(["", `【${dept}】 彙整小計：`, "", deptSubtotalAmount]);
+                exportData.push([]); 
+                exportData.push([]); 
+
+                grandTotalAmount += deptSubtotalAmount;
+            });
+
+            let taxAmount = Math.round(grandTotalAmount * 0.05 * 100) / 100;
+            let totalWithTax = grandTotalAmount + taxAmount;
+
+            exportData.push(["💰 結算大彙整"]);
+            exportData.push(["", "", "各部門總計金額 (未稅)：", grandTotalAmount]);
+            exportData.push(["", "", "各部門總計金額 (含稅 5%)：", totalWithTax]);
+
+            let ws = XLSX.utils.aoa_to_sheet(exportData);
+            XLSX.utils.book_append_sheet(wb, ws, "財務報表");
+            XLSX.writeFile(wb, `百麒財務報表_${startDate}_至_${endDate}.xlsx`);
+        }
+    </script>
+</body>
+</html>
