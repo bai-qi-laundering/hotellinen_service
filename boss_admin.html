@@ -1,686 +1,678 @@
-{\rtf1\ansi\ansicpg950\cocoartf2709
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百麒物流 - 總管理後台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基礎背景色與字體 */
+        body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
+        
+        input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
-\f0\fs24 \cf0 <!DOCTYPE html>\
-<html lang="zh-TW">\
-<head>\
-    <meta charset="UTF-8">\
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">\
-    <title>\uc0\u30334 \u40594 \u29289 \u27969  - \u32317 \u31649 \u29702 \u24460 \u21488 </title>\
-    <script src="https://cdn.tailwindcss.com"></script>\
-    <style>\
-        /* \uc0\u22522 \u30990 \u32972 \u26223 \u33394 \u33287 \u23383 \u39636  */\
-        body \{ background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; \}\
-        \
-        input[type="date"]::-webkit-calendar-picker-indicator \{ cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; \}\
-\
-        .modern-table \{ width: 100%; border-collapse: collapse; text-align: left; \}\
-        \
-        /* \uc0\u34253 \u33394 \u31995  (\u30436 \u40670 \u29992 ) */\
-        .table-blue th \{ background-color: #3b5bdb; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; \}\
-        .table-blue tr.main-row:nth-child(even) \{ background-color: #f8f9fc; \}\
-        .table-blue tr.main-row:nth-child(odd) \{ background-color: #ffffff; \}\
-        .table-blue tr.main-row:hover td \{ background-color: #edf2ff; \}\
-\
-        /* \uc0\u32160 \u33394 \u31995  (\u29289 \u27969 \u29992 ) */\
-        .table-green th \{ background-color: #059669; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; \}\
-        .table-green tr.main-row \{ transition: background-color 0.2s; cursor: pointer; \}\
-        .table-green tr.main-row:nth-child(4n-3) \{ background-color: #ffffff; \} /* 4n-3 \uc0\u22240 \u28858 \u27599 \u20491 \u21934 \u23376 \u26377 \u20841 \u34892 (\u20027 \u34892 +\u23637 \u38283 \u34892 ) */\
-        .table-green tr.main-row:nth-child(4n-1) \{ background-color: #f8faf9; \}\
-        .table-green tr.main-row:hover \{ background-color: #ecfdf5; \}\
-\
-        .modern-table td \{ padding: 12px 16px; border-bottom: 1px solid #e9ecef; vertical-align: middle; font-size: 14px; color: #343a40; \}\
-\
-        .header-select \{ background-color: transparent; color: white; border: none; outline: none; font-weight: bold; font-size: 15px; cursor: pointer; appearance: none; padding-right: 15px; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right center; background-size: 12px; \}\
-        .header-select option \{ background-color: #ffffff; color: #333; \}\
-\
-        .clean-input \{ width: 100%; background: transparent; border: 1px solid transparent; border-bottom: 1px dashed #adb5bd; padding: 6px 8px; color: #495057; font-size: 14px; transition: all 0.2s; border-radius: 4px; \}\
-        .clean-input:focus \{ background: #fff; border: 1px solid #3b5bdb; outline: none; box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.1); \}\
-\
-        .sig-container \{ display: flex; justify-content: center; align-items: center; height: 35px; \}\
-        .sig-img \{ max-height: 100%; max-width: 80px; background-color: white; border: 1px solid #dee2e6; border-radius: 4px; cursor: zoom-in; transition: transform 0.2s ease-in-out; \}\
-        .sig-img:hover \{ transform: scale(3.5); position: relative; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); \}\
-\
-        /* \uc0\u20839 \u37096 \u38913 \u31844 \u20999 \u25563 \u22120  */\
-        .view-toggle \{ display: flex; background: #e9ecef; padding: 4px; border-radius: 8px; gap: 4px; \}\
-        .toggle-btn \{ padding: 6px 16px; font-weight: bold; font-size: 14px; border-radius: 6px; cursor: pointer; transition: all 0.2s; color: #6c757d; \}\
-        .toggle-btn.active \{ background: white; color: #3b5bdb; box-shadow: 0 2px 4px rgba(0,0,0,0.05); \}\
-\
-        /* \uc0\u24213 \u37096  Excel \u20027 \u38913 \u31844  (Tabs) */\
-        .excel-bottom-bar \{ position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; \}\
-        .excel-tab \{ padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; outline: none; \}\
-        .excel-tab.active-blue \{ background-color: white; color: #3b5bdb; border-top: 3px solid #3b5bdb; font-weight: 900; \}\
-        .excel-tab.active-green \{ background-color: white; color: #059669; border-top: 3px solid #059669; font-weight: 900; \}\
-        .excel-tab:hover:not(.active-blue):not(.active-green) \{ background-color: #f8f9fa; \}\
-\
-        ::-webkit-scrollbar \{ width: 8px; height: 8px; \}\
-        ::-webkit-scrollbar-track \{ background: #f1f1f1; border-radius: 4px; \}\
-        ::-webkit-scrollbar-thumb \{ background: #c1c1c1; border-radius: 4px; \}\
-        ::-webkit-scrollbar-thumb:hover \{ background: #a8a8a8; \}\
-    </style>\
-</head>\
-<body class="p-4 md:p-8">\
-\
-    <!-- \uc0\u28014 \u21205 \u25552 \u31034 \u26694  -->\
-    <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">\
-        <span>\uc0\u9989 </span> <span id="toastMsg">\u36039 \u26009 \u24050 \u33258 \u21205 \u20786 \u23384 \u26356 \u26032 \u65281 </span>\
-    </div>\
-\
-    <!-- ========================================== -->\
-    <!-- \uc0\u55357 \u56401  \u34253 \u33394 \u65306 \u30436 \u40670 \u26126 \u32048 \u24460 \u21488  (Inventory Section) -->\
-    <!-- ========================================== -->\
-    <div id="sectionInventory" class="max-w-[1400px] mx-auto block animate-[fadeIn_0.3s_ease-out]">\
-        <div class="flex justify-between items-end mb-6 border-b pb-4">\
-            <div class="flex items-center gap-6">\
-                <h1 class="text-3xl font-black text-gray-900 tracking-tight">\uc0\u32769 \u38342 \u23560 \u23660 \u24460 \u21488 </h1>\
-                <div class="view-toggle">\
-                    <button id="btnViewInvMain" onclick="switchInvView('main')" class="toggle-btn active">\uc0\u55357 \u56541  \u21934 \u25818 \u26126 \u32048 \u31649 \u29702 </button>\
-                    <button id="btnViewInvHistory" onclick="switchInvView('history')" class="toggle-btn flex items-center gap-1"><span>\uc0\u55357 \u56693 \u65039 \u8205 \u9794 \u65039 </span> \u38463 \u23016 \u30436 \u40670 \u27969 \u27700 \u24115 </button>\
-                </div>\
-            </div>\
-        </div>\
-\
-        <!-- \uc0\u35222 \u22294  1\u65306 \u30436 \u40670 \u26126 \u32048 \u20462 \u25913  -->\
-        <div id="viewInvMain" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">\
-            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50">\
-                <div class="flex items-center gap-4">\
-                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">\uc0\u21934 \u25818 \u21312 \u38291 \u26597 \u35426 </span>\
-                    <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-5 py-1.5 font-bold text-sm bg-blue-50/30">\
-                        <input type="date" id="invStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">\
-                        <span>-</span>\
-                        <input type="date" id="invEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">\
-                    </div>\
-                    <span class="text-gray-500 font-medium text-sm ml-4">\uc0\u20849  <span id="invRecordCount" class="font-bold text-blue-600">0</span> \u31558 \u21934 \u25818 </span>\
-                </div>\
-                <button onclick="loadInvData()" id="invLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">\
-                    \uc0\u19979 \u36617 \u26126 \u32048 \
-                </button>\
-            </div>\
-\
-            <div class="flex-1 overflow-auto bg-white relative">\
-                <table class="modern-table table-blue min-w-[1000px]">\
-                    <thead>\
-                        <tr>\
-                            <th class="w-32"><div class="text-xs text-blue-200 mb-1 font-normal">\uc0\u20132 \u26131 \u26085 \u26399 </div><select id="fltInvDate" class="header-select w-full" onchange="applyInvFilters()"><option value="">\u21934 \u25818 \u26085 \u26399  \u9662 </option></select></th>\
-                            <th class="w-40"><div class="text-xs text-blue-200 mb-1 font-normal">\uc0\u23565 \u35937 </div><select id="fltInvHotel" class="header-select w-full" onchange="applyInvFilters()"><option value="">\u39151 \u24215 /\u37096 \u38272  \u9662 </option></select></th>\
-                            <th class="w-36"><div class="text-xs text-blue-200 mb-1 font-normal">\uc0\u38917 \u30446 </div><select id="fltInvItem" class="header-select w-full" onchange="applyInvFilters()"><option value="">\u21697 \u38917  \u9662 </option></select></th>\
-                            <th class="w-24 text-center">\uc0\u29694 \u22580 \u25976 \u37327 <br><span class="text-xs text-blue-200 font-normal">(\u21807 \u35712 )</span></th>\
-                            <th class="w-28 text-center">\uc0\u29694 \u22580 \u31805 \u21517 </th>\
-                            <th class="w-24 text-center">\uc0\u24489 \u40670 \u25976 \u37327 <br><span class="text-xs text-blue-200 font-normal">(\u21807 \u35712 )</span></th>\
-                            <th class="w-28 text-center">\uc0\u24489 \u40670 \u31805 \u21517 </th>\
-                            <th class="w-60">\uc0\u31934 \u30906 \u24489 \u40670 \u26178 \u38291  <span class="text-xs text-blue-200 font-normal">(\u40670 \u25802 \u20462 \u25913 )</span></th>\
-                            <th class="w-48">\uc0\u20633 \u35387 \u25688 \u35201  <span class="text-xs text-blue-200 font-normal">(\u40670 \u25802 \u20462 \u25913 )</span></th>\
-                        </tr>\
-                    </thead>\
-                    <tbody id="invTableBody">\
-                        <tr class="main-row"><td colspan="9" class="py-20 text-center"><span class="text-gray-500 font-medium">\uc0\u40670 \u25802 \u21491 \u19978 \u35282 \u12300 \u19979 \u36617 \u26126 \u32048 \u12301 \u36617 \u20837 \u36039 \u26009 </span></td></tr>\
-                    </tbody>\
-                </table>\
-            </div>\
-        </div>\
-\
-        <!-- \uc0\u35222 \u22294  2\u65306 \u38463 \u23016 \u27969 \u27700 \u24115  -->\
-        <div id="viewInvHistory" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-col h-[calc(100vh-180px)]">\
-            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 z-50">\
-                <div class="flex items-center gap-4">\
-                    <span class="text-gray-600 font-bold text-sm">\uc0\u26597 \u35426 \u30436 \u40670 \u26085 \u26399 \u65306 </span>\
-                    <input type="date" id="invHistoryDate" class="border border-gray-300 rounded px-3 py-1.5 font-bold text-sm text-gray-700 outline-none cursor-pointer">\
-                </div>\
-                <button onclick="loadInvHistory()" id="invHistoryBtn" class="bg-gray-800 hover:bg-gray-900 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-sm">\
-                    \uc0\u26597 \u35426 \u30436 \u40670 \u27969 \u27700 \u24115 \
-                </button>\
-            </div>\
-            <div class="flex-1 overflow-auto bg-white relative">\
-                <table class="modern-table min-w-[1000px]">\
-                    <thead style="background-color: #495057;">\
-                        <tr>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-40">\uc0\u9201 \u65039  \u25805 \u20316 \u26178 \u38291 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-40">\uc0\u55356 \u57320  \u39151 \u24215 /\u37096 \u38272 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32">\uc0\u55357 \u56550  \u21697 \u38917 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-24 text-center">\uc0\u29694 \u22580 \u25976 \u37327 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32 text-center">\uc0\u29694 \u22580 \u31805 \u21517 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-24 text-center">\uc0\u24489 \u40670 \u25976 \u37327 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32 text-center">\uc0\u24489 \u40670 \u31805 \u21517 </th>\
-                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-48">\uc0\u55357 \u56523  \u20633 \u35387 </th>\
-                        </tr>\
-                    </thead>\
-                    <tbody id="invHistoryBody">\
-                        <tr><td colspan="8" class="py-20 text-center"><span class="text-gray-500 font-medium">\uc0\u35531 \u36984 \u25799 \u26085 \u26399 \u20006 \u26597 \u35426 </span></td></tr>\
-                    </tbody>\
-                </table>\
-            </div>\
-        </div>\
-    </div>\
-\
-    <!-- ========================================== -->\
-    <!-- \uc0\u55357 \u56550  \u32160 \u33394 \u65306 \u29289 \u27969 \u26597 \u24115 \u24460 \u21488  (\u25240 \u30090 \u29256  Logistics Section) -->\
-    <!-- ========================================== -->\
-    <div id="sectionLogistics" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]">\
-        <div class="flex justify-between items-end mb-6 border-b pb-4">\
-            <div class="flex items-baseline gap-4">\
-                <h1 class="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">\
-                    <span class="text-emerald-600">\uc0\u55357 \u56550 </span> \u29289 \u27969 \u31805 \u25910 \u26597 \u24115 \u21488 \
-                </h1>\
-                <span class="text-gray-500 font-medium text-sm">\uc0\u20849 \u25214 \u21040  <span id="logRecordCount" class="font-bold text-emerald-600">0</span> \u31558 \u20986 \u36008 \u26126 \u32048 </span>\
-            </div>\
-            <div class="flex items-center gap-3">\
-                <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-sm"></span><span class="text-xs font-bold text-red-600 mr-2">\uc0\u26377 \u25976 \u37327 \u26356 \u25913  / \u32570 \u31805 \u21517 </span>\
-                <span class="w-3 h-3 rounded-full bg-green-500 shadow-sm"></span><span class="text-xs font-bold text-green-700">\uc0\u25976 \u37327 \u28961 \u35492 \u24050 \u31805 \u25910 </span>\
-            </div>\
-        </div>\
-\
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">\
-            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50 flex-wrap gap-4">\
-                <div class="flex items-center gap-4">\
-                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">\uc0\u21934 \u25818 \u21312 \u38291 \u26597 \u35426 </span>\
-                    <div class="flex items-center gap-2 border-2 border-emerald-400 text-emerald-700 rounded-full px-5 py-1.5 font-bold text-sm bg-emerald-50/30">\
-                        <input type="date" id="logStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">\
-                        <span>-</span>\
-                        <input type="date" id="logEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">\
-                    </div>\
-                </div>\
-                \
-                <div class="flex items-center gap-2 flex-1 max-w-sm ml-4 border-2 border-emerald-200 rounded-lg px-2 bg-gray-50">\
-                    <span class="text-emerald-600 font-bold text-sm pl-2">\uc0\u55357 \u56589  \u21697 \u38917 \u31721 \u36984 \u65306 </span>\
-                    <select id="fltLogItem" onchange="applyLogFilters()" class="bg-transparent outline-none text-gray-700 font-bold py-2 w-full cursor-pointer">\
-                        <option value="">(\uc0\u20840 \u37096 \u39023 \u31034 )</option>\
-                    </select>\
-                </div>\
-\
-                <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm ml-auto">\
-                    \uc0\u36617 \u20837 \u29289 \u27969 \u21934 \u25818 \
-                </button>\
-            </div>\
-\
-            <div class="flex-1 overflow-auto bg-white relative">\
-                <table class="modern-table table-green min-w-[1000px]">\
-                    <thead>\
-                        <tr>\
-                            <th class="w-40"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">\uc0\u29376 \u24907  / \u38928 \u23450 \u36865 \u36948 \u26085 </div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">\u21934 \u25818 \u26085 \u26399  \u9662 </option></select></th>\
-                            <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">\uc0\u23565 \u35937 </div><select id="fltLogHotel" class="header-select w-full" onchange="applyLogFilters()"><option value="">\u39151 \u24215 /\u37096 \u38272  \u9662 </option></select></th>\
-                            <th class="w-48 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">\uc0\u31995 \u32113 \u25276 \u21360 </div>\u31805 \u25910 \u26178 \u38291  (\u31934 \u30906 )</th>\
-                            <th class="w-32 bg-emerald-800 text-right pr-6">\uc0\u26126 \u32048 \u25805 \u20316 </th>\
-                        </tr>\
-                    </thead>\
-                    <tbody id="logTableBody">\
-                        <tr class="main-row"><td colspan="4" class="py-20 text-center"><span class="text-gray-500 font-medium">\uc0\u40670 \u25802 \u21491 \u19978 \u35282 \u12300 \u36617 \u20837 \u29289 \u27969 \u21934 \u25818 \u12301 \u26597 \u30475 \u31805 \u25910 \u29376 \u27841 </span></td></tr>\
-                    </tbody>\
-                </table>\
-            </div>\
-        </div>\
-    </div>\
-\
-    <!-- ========================================== -->\
-    <!-- \uc0\u9733  \u24213 \u37096  Excel \u20027 \u38913 \u31844  (Tabs) \u21205 \u24907 \u20999 \u25563 \u22120  -->\
-    <!-- ========================================== -->\
-    <div class="excel-bottom-bar">\
-        <!-- \uc0\u40670 \u25802 \u27492 \u25353 \u37397 \u20999 \u25563 \u21040 \u30436 \u40670 \u34253 \u33394 \u30059 \u38754  -->\
-        <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">\uc0\u55357 \u56401  \u30436 \u40670 \u26126 \u32048 \u24460 \u21488 </button>\
-        <!-- \uc0\u40670 \u25802 \u27492 \u25353 \u37397 \u20999 \u25563 \u21040 \u29289 \u27969 \u32160 \u33394 \u30059 \u38754  -->\
-        <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">\uc0\u55357 \u56550  \u29289 \u27969 \u26597 \u24115 \u24460 \u21488 </button>\
-        \
-        <a href="finance.html" class="excel-tab">\uc0\u55357 \u56496  \u36001 \u21209 \u23565 \u24115 \u21934 </a>\
-    </div>\
-\
-    <!-- Firebase \uc0\u27169 \u32068 \u36617 \u20837  -->\
-    <script type="module">\
-        import \{ initializeApp \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";\
-        import \{ getFirestore, collection, query, where, getDocs, doc, setDoc \} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";\
-\
-        // \uc0\u9733  Firebase \u37329 \u38000 \
-        const firebaseConfig = \{\
-            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",\
-            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",\
-            projectId: "hotel-inventory-3a1ad",\
-            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",\
-            messagingSenderId: "363844184412",\
-            appId: "1:363844184412:web:66cdd6425d53bde75f3999",\
-            measurementId: "G-NM1W9JT70F"\
-        \};\
-\
-        const app = initializeApp(firebaseConfig);\
-        const db = getFirestore(app);\
-\
-        // \uc0\u29544 \u31435 \u30340 \u36039 \u26009 \u24235 \u20786 \u23384 \u21312 \
-        let invRecords = []; \
-        let invFiltered = []; \
-        let logRecords = []; \
-        let logFiltered = []; \
-\
-        function getLocalDateString(dateObj) \{ return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; \}\
-        function getExactTimeString() \{\
-            const now = new Date();\
-            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');\
-            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');\
-            return `$\{y\}-$\{m\}-$\{d\} $\{h\}:$\{min\}:$\{s\}`;\
-        \}\
-        \
-        // \uc0\u38928 \u35373 \u26085 \u26399 \u21021 \u22987 \u21270 \
-        const today = new Date();\
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);\
-        const todayStr = getLocalDateString(today);\
-        const firstDayStr = getLocalDateString(firstDay);\
-\
-        document.getElementById('invStartDate').value = firstDayStr;\
-        document.getElementById('invEndDate').value = todayStr;\
-        document.getElementById('invHistoryDate').value = todayStr;\
-        document.getElementById('logStartDate').value = firstDayStr;\
-        document.getElementById('logEndDate').value = todayStr;\
-\
-        window.switchMainTab = switchMainTab;\
-        window.switchInvView = switchInvView;\
-        window.loadInvData = loadInvData;\
-        window.applyInvFilters = applyInvFilters;\
-        window.updateInvField = updateInvField;\
-        window.autoFillInvTime = autoFillInvTime;\
-        window.autoFillInvExactTime = autoFillInvExactTime;\
-        window.loadInvHistory = loadInvHistory;\
-        window.loadLogData = loadLogData;\
-        window.applyLogFilters = applyLogFilters;\
-        window.toggleLogDetail = toggleLogDetail;\
-\
-        function showToast(msg = "\uc0\u36039 \u26009 \u24050 \u33258 \u21205 \u20786 \u23384 \u26356 \u26032 \u65281 ") \{\
-            document.getElementById('toastMsg').innerText = msg;\
-            const toast = document.getElementById('toast');\
-            toast.classList.remove('opacity-0', 'translate-y-[-20px]');\
-            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);\
-        \}\
-\
-        // ==========================\
-        // \uc0\u55356 \u57119  \u26368 \u24375 \u20027 \u38913 \u31844 \u20999 \u25563 \u22120  (\u30436 \u40670  vs \u29289 \u27969 )\
-        // ==========================\
-        function switchMainTab(tab) \{\
-            if (tab === 'inventory') \{\
-                document.getElementById('sectionInventory').style.display = 'block';\
-                document.getElementById('sectionLogistics').style.display = 'none';\
-                document.getElementById('tabInventory').className = 'excel-tab active-blue';\
-                document.getElementById('tabLogistics').className = 'excel-tab';\
-                if (invRecords.length === 0) loadInvData();\
-            \} else \{\
-                document.getElementById('sectionInventory').style.display = 'none';\
-                document.getElementById('sectionLogistics').style.display = 'block';\
-                document.getElementById('tabInventory').className = 'excel-tab';\
-                document.getElementById('tabLogistics').className = 'excel-tab active-green';\
-                if (logRecords.length === 0) loadLogData();\
-            \}\
-        \}\
-\
-        // ==========================\
-        // [\uc0\u30436 \u40670 \u31995 \u32113 ] \u20839 \u37096 \u35222 \u22294 \u20999 \u25563 \
-        // ==========================\
-        function switchInvView(view) \{\
-            if (view === 'main') \{\
-                document.getElementById('viewInvMain').style.display = 'flex';\
-                document.getElementById('viewInvHistory').style.display = 'none';\
-                document.getElementById('btnViewInvMain').classList.add('active');\
-                document.getElementById('btnViewInvHistory').classList.remove('active');\
-            \} else \{\
-                document.getElementById('viewInvMain').style.display = 'none';\
-                document.getElementById('viewInvHistory').style.display = 'flex';\
-                document.getElementById('btnViewInvMain').classList.remove('active');\
-                document.getElementById('btnViewInvHistory').classList.add('active');\
-            \}\
-        \}\
-\
-        // ==========================\
-        // [\uc0\u30436 \u40670 \u31995 \u32113 ] \u36039 \u26009 \u36617 \u20837 \u33287 \u28210 \u26579 \
-        // ==========================\
-        async function loadInvData() \{\
-            const startDate = document.getElementById('invStartDate').value;\
-            const endDate = document.getElementById('invEndDate').value;\
-            const tbody = document.getElementById('invTableBody');\
-            const btn = document.getElementById('invLoadBtn');\
-            btn.innerHTML = `\uc0\u36617 \u20837 \u20013 ...`; btn.disabled = true;\
-            tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-gray-500 font-bold">\uc0\u35712 \u21462 \u36039 \u26009 \u20013 ...</td></tr>`;\
-            \
-            try \{\
-                const q = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));\
-                const querySnapshot = await getDocs(q);\
-                invRecords = [];\
-                querySnapshot.forEach((docSnap) => \{\
-                    const data = docSnap.data(); data.docId = docSnap.id; invRecords.push(data);\
-                \});\
-                invRecords.sort((a, b) => \{\
-                    if (a.date < b.date) return -1; if (a.date > b.date) return 1;\
-                    if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;\
-                    return (a.item < b.item) ? -1 : 1;\
-                \});\
-                populateInvDropdowns();\
-                applyInvFilters();\
-            \} catch (error) \{\
-                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-red-500 font-bold">\uc0\u35712 \u21462 \u22833 \u25943 \u65306 $\{error.message\}</td></tr>`;\
-            \} finally \{\
-                btn.innerHTML = `\uc0\u19979 \u36617 \u26126 \u32048 `; btn.disabled = false;\
-            \}\
-        \}\
-\
-        function populateInvDropdowns() \{\
-            const dates = [...new Set(invRecords.map(r => r.date || ""))].filter(v=>v).sort();\
-            const hotels = [...new Set(invRecords.map(r => r.hotel || ""))].filter(v=>v).sort();\
-            const items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v).sort();\
-\
-            const fD = document.getElementById('fltInvDate'); const fH = document.getElementById('fltInvHotel'); const fI = document.getElementById('fltInvItem');\
-            const pD = fD.value; const pH = fH.value; const pI = fI.value;\
-\
-            fD.innerHTML = `<option value="">\uc0\u21934 \u25818 \u26085 \u26399  \u9662 </option>` + dates.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-            fH.innerHTML = `<option value="">\uc0\u39151 \u24215 /\u37096 \u38272  \u9662 </option>` + hotels.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-            fI.innerHTML = `<option value="">\uc0\u21697 \u38917  \u9662 </option>` + items.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-\
-            if (dates.includes(pD)) fD.value = pD; if (hotels.includes(pH)) fH.value = pH; if (items.includes(pI)) fI.value = pI;\
-        \}\
-\
-        function applyInvFilters() \{\
-            const fDate = document.getElementById('fltInvDate').value;\
-            const fHotel = document.getElementById('fltInvHotel').value;\
-            const fItem = document.getElementById('fltInvItem').value;\
-            invFiltered = invRecords.filter(r => \{\
-                return (fDate === "" || r.date === fDate) && (fHotel === "" || r.hotel === fHotel) && (fItem === "" || r.item === fItem);\
-            \});\
-            document.getElementById('invRecordCount').innerText = invFiltered.length;\
-            renderInvTable(invFiltered);\
-        \}\
-\
-        function renderInvTable(data) \{\
-            const tbody = document.getElementById('invTableBody');\
-            if (data.length === 0) \{\
-                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-16 text-center text-gray-500 font-bold">\uc0\u27794 \u26377 \u31526 \u21512 \u32000 \u37636 </td></tr>`; return;\
-            \}\
-            tbody.innerHTML = data.map(r => \{\
-                let aSig = r.signature ? `<img src="$\{r.signature\}" class="sig-img">` : `<span class="text-xs text-gray-400">\uc0\u26410 \u31805 \u21517 </span>`;\
-                let dSig = r.doubleSignature ? `<img src="$\{r.doubleSignature\}" class="sig-img">` : `<span class="text-xs text-gray-400">\uc0\u26410 \u31805 \u21517 </span>`;\
-                return `\
-                    <tr class="main-row">\
-                        <td><input type="date" value="$\{r.date || ''\}" class="clean-input font-mono" onblur="updateInvField('$\{r.docId\}', 'date', this.value, this)"></td>\
-                        <td class="font-bold text-gray-800">$\{r.hotel\}</td>\
-                        <td class="text-blue-700 font-bold">$\{r.item\}</td>\
-                        <td class="text-center font-bold text-gray-600">$\{r.count || '-'\}</td>\
-                        <td class="text-center"><div class="sig-container">$\{aSig\}</div></td>\
-                        <td class="text-center font-bold text-blue-700">$\{r.doubleCount || '-'\}</td>\
-                        <td class="text-center"><div class="sig-container">$\{dSig\}</div></td>\
-                        <td>\
-                            <div class="flex items-center gap-2">\
-                                <input type="text" id="invTime_$\{r.docId\}" value="$\{r.doubleSignDate || ''\}" class="clean-input font-mono text-[13px]" placeholder="\uc0\u23578 \u26410 \u35352 \u37636 " onblur="updateInvField('$\{r.docId\}', 'doubleSignDate', this.value, this)">\
-                                <div class="flex flex-col gap-1">\
-                                    <button onclick="autoFillInvExactTime('$\{r.docId\}')" class="text-[10px] px-1 bg-blue-50 text-blue-600 border border-blue-200">\uc0\u8986 </button>\
-                                    <button onclick="autoFillInvTime('$\{r.docId\}')" class="text-[10px] px-1 bg-orange-50 text-orange-500 border border-orange-200">\uc0\u55357 \u56481 </button>\
-                                </div>\
-                            </div>\
-                        </td>\
-                        <td><input type="text" value="$\{r.note || ''\}" class="clean-input" placeholder="\uc0\u21487 \u36664 \u20837 \u20633 \u35387 ..." onblur="updateInvField('$\{r.docId\}', 'note', this.value, this)"></td>\
-                    </tr>\
-                `;\
-            \}).join('');\
-        \}\
-\
-        async function updateInvField(docId, field, newValue, inputEl) \{\
-            const record = invRecords.find(r => r.docId === docId);\
-            if (!record || record[field] === newValue.trim()) return; \
-            inputEl.style.opacity = '0.5';\
-            try \{\
-                await setDoc(doc(db, 'inventory_records', docId), \{ [field]: newValue.trim(), timestamp: new Date().toLocaleString() \}, \{ merge: true \});\
-                record[field] = newValue.trim(); inputEl.style.opacity = '1'; showToast();\
-            \} catch (e) \{\
-                inputEl.style.color = 'red'; alert("\uc0\u26356 \u26032 \u22833 \u25943 \u65281 ");\
-            \}\
-        \}\
-\
-        async function autoFillInvExactTime(docId) \{\
-            const timeInput = document.getElementById(`invTime_$\{docId\}`);\
-            timeInput.value = getExactTimeString();\
-            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);\
-        \}\
-\
-        async function autoFillInvTime(docId) \{\
-            const record = invRecords.find(r => r.docId === docId);\
-            const dateStr = record ? record.date : document.getElementById('invStartDate').value;\
-            const timeInput = document.getElementById(`invTime_$\{docId\}`);\
-            timeInput.value = `$\{dateStr\} 23:59:59`;\
-            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);\
-        \}\
-\
-        async function loadInvHistory() \{\
-            const targetDate = document.getElementById('invHistoryDate').value;\
-            const tbody = document.getElementById('invHistoryBody');\
-            const btn = document.getElementById('invHistoryBtn');\
-            btn.innerHTML = `\uc0\u26597 \u35426 \u20013 ...`; btn.disabled = true;\
-            tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-500">\uc0\u35712 \u21462 \u20013 ...</td></tr>`;\
-            try \{\
-                const q = query(collection(db, "history_logs"), where("date", "==", targetDate));\
-                const snap = await getDocs(q);\
-                let history = []; snap.forEach(d => history.push(d.data()));\
-                history.sort((a, b) => b.timestamp - a.timestamp);\
-\
-                if (history.length === 0) \{ tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-400">\uc0\u28961 \u30436 \u40670 \u32000 \u37636 </td></tr>`; return; \}\
-\
-                tbody.innerHTML = history.map(r => `\
-                    <tr>\
-                        <td class="font-mono text-gray-700">$\{r.actionTime || '-'\}</td>\
-                        <td class="font-bold text-gray-800">$\{r.hotel\}</td>\
-                        <td class="text-blue-700 font-bold">$\{r.item\}</td>\
-                        <td class="text-center font-bold">$\{r.count || '-'\}</td>\
-                        <td class="text-center"><div class="sig-container">$\{r.signature ? `<img src="$\{r.signature\}" class="sig-img">` : `<span class="text-xs text-gray-400">\uc0\u28961 </span>`\}</div></td>\
-                        <td class="text-center font-bold text-blue-700">$\{r.doubleCount || '-'\}</td>\
-                        <td class="text-center"><div class="sig-container">$\{r.doubleSignature ? `<img src="$\{r.doubleSignature\}" class="sig-img">` : `<span class="text-xs text-gray-400">\uc0\u28961 </span>`\}</div></td>\
-                        <td class="text-gray-600">$\{r.note || '-'\}</td>\
-                    </tr>`).join('');\
-            \} catch (e) \{\
-                tbody.innerHTML = `<tr><td colspan="8" class="text-red-500 font-bold text-center">\uc0\u22833 \u25943 : $\{e.message\}</td></tr>`;\
-            \} finally \{ btn.innerHTML = `\uc0\u26597 \u35426 \u30436 \u40670 \u27969 \u27700 \u24115 `; btn.disabled = false; \}\
-        \}\
-\
-        // ==========================\
-        // [\uc0\u29289 \u27969 \u31995 \u32113 ] \u25240 \u30090 \u29256 \u36039 \u26009 \u36617 \u20837 \u33287 \u28210 \u26579 \
-        // ==========================\
-        async function loadLogData() \{\
-            const startDate = document.getElementById('logStartDate').value;\
-            const endDate = document.getElementById('logEndDate').value;\
-            const tbody = document.getElementById('logTableBody');\
-            const btn = document.getElementById('logLoadBtn');\
-            btn.innerHTML = `\uc0\u36617 \u20837 \u20013 ...`; btn.disabled = true;\
-            tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">\uc0\u55357 \u56545  \u27491 \u22312 \u21516 \u27493 \u29289 \u27969 \u31805 \u25910 \u36039 \u26009 \u24235 ...</td></tr>`;\
-            \
-            try \{\
-                const q = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));\
-                const snap = await getDocs(q);\
-                logRecords = [];\
-\
-                snap.forEach((docSnap) => \{\
-                    const d = docSnap.data();\
-                    let hotelName = d.hotelKeyword === d.deptName ? d.hotelKeyword : `$\{d.hotelKeyword\} $\{d.deptName\}`;\
-                    if(d.deptName && d.deptName.includes(d.hotelKeyword)) hotelName = d.deptName;\
-\
-                    let hasIssue = (!d.driverSig || !d.clientSig);\
-                    let validItems = [];\
-\
-                    (d.items || []).forEach(item => \{\
-                        if (!item.originalQty || item.originalQty == "0") return;\
-                        let actual = (item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty;\
-                        if (String(actual) !== String(item.originalQty)) hasIssue = true; // \uc0\u25976 \u37327 \u26377 \u25913 \u20063 \u26159 \u30064 \u24120 \
-                        \
-                        validItems.push(\{\
-                            itemName: item.itemName,\
-                            bqQty: item.originalQty,\
-                            actualQty: actual\
-                        \});\
-                    \});\
-\
-                    if (validItems.length > 0) \{\
-                        logRecords.push(\{\
-                            id: docSnap.id,\
-                            date: d.date,\
-                            hotel: hotelName,\
-                            items: validItems,\
-                            driverSig: d.driverSig || "",\
-                            clientSig: d.clientSig || "",\
-                            signDate: d.timestamp || "",\
-                            hasIssue: hasIssue\
-                        \});\
-                    \}\
-                \});\
-\
-                logRecords.sort((a, b) => \{\
-                    if (a.date < b.date) return -1; if (a.date > b.date) return 1;\
-                    if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;\
-                    return 0;\
-                \});\
-\
-                populateLogDropdowns(); \
-                applyLogFilters();\
-\
-            \} catch (error) \{\
-                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-10 text-center text-red-500 font-bold">\uc0\u35712 \u21462 \u22833 \u25943 \u65306 $\{error.message\}</td></tr>`;\
-            \} finally \{\
-                btn.innerHTML = `\uc0\u36617 \u20837 \u29289 \u27969 \u21934 \u25818 `; btn.disabled = false;\
-            \}\
-        \}\
-\
-        function populateLogDropdowns() \{\
-            const dates = [...new Set(logRecords.map(r => r.date))].sort();\
-            const hotels = [...new Set(logRecords.map(r => r.hotel))].sort();\
-            \
-            let allItems = [];\
-            logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));\
-            const items = [...new Set(allItems)].sort();\
-\
-            const fD = document.getElementById('fltLogDate'); \
-            const fH = document.getElementById('fltLogHotel'); \
-            const fI = document.getElementById('fltLogItem');\
-\
-            const pD = fD.value; const pH = fH.value; const pI = fI.value;\
-\
-            fD.innerHTML = `<option value="">\uc0\u21934 \u25818 \u26085 \u26399  \u9662 </option>` + dates.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-            fH.innerHTML = `<option value="">\uc0\u39151 \u24215 /\u37096 \u38272  \u9662 </option>` + hotels.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-            fI.innerHTML = `<option value="">(\uc0\u20840 \u37096 \u21697 \u38917 )</option>` + items.map(v => `<option value="$\{v\}">$\{v\}</option>`).join('');\
-\
-            if (dates.includes(pD)) fD.value = pD; \
-            if (hotels.includes(pH)) fH.value = pH; \
-            if (items.includes(pI)) fI.value = pI;\
-        \}\
-\
-        function applyLogFilters() \{\
-            const fDate = document.getElementById('fltLogDate').value;\
-            const fHotel = document.getElementById('fltLogHotel').value;\
-            const fItem = document.getElementById('fltLogItem').value;\
-\
-            logFiltered = logRecords.filter(r => \{\
-                const matchDate = (fDate === "") || (r.date === fDate);\
-                const matchHotel = (fHotel === "") || (r.hotel === fHotel);\
-                const matchItem = (fItem === "") || r.items.some(i => i.itemName === fItem); // \uc0\u33509 \u24213 \u19979 \u21697 \u38917 \u26377 \u21253 \u21547 \u25628 \u23563 \u23383 \u23601 \u39023 \u31034 \
-                return matchDate && matchHotel && matchItem;\
-            \});\
-\
-            document.getElementById('logRecordCount').innerText = logFiltered.length;\
-            renderLogTable(logFiltered);\
-        \}\
-\
-        function toggleLogDetail(id) \{\
-            const el = document.getElementById(id);\
-            const icon = document.getElementById('icon_' + id);\
-            if(el.classList.contains('hidden')) \{\
-                el.classList.remove('hidden');\
-                icon.innerText = '\uc0\u9650  \u25910 \u36215 \u26126 \u32048 ';\
-            \} else \{\
-                el.classList.add('hidden');\
-                icon.innerText = '\uc0\u9660  \u23637 \u38283 \u26126 \u32048 ';\
-            \}\
-        \}\
-\
-        function renderLogTable(data) \{\
-            const tbody = document.getElementById('logTableBody');\
-            if (data.length === 0) \{\
-                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-16 text-center text-gray-500 font-bold text-base">\uc0\u30446 \u21069 \u21312 \u38291 \u20839 \u27794 \u26377 \u31526 \u21512 \u20986 \u36008 \u32000 \u37636 \u12290 </td></tr>`; \
-                return;\
-            \}\
-\
-            tbody.innerHTML = data.map((r, index) => \{\
-                // \uc0\u29376 \u24907 \u32005 \u32160 \u29128 \
-                let statusDot = r.hasIssue \
-                    ? `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="\uc0\u26377 \u25976 \u37327 \u26356 \u25913 \u25110 \u26410 \u31805 \u21517 "></span>` \
-                    : `<span class="w-3 h-3 rounded-full bg-green-500 inline-block shadow-sm" title="\uc0\u24050 \u23436 \u25104 \u19988 \u28961 \u20462 \u25913 "></span>`;\
-                \
-                // \uc0\u31805 \u21517 \u27284 \
-                let dSig = r.driverSig ? `<img src="$\{r.driverSig\}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">\uc0\u26410 \u31805 \u25910 </span>`;\
-                let cSig = r.clientSig ? `<img src="$\{r.clientSig\}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">\uc0\u26410 \u31805 \u25910 </span>`;\
-                \
-                let timeDisplay = r.signDate ? r.signDate : '<span class="text-gray-400 italic">\uc0\u23578 \u26410 \u31805 \u25910 </span>';\
-\
-                // \uc0\u24213 \u19979 \u30340 \u21697 \u38917 \u28165 \u21934 \u34920 \u26684 \
-                let itemsHtml = r.items.map(i => `\
-                    <tr class="border-b border-emerald-100/50 last:border-0 hover:bg-emerald-50/50">\
-                        <td class="py-2 px-4 text-emerald-800 font-bold">$\{i.itemName\}</td>\
-                        <td class="text-center py-2 text-gray-500">$\{i.bqQty\}</td>\
-                        <td class="text-center py-2 font-black $\{i.actualQty !== i.bqQty ? 'text-orange-600 bg-orange-50 rounded' : 'text-emerald-700'\}">$\{i.actualQty\}</td>\
-                    </tr>\
-                `).join('');\
-\
-                return `\
-                    <tr class="main-row border-b border-gray-200" onclick="toggleLogDetail('log_detail_$\{index\}')">\
-                        <td class="font-mono text-gray-700 text-base flex items-center gap-3">\
-                            $\{statusDot\} $\{r.date\}\
-                        </td>\
-                        <td class="font-black text-gray-800 text-lg">$\{r.hotel\}</td>\
-                        <td class="font-mono text-sm text-gray-600">$\{timeDisplay\}</td>\
-                        <td class="text-right pr-6 text-emerald-600 font-bold">\
-                            <span id="icon_log_detail_$\{index\}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors">\uc0\u9660  \u23637 \u38283 \u26126 \u32048 </span>\
-                        </td>\
-                    </tr>\
-                    \
-                    <!-- \uc0\u23637 \u38283 \u30340 \u26126 \u32048 \u35222 \u31383  (\u38928 \u35373 \u38577 \u34255 ) -->\
-                    <tr id="log_detail_$\{index\}" class="hidden bg-gray-50 shadow-inner">\
-                        <td colspan="4" class="p-0 border-b-4 border-gray-200">\
-                            <div class="p-6 bg-emerald-50/30">\
-                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">\
-                                    \
-                                    <!-- \uc0\u24038 \u20596 \u65306 \u26126 \u32048 \u25976 \u37327 \u34920 \u26684  -->\
-                                    <div>\
-                                        <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">\uc0\u55357 \u56550  \u40670 \u20132 \u25976 \u37327 \u26126 \u32048 </h4>\
-                                        <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">\
-                                            <table class="w-full text-sm">\
-                                                <thead class="bg-gray-100 text-gray-600 border-b border-gray-200">\
-                                                    <tr>\
-                                                        <th class="py-2 px-4 text-left font-bold">\uc0\u21697 \u38917 </th>\
-                                                        <th class="py-2 px-2 text-center font-bold">\uc0\u30334 \u40594 \u25976 \u37327 </th>\
-                                                        <th class="py-2 px-2 text-center font-bold">\uc0\u23526 \u25910 \u25976 \u37327 </th>\
-                                                    </tr>\
-                                                </thead>\
-                                                <tbody>\
-                                                    $\{itemsHtml\}\
-                                                </tbody>\
-                                            </table>\
-                                        </div>\
-                                    </div>\
-                                    \
-                                    <!-- \uc0\u21491 \u20596 \u65306 \u38617 \u26041 \u31805 \u21517 \u30906 \u35469  -->\
-                                    <div class="flex flex-col">\
-                                        <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">\uc0\u9997 \u65039  \u38617 \u26041 \u31805 \u25910 \u30906 \u35469 </h4>\
-                                        <div class="flex gap-4">\
-                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">\
-                                                <div class="text-sm font-bold text-gray-500 mb-2">\uc0\u29289 \u27969 \u21496 \u27231 \u31805 \u21517 </div>\
-                                                <div class="sig-container h-[60px]">$\{dSig\}</div>\
-                                            </div>\
-                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">\
-                                                <div class="text-sm font-bold text-gray-500 mb-2">\uc0\u39151 \u24215 \u31471 \u31805 \u21517 </div>\
-                                                <div class="sig-container h-[60px]">$\{cSig\}</div>\
-                                            </div>\
-                                        </div>\
-                                    </div>\
-                                    \
-                                </div>\
-                            </div>\
-                        </td>\
-                    </tr>\
-                `;\
-            \}).join('');\
-        \}\
-\
-        // \uc0\u38283 \u21855 \u38928 \u35373 \u34253 \u33394 \u20998 \u38913 \
-        switchMainTab('inventory');\
-\
-    </script>\
-</body>\
-</html>\
-}
+        .modern-table { width: 100%; border-collapse: collapse; text-align: left; }
+        
+        /* 藍色系 (盤點用) */
+        .table-blue th { background-color: #3b5bdb; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; }
+        .table-blue tr.main-row:nth-child(even) { background-color: #f8f9fc; }
+        .table-blue tr.main-row:nth-child(odd) { background-color: #ffffff; }
+        .table-blue tr.main-row:hover td { background-color: #edf2ff; }
+
+        /* 綠色系 (物流用) */
+        .table-green th { background-color: #059669; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; }
+        .table-green tr.main-row { transition: background-color 0.2s; cursor: pointer; }
+        .table-green tr.main-row:nth-child(4n-3) { background-color: #ffffff; } /* 4n-3 因為每個單子有兩行(主行+展開行) */
+        .table-green tr.main-row:nth-child(4n-1) { background-color: #f8faf9; }
+        .table-green tr.main-row:hover { background-color: #ecfdf5; }
+
+        .modern-table td { padding: 12px 16px; border-bottom: 1px solid #e9ecef; vertical-align: middle; font-size: 14px; color: #343a40; }
+
+        .header-select { background-color: transparent; color: white; border: none; outline: none; font-weight: bold; font-size: 15px; cursor: pointer; appearance: none; padding-right: 15px; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right center; background-size: 12px; }
+        .header-select option { background-color: #ffffff; color: #333; }
+
+        .clean-input { width: 100%; background: transparent; border: 1px solid transparent; border-bottom: 1px dashed #adb5bd; padding: 6px 8px; color: #495057; font-size: 14px; transition: all 0.2s; border-radius: 4px; }
+        .clean-input:focus { background: #fff; border: 1px solid #3b5bdb; outline: none; box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.1); }
+
+        .sig-container { display: flex; justify-content: center; align-items: center; height: 35px; }
+        .sig-img { max-height: 100%; max-width: 80px; background-color: white; border: 1px solid #dee2e6; border-radius: 4px; cursor: zoom-in; transition: transform 0.2s ease-in-out; }
+        .sig-img:hover { transform: scale(3.5); position: relative; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+
+        /* 內部頁籤切換器 */
+        .view-toggle { display: flex; background: #e9ecef; padding: 4px; border-radius: 8px; gap: 4px; }
+        .toggle-btn { padding: 6px 16px; font-weight: bold; font-size: 14px; border-radius: 6px; cursor: pointer; transition: all 0.2s; color: #6c757d; }
+        .toggle-btn.active { background: white; color: #3b5bdb; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        /* 底部 Excel 主頁籤 (Tabs) */
+        .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
+        .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; outline: none; }
+        .excel-tab.active-blue { background-color: white; color: #3b5bdb; border-top: 3px solid #3b5bdb; font-weight: 900; }
+        .excel-tab.active-green { background-color: white; color: #059669; border-top: 3px solid #059669; font-weight: 900; }
+        .excel-tab:hover:not(.active-blue):not(.active-green) { background-color: #f8f9fa; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- 浮動提示框 -->
+    <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
+        <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 👑 藍色：盤點明細後台 (Inventory Section) -->
+    <!-- ========================================== -->
+    <div id="sectionInventory" class="max-w-[1400px] mx-auto block animate-[fadeIn_0.3s_ease-out]">
+        <div class="flex justify-between items-end mb-6 border-b pb-4">
+            <div class="flex items-center gap-6">
+                <h1 class="text-3xl font-black text-gray-900 tracking-tight">老闆專屬後台</h1>
+                <div class="view-toggle">
+                    <button id="btnViewInvMain" onclick="switchInvView('main')" class="toggle-btn active">📝 單據明細管理</button>
+                    <button id="btnViewInvHistory" onclick="switchInvView('history')" class="toggle-btn flex items-center gap-1"><span>🕵️‍♂️</span> 阿姨盤點流水帳</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視圖 1：盤點明細修改 -->
+        <div id="viewInvMain" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50">
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間查詢</span>
+                    <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-5 py-1.5 font-bold text-sm bg-blue-50/30">
+                        <input type="date" id="invStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                        <span>-</span>
+                        <input type="date" id="invEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                    </div>
+                    <span class="text-gray-500 font-medium text-sm ml-4">共 <span id="invRecordCount" class="font-bold text-blue-600">0</span> 筆單據</span>
+                </div>
+                <button onclick="loadInvData()" id="invLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
+                    下載明細
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table table-blue min-w-[1000px]">
+                    <thead>
+                        <tr>
+                            <th class="w-32"><div class="text-xs text-blue-200 mb-1 font-normal">交易日期</div><select id="fltInvDate" class="header-select w-full" onchange="applyInvFilters()"><option value="">單據日期 ▾</option></select></th>
+                            <th class="w-40"><div class="text-xs text-blue-200 mb-1 font-normal">對象</div><select id="fltInvHotel" class="header-select w-full" onchange="applyInvFilters()"><option value="">飯店/部門 ▾</option></select></th>
+                            <th class="w-36"><div class="text-xs text-blue-200 mb-1 font-normal">項目</div><select id="fltInvItem" class="header-select w-full" onchange="applyInvFilters()"><option value="">品項 ▾</option></select></th>
+                            <th class="w-24 text-center">現場數量<br><span class="text-xs text-blue-200 font-normal">(唯讀)</span></th>
+                            <th class="w-28 text-center">現場簽名</th>
+                            <th class="w-24 text-center">復點數量<br><span class="text-xs text-blue-200 font-normal">(唯讀)</span></th>
+                            <th class="w-28 text-center">復點簽名</th>
+                            <th class="w-60">精確復點時間 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                            <th class="w-48">備註摘要 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="invTableBody">
+                        <tr class="main-row"><td colspan="9" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 視圖 2：阿姨流水帳 -->
+        <div id="viewInvHistory" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 z-50">
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-600 font-bold text-sm">查詢盤點日期：</span>
+                    <input type="date" id="invHistoryDate" class="border border-gray-300 rounded px-3 py-1.5 font-bold text-sm text-gray-700 outline-none cursor-pointer">
+                </div>
+                <button onclick="loadInvHistory()" id="invHistoryBtn" class="bg-gray-800 hover:bg-gray-900 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-sm">
+                    查詢盤點流水帳
+                </button>
+            </div>
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table min-w-[1000px]">
+                    <thead style="background-color: #495057;">
+                        <tr>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-40">⏱️ 操作時間</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-40">🏨 飯店/部門</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32">📦 品項</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-24 text-center">現場數量</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32 text-center">現場簽名</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-24 text-center">復點數量</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32 text-center">復點簽名</th>
+                            <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-48">📋 備註</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invHistoryBody">
+                        <tr><td colspan="8" class="py-20 text-center"><span class="text-gray-500 font-medium">請選擇日期並查詢</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 📦 綠色：物流查帳後台 (折疊版 Logistics Section) -->
+    <!-- ========================================== -->
+    <div id="sectionLogistics" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]">
+        <div class="flex justify-between items-end mb-6 border-b pb-4">
+            <div class="flex items-baseline gap-4">
+                <h1 class="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                    <span class="text-emerald-600">📦</span> 物流簽收查帳台
+                </h1>
+                <span class="text-gray-500 font-medium text-sm">共找到 <span id="logRecordCount" class="font-bold text-emerald-600">0</span> 筆出貨明細</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-sm"></span><span class="text-xs font-bold text-red-600 mr-2">有數量更改 / 缺簽名</span>
+                <span class="w-3 h-3 rounded-full bg-green-500 shadow-sm"></span><span class="text-xs font-bold text-green-700">數量無誤已簽收</span>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50 flex-wrap gap-4">
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間查詢</span>
+                    <div class="flex items-center gap-2 border-2 border-emerald-400 text-emerald-700 rounded-full px-5 py-1.5 font-bold text-sm bg-emerald-50/30">
+                        <input type="date" id="logStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                        <span>-</span>
+                        <input type="date" id="logEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-2 flex-1 max-w-sm ml-4 border-2 border-emerald-200 rounded-lg px-2 bg-gray-50">
+                    <span class="text-emerald-600 font-bold text-sm pl-2">🔍 品項篩選：</span>
+                    <select id="fltLogItem" onchange="applyLogFilters()" class="bg-transparent outline-none text-gray-700 font-bold py-2 w-full cursor-pointer">
+                        <option value="">(全部顯示)</option>
+                    </select>
+                </div>
+
+                <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm ml-auto">
+                    載入物流單據
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table table-green min-w-[1000px]">
+                    <thead>
+                        <tr>
+                            <th class="w-40"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">狀態 / 預定送達日</div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">單據日期 ▾</option></select></th>
+                            <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">對象</div><select id="fltLogHotel" class="header-select w-full" onchange="applyLogFilters()"><option value="">飯店/部門 ▾</option></select></th>
+                            <th class="w-48 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">系統押印</div>簽收時間 (精確)</th>
+                            <th class="w-32 bg-emerald-800 text-right pr-6">明細操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <tr class="main-row"><td colspan="4" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「載入物流單據」查看簽收狀況</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ★ 底部 Excel 主頁籤 (Tabs) 動態切換器 -->
+    <!-- ========================================== -->
+    <div class="excel-bottom-bar">
+        <!-- 點擊此按鈕切換到盤點藍色畫面 -->
+        <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
+        <!-- 點擊此按鈕切換到物流綠色畫面 -->
+        <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">📦 物流查帳後台</button>
+        
+        <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
+    </div>
+
+    <!-- Firebase 模組載入 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        // ★ Firebase 金鑰
+        const firebaseConfig = {
+            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
+            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
+            projectId: "hotel-inventory-3a1ad",
+            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
+            messagingSenderId: "363844184412",
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999",
+            measurementId: "G-NM1W9JT70F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 獨立的資料庫儲存區
+        let invRecords = []; 
+        let invFiltered = []; 
+        let logRecords = []; 
+        let logFiltered = []; 
+
+        function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
+        function getExactTimeString() {
+            const now = new Date();
+            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
+        
+        // 預設日期初始化
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        const todayStr = getLocalDateString(today);
+        const firstDayStr = getLocalDateString(firstDay);
+
+        document.getElementById('invStartDate').value = firstDayStr;
+        document.getElementById('invEndDate').value = todayStr;
+        document.getElementById('invHistoryDate').value = todayStr;
+        document.getElementById('logStartDate').value = firstDayStr;
+        document.getElementById('logEndDate').value = todayStr;
+
+        window.switchMainTab = switchMainTab;
+        window.switchInvView = switchInvView;
+        window.loadInvData = loadInvData;
+        window.applyInvFilters = applyInvFilters;
+        window.updateInvField = updateInvField;
+        window.autoFillInvTime = autoFillInvTime;
+        window.autoFillInvExactTime = autoFillInvExactTime;
+        window.loadInvHistory = loadInvHistory;
+        window.loadLogData = loadLogData;
+        window.applyLogFilters = applyLogFilters;
+        window.toggleLogDetail = toggleLogDetail;
+
+        function showToast(msg = "資料已自動儲存更新！") {
+            document.getElementById('toastMsg').innerText = msg;
+            const toast = document.getElementById('toast');
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]');
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
+        }
+
+        // ==========================
+        // 🌟 最強主頁籤切換器 (盤點 vs 物流)
+        // ==========================
+        function switchMainTab(tab) {
+            if (tab === 'inventory') {
+                document.getElementById('sectionInventory').style.display = 'block';
+                document.getElementById('sectionLogistics').style.display = 'none';
+                document.getElementById('tabInventory').className = 'excel-tab active-blue';
+                document.getElementById('tabLogistics').className = 'excel-tab';
+                if (invRecords.length === 0) loadInvData();
+            } else {
+                document.getElementById('sectionInventory').style.display = 'none';
+                document.getElementById('sectionLogistics').style.display = 'block';
+                document.getElementById('tabInventory').className = 'excel-tab';
+                document.getElementById('tabLogistics').className = 'excel-tab active-green';
+                if (logRecords.length === 0) loadLogData();
+            }
+        }
+
+        // ==========================
+        // [盤點系統] 內部視圖切換
+        // ==========================
+        function switchInvView(view) {
+            if (view === 'main') {
+                document.getElementById('viewInvMain').style.display = 'flex';
+                document.getElementById('viewInvHistory').style.display = 'none';
+                document.getElementById('btnViewInvMain').classList.add('active');
+                document.getElementById('btnViewInvHistory').classList.remove('active');
+            } else {
+                document.getElementById('viewInvMain').style.display = 'none';
+                document.getElementById('viewInvHistory').style.display = 'flex';
+                document.getElementById('btnViewInvMain').classList.remove('active');
+                document.getElementById('btnViewInvHistory').classList.add('active');
+            }
+        }
+
+        // ==========================
+        // [盤點系統] 資料載入與渲染
+        // ==========================
+        async function loadInvData() {
+            const startDate = document.getElementById('invStartDate').value;
+            const endDate = document.getElementById('invEndDate').value;
+            const tbody = document.getElementById('invTableBody');
+            const btn = document.getElementById('invLoadBtn');
+            btn.innerHTML = `載入中...`; btn.disabled = true;
+            tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
+            
+            try {
+                const q = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const querySnapshot = await getDocs(q);
+                invRecords = [];
+                querySnapshot.forEach((docSnap) => {
+                    const data = docSnap.data(); data.docId = docSnap.id; invRecords.push(data);
+                });
+                invRecords.sort((a, b) => {
+                    if (a.date < b.date) return -1; if (a.date > b.date) return 1;
+                    if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
+                    return (a.item < b.item) ? -1 : 1;
+                });
+                populateInvDropdowns();
+                applyInvFilters();
+            } catch (error) {
+                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+            } finally {
+                btn.innerHTML = `下載明細`; btn.disabled = false;
+            }
+        }
+
+        function populateInvDropdowns() {
+            const dates = [...new Set(invRecords.map(r => r.date || ""))].filter(v=>v).sort();
+            const hotels = [...new Set(invRecords.map(r => r.hotel || ""))].filter(v=>v).sort();
+            const items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v).sort();
+
+            const fD = document.getElementById('fltInvDate'); const fH = document.getElementById('fltInvHotel'); const fI = document.getElementById('fltInvItem');
+            const pD = fD.value; const pH = fH.value; const pI = fI.value;
+
+            fD.innerHTML = `<option value="">單據日期 ▾</option>` + dates.map(v => `<option value="${v}">${v}</option>`).join('');
+            fH.innerHTML = `<option value="">飯店/部門 ▾</option>` + hotels.map(v => `<option value="${v}">${v}</option>`).join('');
+            fI.innerHTML = `<option value="">品項 ▾</option>` + items.map(v => `<option value="${v}">${v}</option>`).join('');
+
+            if (dates.includes(pD)) fD.value = pD; if (hotels.includes(pH)) fH.value = pH; if (items.includes(pI)) fI.value = pI;
+        }
+
+        function applyInvFilters() {
+            const fDate = document.getElementById('fltInvDate').value;
+            const fHotel = document.getElementById('fltInvHotel').value;
+            const fItem = document.getElementById('fltInvItem').value;
+            invFiltered = invRecords.filter(r => {
+                return (fDate === "" || r.date === fDate) && (fHotel === "" || r.hotel === fHotel) && (fItem === "" || r.item === fItem);
+            });
+            document.getElementById('invRecordCount').innerText = invFiltered.length;
+            renderInvTable(invFiltered);
+        }
+
+        function renderInvTable(data) {
+            const tbody = document.getElementById('invTableBody');
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-16 text-center text-gray-500 font-bold">沒有符合紀錄</td></tr>`; return;
+            }
+            tbody.innerHTML = data.map(r => {
+                let aSig = r.signature ? `<img src="${r.signature}" class="sig-img">` : `<span class="text-xs text-gray-400">未簽名</span>`;
+                let dSig = r.doubleSignature ? `<img src="${r.doubleSignature}" class="sig-img">` : `<span class="text-xs text-gray-400">未簽名</span>`;
+                return `
+                    <tr class="main-row">
+                        <td><input type="date" value="${r.date || ''}" class="clean-input font-mono" onblur="updateInvField('${r.docId}', 'date', this.value, this)"></td>
+                        <td class="font-bold text-gray-800">${r.hotel}</td>
+                        <td class="text-blue-700 font-bold">${r.item}</td>
+                        <td class="text-center font-bold text-gray-600">${r.count || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${aSig}</div></td>
+                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${dSig}</div></td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="invTime_${r.docId}" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px]" placeholder="尚未記錄" onblur="updateInvField('${r.docId}', 'doubleSignDate', this.value, this)">
+                                <div class="flex flex-col gap-1">
+                                    <button onclick="autoFillInvExactTime('${r.docId}')" class="text-[10px] px-1 bg-blue-50 text-blue-600 border border-blue-200">⌚</button>
+                                    <button onclick="autoFillInvTime('${r.docId}')" class="text-[10px] px-1 bg-orange-50 text-orange-500 border border-orange-200">💡</button>
+                                </div>
+                            </div>
+                        </td>
+                        <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this)"></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function updateInvField(docId, field, newValue, inputEl) {
+            const record = invRecords.find(r => r.docId === docId);
+            if (!record || record[field] === newValue.trim()) return; 
+            inputEl.style.opacity = '0.5';
+            try {
+                await setDoc(doc(db, 'inventory_records', docId), { [field]: newValue.trim(), timestamp: new Date().toLocaleString() }, { merge: true });
+                record[field] = newValue.trim(); inputEl.style.opacity = '1'; showToast();
+            } catch (e) {
+                inputEl.style.color = 'red'; alert("更新失敗！");
+            }
+        }
+
+        async function autoFillInvExactTime(docId) {
+            const timeInput = document.getElementById(`invTime_${docId}`);
+            timeInput.value = getExactTimeString();
+            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);
+        }
+
+        async function autoFillInvTime(docId) {
+            const record = invRecords.find(r => r.docId === docId);
+            const dateStr = record ? record.date : document.getElementById('invStartDate').value;
+            const timeInput = document.getElementById(`invTime_${docId}`);
+            timeInput.value = `${dateStr} 23:59:59`;
+            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);
+        }
+
+        async function loadInvHistory() {
+            const targetDate = document.getElementById('invHistoryDate').value;
+            const tbody = document.getElementById('invHistoryBody');
+            const btn = document.getElementById('invHistoryBtn');
+            btn.innerHTML = `查詢中...`; btn.disabled = true;
+            tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
+            try {
+                const q = query(collection(db, "history_logs"), where("date", "==", targetDate));
+                const snap = await getDocs(q);
+                let history = []; snap.forEach(d => history.push(d.data()));
+                history.sort((a, b) => b.timestamp - a.timestamp);
+
+                if (history.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-400">無盤點紀錄</td></tr>`; return; }
+
+                tbody.innerHTML = history.map(r => `
+                    <tr>
+                        <td class="font-mono text-gray-700">${r.actionTime || '-'}</td>
+                        <td class="font-bold text-gray-800">${r.hotel}</td>
+                        <td class="text-blue-700 font-bold">${r.item}</td>
+                        <td class="text-center font-bold">${r.count || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${r.signature ? `<img src="${r.signature}" class="sig-img">` : `<span class="text-xs text-gray-400">無</span>`}</div></td>
+                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${r.doubleSignature ? `<img src="${r.doubleSignature}" class="sig-img">` : `<span class="text-xs text-gray-400">無</span>`}</div></td>
+                        <td class="text-gray-600">${r.note || '-'}</td>
+                    </tr>`).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
+            } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
+        }
+
+        // ==========================
+        // [物流系統] 折疊版資料載入與渲染
+        // ==========================
+        async function loadLogData() {
+            const startDate = document.getElementById('logStartDate').value;
+            const endDate = document.getElementById('logEndDate').value;
+            const tbody = document.getElementById('logTableBody');
+            const btn = document.getElementById('logLoadBtn');
+            btn.innerHTML = `載入中...`; btn.disabled = true;
+            tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流簽收資料庫...</td></tr>`;
+            
+            try {
+                const q = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const snap = await getDocs(q);
+                logRecords = [];
+
+                snap.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    let hotelName = d.hotelKeyword === d.deptName ? d.hotelKeyword : `${d.hotelKeyword} ${d.deptName}`;
+                    if(d.deptName && d.deptName.includes(d.hotelKeyword)) hotelName = d.deptName;
+
+                    let hasIssue = (!d.driverSig || !d.clientSig);
+                    let validItems = [];
+
+                    (d.items || []).forEach(item => {
+                        if (!item.originalQty || item.originalQty == "0") return;
+                        let actual = (item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty;
+                        if (String(actual) !== String(item.originalQty)) hasIssue = true; // 數量有改也是異常
+                        
+                        validItems.push({
+                            itemName: item.itemName,
+                            bqQty: item.originalQty,
+                            actualQty: actual
+                        });
+                    });
+
+                    if (validItems.length > 0) {
+                        logRecords.push({
+                            id: docSnap.id,
+                            date: d.date,
+                            hotel: hotelName,
+                            items: validItems,
+                            driverSig: d.driverSig || "",
+                            clientSig: d.clientSig || "",
+                            signDate: d.timestamp || "",
+                            hasIssue: hasIssue
+                        });
+                    }
+                });
+
+                logRecords.sort((a, b) => {
+                    if (a.date < b.date) return -1; if (a.date > b.date) return 1;
+                    if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
+                    return 0;
+                });
+
+                populateLogDropdowns(); 
+                applyLogFilters();
+
+            } catch (error) {
+                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+            } finally {
+                btn.innerHTML = `載入物流單據`; btn.disabled = false;
+            }
+        }
+
+        function populateLogDropdowns() {
+            const dates = [...new Set(logRecords.map(r => r.date))].sort();
+            const hotels = [...new Set(logRecords.map(r => r.hotel))].sort();
+            
+            let allItems = [];
+            logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));
+            const items = [...new Set(allItems)].sort();
+
+            const fD = document.getElementById('fltLogDate'); 
+            const fH = document.getElementById('fltLogHotel'); 
+            const fI = document.getElementById('fltLogItem');
+
+            const pD = fD.value; const pH = fH.value; const pI = fI.value;
+
+            fD.innerHTML = `<option value="">單據日期 ▾</option>` + dates.map(v => `<option value="${v}">${v}</option>`).join('');
+            fH.innerHTML = `<option value="">飯店/部門 ▾</option>` + hotels.map(v => `<option value="${v}">${v}</option>`).join('');
+            fI.innerHTML = `<option value="">(全部品項)</option>` + items.map(v => `<option value="${v}">${v}</option>`).join('');
+
+            if (dates.includes(pD)) fD.value = pD; 
+            if (hotels.includes(pH)) fH.value = pH; 
+            if (items.includes(pI)) fI.value = pI;
+        }
+
+        function applyLogFilters() {
+            const fDate = document.getElementById('fltLogDate').value;
+            const fHotel = document.getElementById('fltLogHotel').value;
+            const fItem = document.getElementById('fltLogItem').value;
+
+            logFiltered = logRecords.filter(r => {
+                const matchDate = (fDate === "") || (r.date === fDate);
+                const matchHotel = (fHotel === "") || (r.hotel === fHotel);
+                const matchItem = (fItem === "") || r.items.some(i => i.itemName === fItem); // 若底下品項有包含搜尋字就顯示
+                return matchDate && matchHotel && matchItem;
+            });
+
+            document.getElementById('logRecordCount').innerText = logFiltered.length;
+            renderLogTable(logFiltered);
+        }
+
+        function toggleLogDetail(id) {
+            const el = document.getElementById(id);
+            const icon = document.getElementById('icon_' + id);
+            if(el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                icon.innerText = '▲ 收起明細';
+            } else {
+                el.classList.add('hidden');
+                icon.innerText = '▼ 展開明細';
+            }
+        }
+
+        function renderLogTable(data) {
+            const tbody = document.getElementById('logTableBody');
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-16 text-center text-gray-500 font-bold text-base">目前區間內沒有符合出貨紀錄。</td></tr>`; 
+                return;
+            }
+
+            tbody.innerHTML = data.map((r, index) => {
+                // 狀態紅綠燈
+                let statusDot = r.hasIssue 
+                    ? `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="有數量更改或未簽名"></span>` 
+                    : `<span class="w-3 h-3 rounded-full bg-green-500 inline-block shadow-sm" title="已完成且無修改"></span>`;
+                
+                // 簽名檔
+                let dSig = r.driverSig ? `<img src="${r.driverSig}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
+                let cSig = r.clientSig ? `<img src="${r.clientSig}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
+                
+                let timeDisplay = r.signDate ? r.signDate : '<span class="text-gray-400 italic">尚未簽收</span>';
+
+                // 底下的品項清單表格
+                let itemsHtml = r.items.map(i => `
+                    <tr class="border-b border-emerald-100/50 last:border-0 hover:bg-emerald-50/50">
+                        <td class="py-2 px-4 text-emerald-800 font-bold">${i.itemName}</td>
+                        <td class="text-center py-2 text-gray-500">${i.bqQty}</td>
+                        <td class="text-center py-2 font-black ${i.actualQty !== i.bqQty ? 'text-orange-600 bg-orange-50 rounded' : 'text-emerald-700'}">${i.actualQty}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <tr class="main-row border-b border-gray-200" onclick="toggleLogDetail('log_detail_${index}')">
+                        <td class="font-mono text-gray-700 text-base flex items-center gap-3">
+                            ${statusDot} ${r.date}
+                        </td>
+                        <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
+                        <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
+                        <td class="text-right pr-6 text-emerald-600 font-bold">
+                            <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors">▼ 展開明細</span>
+                        </td>
+                    </tr>
+                    
+                    <!-- 展開的明細視窗 (預設隱藏) -->
+                    <tr id="log_detail_${index}" class="hidden bg-gray-50 shadow-inner">
+                        <td colspan="4" class="p-0 border-b-4 border-gray-200">
+                            <div class="p-6 bg-emerald-50/30">
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    
+                                    <!-- 左側：明細數量表格 -->
+                                    <div>
+                                        <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">📦 點交數量明細</h4>
+                                        <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-gray-100 text-gray-600 border-b border-gray-200">
+                                                    <tr>
+                                                        <th class="py-2 px-4 text-left font-bold">品項</th>
+                                                        <th class="py-2 px-2 text-center font-bold">百麒數量</th>
+                                                        <th class="py-2 px-2 text-center font-bold">實收數量</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${itemsHtml}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 右側：雙方簽名確認 -->
+                                    <div class="flex flex-col">
+                                        <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">✍️ 雙方簽收確認</h4>
+                                        <div class="flex gap-4">
+                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">
+                                                <div class="text-sm font-bold text-gray-500 mb-2">物流司機簽名</div>
+                                                <div class="sig-container h-[60px]">${dSig}</div>
+                                            </div>
+                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">
+                                                <div class="text-sm font-bold text-gray-500 mb-2">飯店端簽名</div>
+                                                <div class="sig-container h-[60px]">${cSig}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 開啟預設藍色分頁
+        switchMainTab('inventory');
+
+    </script>
+</body>
+</html>
