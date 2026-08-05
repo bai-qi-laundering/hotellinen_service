@@ -6,23 +6,19 @@
     <title>百麒物流 - 總管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* 基礎背景色與字體 */
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
-        
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
         .modern-table { width: 100%; border-collapse: collapse; text-align: left; }
         
-        /* 藍色系 (盤點用) */
         .table-blue th { background-color: #3b5bdb; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; }
         .table-blue tr.main-row:nth-child(even) { background-color: #f8f9fc; }
         .table-blue tr.main-row:nth-child(odd) { background-color: #ffffff; }
         .table-blue tr.main-row:hover td { background-color: #edf2ff; }
 
-        /* 綠色系 (物流用) */
         .table-green th { background-color: #059669; color: white; padding: 12px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; z-index: 40; white-space: nowrap; }
         .table-green tr.main-row { transition: background-color 0.2s; cursor: pointer; }
-        .table-green tr.main-row:nth-child(4n-3) { background-color: #ffffff; } /* 4n-3 因為每個單子有兩行(主行+展開行) */
+        .table-green tr.main-row:nth-child(4n-3) { background-color: #ffffff; } 
         .table-green tr.main-row:nth-child(4n-1) { background-color: #f8faf9; }
         .table-green tr.main-row:hover { background-color: #ecfdf5; }
 
@@ -38,12 +34,10 @@
         .sig-img { max-height: 100%; max-width: 80px; background-color: white; border: 1px solid #dee2e6; border-radius: 4px; cursor: zoom-in; transition: transform 0.2s ease-in-out; }
         .sig-img:hover { transform: scale(3.5); position: relative; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
 
-        /* 內部頁籤切換器 */
         .view-toggle { display: flex; background: #e9ecef; padding: 4px; border-radius: 8px; gap: 4px; }
         .toggle-btn { padding: 6px 16px; font-weight: bold; font-size: 14px; border-radius: 6px; cursor: pointer; transition: all 0.2s; color: #6c757d; }
         .toggle-btn.active { background: white; color: #3b5bdb; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-        /* 底部 Excel 主頁籤 (Tabs) */
         .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
         .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; outline: none; }
         .excel-tab.active-blue { background-color: white; color: #3b5bdb; border-top: 3px solid #3b5bdb; font-weight: 900; }
@@ -58,16 +52,13 @@
 </head>
 <body class="p-4 md:p-8">
 
-    <!-- 浮動提示框 -->
     <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
         <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
     </div>
 
-    <!-- ========================================== -->
     <!-- 👑 藍色：盤點明細後台 (Inventory Section) -->
-    <!-- ========================================== -->
     <div id="sectionInventory" class="max-w-[1400px] mx-auto block animate-[fadeIn_0.3s_ease-out]">
-        <div class="flex justify-between items-end mb-6 border-b pb-4">
+        <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
             <div class="flex items-center gap-6">
                 <h1 class="text-3xl font-black text-gray-900 tracking-tight">老闆專屬後台</h1>
                 <div class="view-toggle">
@@ -77,7 +68,6 @@
             </div>
         </div>
 
-        <!-- 視圖 1：盤點明細修改 -->
         <div id="viewInvMain" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
             <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50">
                 <div class="flex items-center gap-4">
@@ -116,7 +106,6 @@
             </div>
         </div>
 
-        <!-- 視圖 2：阿姨流水帳 -->
         <div id="viewInvHistory" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-col h-[calc(100vh-180px)]">
             <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 z-50">
                 <div class="flex items-center gap-4">
@@ -149,11 +138,9 @@
         </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- 📦 綠色：物流查帳後台 (折疊版 Logistics Section) -->
-    <!-- ========================================== -->
+    <!-- 📦 綠色：物流查帳後台 (Logistics Section) -->
     <div id="sectionLogistics" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]">
-        <div class="flex justify-between items-end mb-6 border-b pb-4">
+        <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
             <div class="flex items-baseline gap-4">
                 <h1 class="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
                     <span class="text-emerald-600">📦</span> 物流簽收查帳台
@@ -207,42 +194,56 @@
         </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- ★ 底部 Excel 主頁籤 (Tabs) 動態切換器 -->
-    <!-- ========================================== -->
+    <!-- 底部 Excel 主頁籤 -->
     <div class="excel-bottom-bar">
-        <!-- 點擊此按鈕切換到盤點藍色畫面 -->
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
-        <!-- 點擊此按鈕切換到物流綠色畫面 -->
         <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">📦 物流查帳後台</button>
-        
         <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
     </div>
 
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-        // ★ Firebase 金鑰
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
             authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
             projectId: "hotel-inventory-3a1ad",
             storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
             messagingSenderId: "363844184412",
-            appId: "1:363844184412:web:66cdd6425d53bde75f3999",
-            measurementId: "G-NM1W9JT70F"
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // 獨立的資料庫儲存區
-        let invRecords = []; 
-        let invFiltered = []; 
-        let logRecords = []; 
-        let logFiltered = []; 
+        let invRecords = []; let invFiltered = []; 
+        let logRecords = []; let logFiltered = []; 
+
+        // ★ 新增：取得可能的日期格式陣列，用於歷史軌跡的加速過濾
+        function getPossibleDates(dateStr) {
+            if(!dateStr) return [];
+            let parts = dateStr.split(/[-/]/);
+            if(parts.length !== 3) return [dateStr];
+            let y = parts[0], m = parts[1], d = parts[2];
+            let mNoPad = parseInt(m, 10).toString();
+            let dNoPad = parseInt(d, 10).toString();
+            return [
+                `${y}-${m}-${d}`,
+                `${y}-${mNoPad}-${dNoPad}`,
+                `${y}/${m}/${d}`,
+                `${y}/${mNoPad}/${dNoPad}`
+            ];
+        }
+
+        // 轉換日期為 YYYY-MM-DD
+        function standardizeDate(dStr) {
+            if(!dStr || typeof dStr !== 'string') return "";
+            let parts = dStr.split(/[-/]/);
+            if(parts.length !== 3) return dStr;
+            return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        }
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
         function getExactTimeString() {
@@ -252,17 +253,13 @@
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
         }
         
-        // 預設日期初始化
         const today = new Date();
         const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        const todayStr = getLocalDateString(today);
-        const firstDayStr = getLocalDateString(firstDay);
-
-        document.getElementById('invStartDate').value = firstDayStr;
-        document.getElementById('invEndDate').value = todayStr;
-        document.getElementById('invHistoryDate').value = todayStr;
-        document.getElementById('logStartDate').value = firstDayStr;
-        document.getElementById('logEndDate').value = todayStr;
+        document.getElementById('invStartDate').value = getLocalDateString(firstDay);
+        document.getElementById('invEndDate').value = getLocalDateString(today);
+        document.getElementById('invHistoryDate').value = getLocalDateString(today);
+        document.getElementById('logStartDate').value = getLocalDateString(firstDay);
+        document.getElementById('logEndDate').value = getLocalDateString(today);
 
         window.switchMainTab = switchMainTab;
         window.switchInvView = switchInvView;
@@ -275,6 +272,7 @@
         window.loadLogData = loadLogData;
         window.applyLogFilters = applyLogFilters;
         window.toggleLogDetail = toggleLogDetail;
+        window.updateLogQty = updateLogQty; 
 
         function showToast(msg = "資料已自動儲存更新！") {
             document.getElementById('toastMsg').innerText = msg;
@@ -283,9 +281,6 @@
             setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
         }
 
-        // ==========================
-        // 🌟 最強主頁籤切換器 (盤點 vs 物流)
-        // ==========================
         function switchMainTab(tab) {
             if (tab === 'inventory') {
                 document.getElementById('sectionInventory').style.display = 'block';
@@ -302,9 +297,6 @@
             }
         }
 
-        // ==========================
-        // [盤點系統] 內部視圖切換
-        // ==========================
         function switchInvView(view) {
             if (view === 'main') {
                 document.getElementById('viewInvMain').style.display = 'flex';
@@ -319,9 +311,7 @@
             }
         }
 
-        // ==========================
-        // [盤點系統] 資料載入與渲染
-        // ==========================
+        // ★ 智慧抓取：使用並行查詢，不再把整個資料庫載下來卡死瀏覽器
         async function loadInvData() {
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
@@ -331,12 +321,31 @@
             tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
             
             try {
-                const q = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const querySnapshot = await getDocs(q);
+                let startParts = startDate.split('-');
+                let endParts = endDate.split('-');
+                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+
+                const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+
+                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                
+                let uniqueDocs = new Map();
+                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+
                 invRecords = [];
-                querySnapshot.forEach((docSnap) => {
-                    const data = docSnap.data(); data.docId = docSnap.id; invRecords.push(data);
+                uniqueDocs.forEach((docSnap) => {
+                    const data = docSnap.data(); 
+                    let dDate = standardizeDate(data.date);
+                    if (dDate >= startDate && dDate <= endDate) {
+                        data.docId = docSnap.id; 
+                        data.date = dDate; 
+                        invRecords.push(data);
+                    }
                 });
+
                 invRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
                     if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
@@ -415,7 +424,7 @@
             inputEl.style.opacity = '0.5';
             try {
                 await setDoc(doc(db, 'inventory_records', docId), { [field]: newValue.trim(), timestamp: new Date().toLocaleString() }, { merge: true });
-                record[field] = newValue.trim(); inputEl.style.opacity = '1'; showToast();
+                record[field] = newValue.trim(); inputEl.style.opacity = '1'; showToast("盤點資料已儲存！");
             } catch (e) {
                 inputEl.style.color = 'red'; alert("更新失敗！");
             }
@@ -435,6 +444,7 @@
             updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);
         }
 
+        // ★ 智慧抓取：使用 in 條件精準篩選可能日期，解決畫面凍結 Bug！
         async function loadInvHistory() {
             const targetDate = document.getElementById('invHistoryDate').value;
             const tbody = document.getElementById('invHistoryBody');
@@ -442,16 +452,21 @@
             btn.innerHTML = `查詢中...`; btn.disabled = true;
             tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
             try {
-                const q = query(collection(db, "history_logs"), where("date", "==", targetDate));
+                const datesToQuery = getPossibleDates(targetDate);
+                const q = query(collection(db, "history_logs"), where("date", "in", datesToQuery));
                 const snap = await getDocs(q);
-                let history = []; snap.forEach(d => history.push(d.data()));
+                
+                let history = []; 
+                snap.forEach(d => {
+                    history.push(d.data());
+                });
                 history.sort((a, b) => b.timestamp - a.timestamp);
 
-                if (history.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-400">無盤點紀錄</td></tr>`; return; }
+                if (history.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-400">這一天無盤點紀錄</td></tr>`; return; }
 
                 tbody.innerHTML = history.map(r => `
                     <tr>
-                        <td class="font-mono text-gray-700">${r.actionTime || '-'}</td>
+                        <td class="font-mono text-gray-700">${r.actionTime || r.timeString || '-'}</td>
                         <td class="font-bold text-gray-800">${r.hotel}</td>
                         <td class="text-blue-700 font-bold">${r.item}</td>
                         <td class="text-center font-bold">${r.count || '-'}</td>
@@ -465,9 +480,7 @@
             } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
         }
 
-        // ==========================
-        // [物流系統] 折疊版資料載入與渲染
-        // ==========================
+        // ★ 智慧抓取：並行查詢解決畫面凍結 Bug
         async function loadLogData() {
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
@@ -477,41 +490,57 @@
             tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流簽收資料庫...</td></tr>`;
             
             try {
-                const q = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const snap = await getDocs(q);
+                let startParts = startDate.split('-');
+                let endParts = endDate.split('-');
+                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+
+                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+
+                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                
+                let uniqueDocs = new Map();
+                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+
                 logRecords = [];
 
-                snap.forEach((docSnap) => {
+                uniqueDocs.forEach((docSnap) => {
                     const d = docSnap.data();
-                    let hotelName = d.hotelKeyword === d.deptName ? d.hotelKeyword : `${d.hotelKeyword} ${d.deptName}`;
-                    if(d.deptName && d.deptName.includes(d.hotelKeyword)) hotelName = d.deptName;
+                    let dDate = standardizeDate(d.date); 
+                    
+                    if (dDate >= startDate && dDate <= endDate) {
+                        let hotelName = d.hotelKeyword;
+                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-                    let hasIssue = (!d.driverSig || !d.clientSig);
-                    let validItems = [];
+                        let hasIssue = (!d.driverSig || !d.clientSig);
+                        let validItems = [];
 
-                    (d.items || []).forEach(item => {
-                        if (!item.originalQty || item.originalQty == "0") return;
-                        let actual = (item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty;
-                        if (String(actual) !== String(item.originalQty)) hasIssue = true; // 數量有改也是異常
-                        
-                        validItems.push({
-                            itemName: item.itemName,
-                            bqQty: item.originalQty,
-                            actualQty: actual
+                        (d.items || []).forEach(item => {
+                            if (!item.originalQty || item.originalQty == "0") return;
+                            let actual = (item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty;
+                            if (String(actual) !== String(item.originalQty)) hasIssue = true; 
+                            
+                            validItems.push({
+                                itemName: item.itemName,
+                                bqQty: item.originalQty,
+                                actualQty: actual
+                            });
                         });
-                    });
 
-                    if (validItems.length > 0) {
-                        logRecords.push({
-                            id: docSnap.id,
-                            date: d.date,
-                            hotel: hotelName,
-                            items: validItems,
-                            driverSig: d.driverSig || "",
-                            clientSig: d.clientSig || "",
-                            signDate: d.timestamp || "",
-                            hasIssue: hasIssue
-                        });
+                        if (validItems.length > 0) {
+                            logRecords.push({
+                                id: docSnap.id,
+                                date: dDate,
+                                hotel: hotelName,
+                                items: validItems,
+                                driverSig: d.driverSig || "",
+                                clientSig: d.clientSig || "",
+                                signDate: d.timestamp || "",
+                                hasIssue: hasIssue
+                            });
+                        }
                     }
                 });
 
@@ -562,7 +591,7 @@
             logFiltered = logRecords.filter(r => {
                 const matchDate = (fDate === "") || (r.date === fDate);
                 const matchHotel = (fHotel === "") || (r.hotel === fHotel);
-                const matchItem = (fItem === "") || r.items.some(i => i.itemName === fItem); // 若底下品項有包含搜尋字就顯示
+                const matchItem = (fItem === "") || r.items.some(i => i.itemName === fItem); 
                 return matchDate && matchHotel && matchItem;
             });
 
@@ -582,6 +611,54 @@
             }
         }
 
+        async function updateLogQty(docId, itemName, newValue, inputElement, bqQty) {
+            const finalNewValue = String(newValue).trim();
+            if (finalNewValue === "") return; 
+            
+            inputElement.style.opacity = '0.5';
+
+            try {
+                const docRef = doc(db, 'logistics_records', docId);
+                const docSnap = await getDoc(docRef);
+                
+                if (docSnap.exists()) {
+                    let data = docSnap.data();
+                    let items = data.items || [];
+                    let itemFound = false;
+                    
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].itemName === itemName) {
+                            items[i].actualQty = finalNewValue;
+                            itemFound = true;
+                            break;
+                        }
+                    }
+                    
+                    if (itemFound) {
+                        await setDoc(docRef, { items: items }, { merge: true });
+                        showToast("物流實收數量已更新！(財務將自動連動)");
+                        
+                        let localRecord = logRecords.find(r => r.id === docId);
+                        if(localRecord) {
+                           let localItem = localRecord.items.find(i => i.itemName === itemName);
+                           if(localItem) localItem.actualQty = finalNewValue;
+                        }
+
+                        if (finalNewValue !== String(bqQty)) {
+                            inputElement.className = "w-20 text-center py-1 rounded outline-none text-orange-600 bg-orange-50 font-black border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
+                        } else {
+                            inputElement.className = "w-20 text-center py-1 rounded outline-none text-emerald-700 font-bold bg-transparent border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("更新物流數量失敗:", err);
+                alert("更新失敗，請檢查網路！");
+            } finally {
+                inputElement.style.opacity = '1';
+            }
+        }
+
         function renderLogTable(data) {
             const tbody = document.getElementById('logTableBody');
             if (data.length === 0) {
@@ -590,25 +667,30 @@
             }
 
             tbody.innerHTML = data.map((r, index) => {
-                // 狀態紅綠燈
                 let statusDot = r.hasIssue 
                     ? `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="有數量更改或未簽名"></span>` 
                     : `<span class="w-3 h-3 rounded-full bg-green-500 inline-block shadow-sm" title="已完成且無修改"></span>`;
                 
-                // 簽名檔
                 let dSig = r.driverSig ? `<img src="${r.driverSig}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
                 let cSig = r.clientSig ? `<img src="${r.clientSig}" class="sig-img">` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
-                
                 let timeDisplay = r.signDate ? r.signDate : '<span class="text-gray-400 italic">尚未簽收</span>';
 
-                // 底下的品項清單表格
-                let itemsHtml = r.items.map(i => `
+                let itemsHtml = r.items.map(i => {
+                    let isMismatch = String(i.actualQty) !== String(i.bqQty);
+                    let qtyClass = isMismatch ? 'text-orange-600 bg-orange-50 font-black' : 'text-emerald-700 font-bold bg-transparent';
+                    
+                    return `
                     <tr class="border-b border-emerald-100/50 last:border-0 hover:bg-emerald-50/50">
                         <td class="py-2 px-4 text-emerald-800 font-bold">${i.itemName}</td>
-                        <td class="text-center py-2 text-gray-500">${i.bqQty}</td>
-                        <td class="text-center py-2 font-black ${i.actualQty !== i.bqQty ? 'text-orange-600 bg-orange-50 rounded' : 'text-emerald-700'}">${i.actualQty}</td>
+                        <td class="text-center py-2 text-gray-500 font-bold">${i.bqQty}</td>
+                        <td class="text-center py-1">
+                            <input type="number" value="${i.actualQty}" 
+                                class="w-20 text-center py-1 rounded border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors outline-none ${qtyClass}"
+                                onblur="updateLogQty('${r.id}', '${i.itemName}', this.value, this, '${i.bqQty}')"
+                                title="點擊直接修改實收數量">
+                        </td>
                     </tr>
-                `).join('');
+                `}).join('');
 
                 return `
                     <tr class="main-row border-b border-gray-200" onclick="toggleLogDetail('log_detail_${index}')">
@@ -621,47 +703,41 @@
                             <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors">▼ 展開明細</span>
                         </td>
                     </tr>
-                    
-                    <!-- 展開的明細視窗 (預設隱藏) -->
                     <tr id="log_detail_${index}" class="hidden bg-gray-50 shadow-inner">
                         <td colspan="4" class="p-0 border-b-4 border-gray-200">
                             <div class="p-6 bg-emerald-50/30">
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                    
-                                    <!-- 左側：明細數量表格 -->
                                     <div>
-                                        <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">📦 點交數量明細</h4>
+                                        <div class="flex justify-between items-end mb-3 border-b-2 border-emerald-200 pb-2">
+                                            <h4 class="font-bold text-emerald-800">📦 點交數量明細</h4>
+                                            <span class="text-xs font-bold text-emerald-600">💡 點擊「實收數量」格子即可強制修改</span>
+                                        </div>
                                         <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                                             <table class="w-full text-sm">
                                                 <thead class="bg-gray-100 text-gray-600 border-b border-gray-200">
                                                     <tr>
-                                                        <th class="py-2 px-4 text-left font-bold">品項</th>
-                                                        <th class="py-2 px-2 text-center font-bold">百麒數量</th>
-                                                        <th class="py-2 px-2 text-center font-bold">實收數量</th>
+                                                        <th class="py-2 px-4 text-left font-bold w-1/2">品項</th>
+                                                        <th class="py-2 px-2 text-center font-bold w-1/4">百麒數量</th>
+                                                        <th class="py-2 px-2 text-center font-bold w-1/4">實收數量</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody>
-                                                    ${itemsHtml}
-                                                </tbody>
+                                                <tbody>${itemsHtml}</tbody>
                                             </table>
                                         </div>
                                     </div>
-                                    
-                                    <!-- 右側：雙方簽名確認 -->
                                     <div class="flex flex-col">
                                         <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">✍️ 雙方簽收確認</h4>
                                         <div class="flex gap-4">
-                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">
+                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center justify-center">
                                                 <div class="text-sm font-bold text-gray-500 mb-2">物流司機簽名</div>
                                                 <div class="sig-container h-[60px]">${dSig}</div>
                                             </div>
-                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center">
+                                            <div class="flex-1 bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col items-center justify-center">
                                                 <div class="text-sm font-bold text-gray-500 mb-2">飯店端簽名</div>
                                                 <div class="sig-container h-[60px]">${cSig}</div>
                                             </div>
                                         </div>
                                     </div>
-                                    
                                 </div>
                             </div>
                         </td>
@@ -670,7 +746,6 @@
             }).join('');
         }
 
-        // 開啟預設藍色分頁
         switchMainTab('inventory');
 
     </script>
