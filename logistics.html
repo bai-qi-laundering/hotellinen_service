@@ -28,7 +28,6 @@
             <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">載入中...</h1>
             <div class="flex justify-center items-center gap-3 mt-2">
                 <p id="dateTitle" class="text-lg font-bold text-blue-200">出貨點收系統</p>
-                <!-- 移除了定時器，加上手動重新載入按鈕 -->
                 <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
                     🔄 重新載入
                 </button>
@@ -222,7 +221,7 @@
                 }
             });
 
-            if (autoSyncTimer) clearInterval(autoSyncTimer); // 移除閃屏干擾
+            if (autoSyncTimer) clearInterval(autoSyncTimer); 
         }
 
         async function fetchData(isBackground = false) {
@@ -240,7 +239,6 @@
                 let rawData = [];
                 let baseInventoryItems = [];
 
-                // 1. 抓阿姨輸入的資料
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const invSnap = await getDocs(invQ);
 
@@ -260,7 +258,6 @@
                     }
                 });
 
-                // 2. 抓物流簽收過的資料
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 const logSnap = await getDocs(logQ);
                 let savedLogistics = {};
@@ -270,7 +267,6 @@
                     savedLogistics[d.deptName] = d;
                 });
 
-                // 3. 把兩邊資料合併
                 baseInventoryItems.forEach(item => {
                     let savedDept = savedLogistics[item.deptName] || 
                                     savedLogistics[item.hotelFull] || 
@@ -315,7 +311,6 @@
                     });
                 });
 
-                // ★ 4. 補回物流「自己新增」的臨時品項 (阿姨表單沒有，但在 Firebase 點收紀錄有)
                 for (let deptKey in savedLogistics) {
                     let savedDept = savedLogistics[deptKey];
                     if (savedDept.items) {
@@ -362,7 +357,6 @@
 
             groupedData = {};
             cleanData.forEach(item => {
-                // 如果原始數量是0而且實收也是0，才略過(避免自己新增的0被吃掉)
                 if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && 
                     (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) {
                     return; 
@@ -408,20 +402,17 @@
             }
         }
 
-        // ★ 新增功能：打開與關閉下拉選單
         function toggleDropdown(deptId, e) {
             e.stopPropagation();
             const menu = document.getElementById(`customDropdownMenu-${deptId}`);
             if (menu) menu.classList.toggle('hidden');
         }
 
-        // ★ 新增功能：從下拉選單選取品項
         function selectOption(deptId, val) {
             document.getElementById(`newItemInput-${deptId}`).value = val;
             document.getElementById(`customDropdownMenu-${deptId}`).classList.add('hidden');
         }
 
-        // ★ 新增功能：將新品項塞入畫面的部門列表
         function addNewItem(deptId, deptName) {
             const inputEl = document.getElementById(`newItemInput-${deptId}`);
             const newItemName = inputEl.value.trim();
@@ -431,14 +422,12 @@
                 return;
             }
             
-            // 檢查是否已經存在
             let exists = groupedData[deptName].items.some(i => i.itemName === newItemName);
             if (exists) {
                 alert("這個品項已經在上方列表裡面囉！");
                 return;
             }
 
-            // 直接塞入記憶體，預設數量為 0
             groupedData[deptName].items.push({
                 deptName: deptName,
                 itemName: newItemName,
@@ -455,10 +444,9 @@
             toast.classList.remove('opacity-0'); 
             setTimeout(() => toast.classList.add('opacity-0'), 2000);
 
-            renderDepartments(); // 重新畫畫面
+            renderDepartments(); 
         }
 
-        // 全域點擊監聽器，用來關閉所有展開的下拉選單
         document.addEventListener('click', function(e) {
             document.querySelectorAll('[id^="customDropdownMenu-"]').forEach(menu => {
                 const deptId = menu.id.split('-')[1];
@@ -481,7 +469,7 @@
 
             for (let dept in groupedData) {
                 deptIndex++;
-                let deptId = `dept_${deptIndex}`; // 產生安全 ID
+                let deptId = `dept_${deptIndex}`; 
 
                 let hasClientSig = groupedData[dept].clientSig ? true : false;
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
@@ -538,12 +526,10 @@
                     </div>
                 `}).join('');
 
-                // ★ 新增的下拉選單選項 HTML
                 let dropdownHtml = commonItems.map(val => 
                     `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`
                 ).join('');
 
-                // ★ 司機臨時新增欄位 (如果已簽收則隱藏)
                 let addItemHtml = "";
                 if (!isCompleted) {
                     addItemHtml = `
@@ -596,9 +582,17 @@
         setupCanvas(clientCanvas, clientCtx);
         setupCanvas(driverCanvas, driverCtx);
 
+        // ★ 完美修復的 clearCanvas 函數
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
-            canvas.isModified = true; 
+            canvas.isModified = true; // 標記為已修改(被清空也是一種修改)
+            
+            // ★ 同步清空記憶體裡面的 Base64，防止送出時又抓到舊圖
+            if (canvas.id === 'clientCanvas') {
+                groupedData[activeDeptKey].clientSig = "";
+            } else if (canvas.id === 'driverCanvas') {
+                groupedData[activeDeptKey].driverSig = "";
+            }
         }
 
         function openSignModal(deptName) {
@@ -627,6 +621,7 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
             
+            // ★ 嚴謹的圖片擷取邏輯
             let cBase64 = clientCanvas.isModified ? (cBlank ? "" : clientCanvas.toDataURL('image/png')) : (existClient || "");
             let dBase64 = driverCanvas.isModified ? (dBlank ? "" : driverCanvas.toDataURL('image/png')) : (existDriver || "");
 
@@ -685,12 +680,10 @@
             }
 
             try {
-                // ★ 寫入單據與時光機軌跡
                 const savePromises = payloads.map(p => {
                     const docId = `${p.date}_${p.hotelKeyword}_${p.deptName}`;
                     const docRef = doc(db, 'logistics_records', docId);
 
-                    // 加入時光機發報
                     addDoc(collection(db, 'history_logs'), {
                         logDate: getLocalDateString(new Date()),
                         timestamp: Date.now(),
