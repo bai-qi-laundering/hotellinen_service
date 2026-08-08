@@ -9,10 +9,9 @@
         body { background-color: #f8fafc; touch-action: manipulation; }
         .main-container { max-width: 500px; margin: 0 auto; }
         
-        /* ★ 核心修復：強制鎖死透明玻璃的範圍，防止它蓋住其他按鈕 */
-        .date-picker-container { position: relative; }
-        input[type="date"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10; }
-        input[type="date"]::-webkit-calendar-picker-indicator { width: 100%; height: 100%; position: absolute; top: 0; left: 0; cursor: pointer; opacity: 0; }
+        input[type="date"]::-webkit-calendar-picker-indicator { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+        }
         
         .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
     </style>
@@ -29,7 +28,7 @@
             <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">載入中...</h1>
             <div class="flex justify-center items-center gap-3 mt-2">
                 <p id="dateTitle" class="text-lg font-bold text-blue-200">出貨點收系統</p>
-                <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600 relative z-20">
+                <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
                     🔄 重新載入
                 </button>
             </div>
@@ -38,11 +37,10 @@
         
         <!-- 日期選擇區 -->
         <div class="bg-white p-4 rounded-b-2xl shadow-md mb-6 flex flex-col gap-3 border-t border-blue-900">
-            <!-- ★ 套用新的 CSS class，把透明玻璃關在裡面 -->
-            <div class="date-picker-container w-full bg-blue-50 rounded-lg h-14 flex items-center justify-center border border-blue-200 overflow-hidden">
-                <span class="absolute left-4 text-xl pointer-events-none">📅</span>
+            <div class="relative w-full bg-blue-50 rounded-lg h-14 flex items-center justify-center border border-blue-200">
+                <span class="absolute left-4 text-xl">📅</span>
                 <div id="dateDisplay" class="w-full text-center font-bold text-xl pointer-events-none text-blue-900">載入中...</div>
-                <input type="date" id="datePicker" onchange="dateChanged()">
+                <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">
             </div>
             <p class="text-center text-sm text-gray-400 font-bold">點擊上方可回溯查詢歷史點交紀錄</p>
         </div>
@@ -55,7 +53,7 @@
 
     <!-- 雙簽名視窗 -->
     <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000] overflow-y-auto">
-        <div class="bg-white p-5 rounded-2xl w-full max-w-sm my-auto relative">
+        <div class="bg-white p-5 rounded-2xl w-full max-w-sm my-auto">
             <h2 id="modalDeptTitle" class="text-xl font-black text-center text-blue-800 mb-4 border-b pb-2">部門名稱</h2>
             
             <div class="mb-5">
@@ -82,7 +80,6 @@
         </div>
     </div>
 
-    <!-- ★ 引入 Firebase 模組 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -112,7 +109,6 @@
         const clientCtx = clientCanvas.getContext('2d');
         const driverCtx = driverCanvas.getContext('2d');
 
-        // 綁定所有 HTML 會呼叫的函數
         window.dateChanged = dateChanged;
         window.clearCanvas = clearCanvas;
         window.openSignModal = openSignModal;
@@ -138,7 +134,6 @@
             return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
         }
 
-        // 精確時間產生器
         function getExactTimeString() {
             const now = new Date();
             const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
@@ -471,7 +466,7 @@
 
             for (let dept in groupedData) {
                 deptIndex++;
-                let deptId = `dept_${deptIndex}`; 
+                let deptId = `dept_${deptIndex}`;
 
                 let hasClientSig = groupedData[dept].clientSig ? true : false;
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
@@ -480,16 +475,16 @@
                 let actionButton = "";
 
                 if (isCompleted) {
-                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2 relative z-20">
+                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2">
                         <span>✅ 已點收完畢</span>
-                        <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看/重簽</button>
+                        <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看簽名</button>
                     </div>`;
                 } else if (hasClientSig && !hasDriverSig) {
-                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse relative z-20">🚚 等待司機簽名確認</button>`;
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🚚 等待司機簽名確認</button>`;
                 } else if (!hasClientSig && hasDriverSig) {
-                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse relative z-20">🏨 等待飯店確認簽名</button>`;
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🏨 等待飯店確認簽名</button>`;
                 } else {
-                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md relative z-20">📝 進行點交與簽名</button>`;
+                    actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md">📝 進行點交與簽名</button>`;
                 }
 
                 groupedData[dept].items.sort((a, b) => {
@@ -504,7 +499,7 @@
                     let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";
                     
                     return `
-                    <div class="border-b border-gray-100 py-4 last:border-0 relative z-20">
+                    <div class="border-b border-gray-100 py-4 last:border-0">
                         <div class="flex justify-between items-center mb-2">
                             <span class="font-black text-2xl text-gray-800">${item.itemName}</span>
                             <div class="text-right">
@@ -519,7 +514,8 @@
                                 <span class="font-bold text-blue-900">實收(請款)量：</span>
                                 <div class="flex items-center">
                                     <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this.value)" value="${item.actualQty}" 
-                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm relative z-30">
+                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${isCompleted ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
+                                           ${isCompleted ? 'disabled' : ''}>
                                     <span id="status-${dept}-${idx}" class="${statusClass}">${statusText}</span>
                                 </div>
                             </div>
@@ -534,26 +530,26 @@
                 let addItemHtml = "";
                 if (!isCompleted) {
                     addItemHtml = `
-                    <div class="mt-4 bg-indigo-50 p-4 rounded-xl border border-dashed border-indigo-300 relative z-20">
+                    <div class="mt-4 bg-indigo-50 p-4 rounded-xl border border-dashed border-indigo-300">
                         <h3 class="text-sm font-black mb-2 text-indigo-800">➕ 臨時新增出貨品項</h3>
                         <div class="flex gap-2 relative">
                             <div class="relative flex-1">
-                                <input id="newItemInput-${deptId}" class="w-full h-full p-2 text-lg font-bold border border-indigo-200 rounded-lg outline-none focus:border-indigo-500 bg-white pr-10 relative z-30" placeholder="手打或選單 👉">
-                                <button id="dropdownBtn-${deptId}" onclick="toggleDropdown('${deptId}', event)" class="absolute right-1 top-1/2 transform -translate-y-1/2 p-1 bg-indigo-100 text-indigo-800 rounded-md font-bold shadow-sm border border-indigo-300 active:bg-indigo-200 flex items-center justify-center h-8 w-8 z-30">
+                                <input id="newItemInput-${deptId}" class="w-full h-full p-2 text-lg font-bold border border-indigo-200 rounded-lg outline-none focus:border-indigo-500 bg-white pr-10" placeholder="手打或選單 👉">
+                                <button id="dropdownBtn-${deptId}" onclick="toggleDropdown('${deptId}', event)" class="absolute right-1 top-1/2 transform -translate-y-1/2 p-1 bg-indigo-100 text-indigo-800 rounded-md font-bold shadow-sm border border-indigo-300 active:bg-indigo-200 flex items-center justify-center h-8 w-8">
                                     <svg class="w-5 h-5 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                                 </button>
                                 <div id="customDropdownMenu-${deptId}" class="hidden absolute z-[30000] w-full mt-1 max-h-60 overflow-y-auto bg-white border-2 border-indigo-300 rounded-xl shadow-2xl">
                                     ${dropdownHtml}
                                 </div>
                             </div>
-                            <button onclick="addNewItem('${deptId}', '${dept}')" class="px-4 bg-green-600 text-white rounded-lg font-bold text-lg shadow-md active:bg-green-700 whitespace-nowrap relative z-30">新增</button>
+                            <button onclick="addNewItem('${deptId}', '${dept}')" class="px-4 bg-green-600 text-white rounded-lg font-bold text-lg shadow-md active:bg-green-700 whitespace-nowrap">新增</button>
                         </div>
                     </div>`;
                 }
 
                 html += `
-                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6 relative">
-                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl relative z-20">
+                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
+                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl">
                         <h2 class="text-xl font-black text-center">${dept}</h2>
                     </div>
                     ${itemsHtml}
@@ -566,7 +562,14 @@
 
         function setupCanvas(canvas, ctx) {
             canvas.isModified = false;
-            function start(e) { e.preventDefault(); canvas.painting = true; draw(e); }
+            canvas.isCleared = false; // Add state flag for explicitly clearing
+
+            function start(e) { 
+                e.preventDefault(); 
+                canvas.painting = true; 
+                canvas.isCleared = false; // User is drawing, so it's not empty
+                draw(e); 
+            }
             function draw(e) {
                 if(!canvas.painting) return; e.preventDefault();
                 canvas.isModified = true; 
@@ -583,17 +586,10 @@
         setupCanvas(clientCanvas, clientCtx);
         setupCanvas(driverCanvas, driverCtx);
 
-        // ★ 核心修復：強制清除 Firebase 的圖片資料
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
-            canvas.isModified = true; // 標記為已修改，才會觸發送出新資料
-            
-            // 強制清空記憶體中的舊簽名，確保送出的是「真正的空白」
-            if (canvas.id === 'clientCanvas') {
-                groupedData[activeDeptKey].clientSig = "";
-            } else if (canvas.id === 'driverCanvas') {
-                groupedData[activeDeptKey].driverSig = "";
-            }
+            canvas.isModified = true; 
+            canvas.isCleared = true; // Mark as explicitly cleared
         }
 
         function openSignModal(deptName) {
@@ -605,8 +601,18 @@
 
             document.getElementById('signModal').classList.remove('hidden');
             requestAnimationFrame(() => {
-                [clientCanvas, driverCanvas].forEach(c => { c.width = c.offsetWidth; c.height = 160; c.isModified = false; });
-                [clientCtx, driverCtx].forEach(ctx => { ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, 500, 200); });
+                [clientCanvas, driverCanvas].forEach(c => { 
+                    c.width = c.offsetWidth; 
+                    c.height = 160; 
+                    c.isModified = false; 
+                    c.isCleared = false; // Reset clear flag on open
+                });
+                [clientCtx, driverCtx].forEach(ctx => { 
+                    ctx.lineWidth = 4; 
+                    ctx.lineCap = 'round'; 
+                    ctx.strokeStyle = '#000'; 
+                    ctx.clearRect(0, 0, 500, 200); 
+                });
                 
                 if(existClient) { let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; }
                 if(existDriver) { let img = new Image(); img.onload = ()=> driverCtx.drawImage(img,0,0); img.src = existDriver; }
@@ -616,20 +622,41 @@
         function closeSignModal() { document.getElementById('signModal').classList.add('hidden'); }
 
         async function submitVerify() {
-            let cBlank = !clientCtx.getImageData(0,0,clientCanvas.width,clientCanvas.height).data.some(c => c !== 0);
-            let dBlank = !driverCtx.getImageData(0,0,driverCanvas.width,driverCanvas.height).data.some(c => c !== 0);
+            let existClient = groupedData[activeDeptKey].clientSig;
+            let existDriver = groupedData[activeDeptKey].driverSig;
 
-            // ★ 核心修復：嚴格判斷是否有新畫圖，如果沒有，就用記憶體裡的（可能是清空後的空白字串）
-            let cBase64 = clientCanvas.isModified ? (cBlank ? "" : clientCanvas.toDataURL('image/png')) : groupedData[activeDeptKey].clientSig;
-            let dBase64 = driverCanvas.isModified ? (dBlank ? "" : driverCanvas.toDataURL('image/png')) : groupedData[activeDeptKey].driverSig;
+            // Determine client base64 string
+            let cBase64 = existClient || ""; 
+            if (clientCanvas.isModified) {
+                if (clientCanvas.isCleared) {
+                    cBase64 = ""; // Explicitly cleared and nothing drawn
+                } else {
+                    cBase64 = clientCanvas.toDataURL('image/png'); // New drawing exists
+                }
+            }
 
-            // 確保留有一個簽名才能送出
-            if (!cBase64 && !dBase64) return alert("請至少一方完成簽名！(司機或飯店)");
+            // Determine driver base64 string
+            let dBase64 = existDriver || "";
+            if (driverCanvas.isModified) {
+                if (driverCanvas.isCleared) {
+                    dBase64 = ""; // Explicitly cleared and nothing drawn
+                } else {
+                    dBase64 = driverCanvas.toDataURL('image/png'); // New drawing exists
+                }
+            }
+
+            // Allow submission if they are clearing an existing signature or if they are adding a new one.
+            // Only block if BOTH are empty strings after logic resolution.
+            if (!cBase64 && !dBase64) {
+                 return alert("請至少一方完成簽名！(司機或飯店)");
+            }
 
             const btn = document.getElementById('submitBtn');
             btn.innerText = "傳送中..."; btn.disabled = true;
 
-            let isNewDriverSig = driverCanvas.isModified;
+            // Only trigger auto-sync to other departments if a *new* signature was actually drawn.
+            // If they just cleared their signature, we don't automatically delete signatures in other departments.
+            let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
             let payloads = [];
             let syncDepts = [];
 
@@ -651,7 +678,7 @@
                 driverSig: dBase64
             });
 
-            if (isNewDriverSig && dBase64 !== "") {
+            if (isNewDriverSig) {
                 for (let dept in groupedData) {
                     if (dept !== activeDeptKey) {
                         let existOtherDriver = groupedData[dept].driverSig;
@@ -692,8 +719,8 @@
                         hotel: `${p.hotelKeyword} ${p.deptName}`,
                         item: "物流點收單",
                         field: "點交狀態",
-                        oldValue: "未點交",
-                        newValue: "雙方已簽收"
+                        oldValue: "更新前",
+                        newValue: "已更新簽收狀態"
                     });
 
                     return setDoc(docRef, {
@@ -711,7 +738,7 @@
 
                 btn.innerText = "確認送出"; btn.disabled = false;
                 
-                // 將最新狀態寫回記憶體
+                // Update local state directly so we don't have to wait for the network to re-fetch
                 groupedData[activeDeptKey].clientSig = cBase64;
                 groupedData[activeDeptKey].driverSig = dBase64;
                 
