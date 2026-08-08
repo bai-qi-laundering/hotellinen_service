@@ -357,6 +357,7 @@
 
             groupedData = {};
             cleanData.forEach(item => {
+                // ★ 隱形濾網：如果原始數量是0而且實收也是0，才略過(避免自己新增的0被吃掉)
                 if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && 
                     (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) {
                     return; 
@@ -402,6 +403,7 @@
             }
         }
 
+        // ★ 新增品項功能
         function toggleDropdown(deptId, e) {
             e.stopPropagation();
             const menu = document.getElementById(`customDropdownMenu-${deptId}`);
@@ -585,9 +587,9 @@
         // ★ 完美修復的 clearCanvas 函數
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
-            canvas.isModified = true; // 標記為已修改(被清空也是一種修改)
+            canvas.isModified = true; // 標記為已修改
             
-            // ★ 同步清空記憶體裡面的 Base64，防止送出時又抓到舊圖
+            // 同步清空記憶體裡面的 Base64，防止送出時又抓到舊圖
             if (canvas.id === 'clientCanvas') {
                 groupedData[activeDeptKey].clientSig = "";
             } else if (canvas.id === 'driverCanvas') {
@@ -621,7 +623,7 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
             
-            // ★ 嚴謹的圖片擷取邏輯
+            // 嚴謹的圖片擷取邏輯
             let cBase64 = clientCanvas.isModified ? (cBlank ? "" : clientCanvas.toDataURL('image/png')) : (existClient || "");
             let dBase64 = driverCanvas.isModified ? (dBlank ? "" : driverCanvas.toDataURL('image/png')) : (existDriver || "");
 
