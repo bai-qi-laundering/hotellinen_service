@@ -109,6 +109,12 @@
         const clientCtx = clientCanvas.getContext('2d');
         const driverCtx = driverCanvas.getContext('2d');
 
+        // 👉 加上這 4 行，讓 HTML 中的 onclick 可以抓到畫布變數
+        window.clientCanvas = clientCanvas;
+        window.driverCanvas = driverCanvas;
+        window.clientCtx = clientCtx;
+        window.driverCtx = driverCtx;
+
         window.dateChanged = dateChanged;
         window.clearCanvas = clearCanvas;
         window.openSignModal = openSignModal;
