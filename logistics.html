@@ -562,12 +562,12 @@
 
         function setupCanvas(canvas, ctx) {
             canvas.isModified = false;
-            canvas.isCleared = false; // Add state flag for explicitly clearing
+            canvas.isCleared = false; // 追蹤是否被主動清除
 
             function start(e) { 
                 e.preventDefault(); 
                 canvas.painting = true; 
-                canvas.isCleared = false; // User is drawing, so it's not empty
+                canvas.isCleared = false; // 開始畫圖代表不再是空蕩蕩的清除狀態
                 draw(e); 
             }
             function draw(e) {
@@ -589,7 +589,7 @@
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
             canvas.isModified = true; 
-            canvas.isCleared = true; // Mark as explicitly cleared
+            canvas.isCleared = true; // 明確標記已被清除
         }
 
         function openSignModal(deptName) {
@@ -605,7 +605,7 @@
                     c.width = c.offsetWidth; 
                     c.height = 160; 
                     c.isModified = false; 
-                    c.isCleared = false; // Reset clear flag on open
+                    c.isCleared = false; // 開啟時重置清除狀態
                 });
                 [clientCtx, driverCtx].forEach(ctx => { 
                     ctx.lineWidth = 4; 
@@ -625,28 +625,27 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
 
-            // Determine client base64 string
+            // 判斷飯店主管簽名結果
             let cBase64 = existClient || ""; 
             if (clientCanvas.isModified) {
                 if (clientCanvas.isCleared) {
-                    cBase64 = ""; // Explicitly cleared and nothing drawn
+                    cBase64 = ""; // 被明確按下清除且沒有再畫新東西
                 } else {
-                    cBase64 = clientCanvas.toDataURL('image/png'); // New drawing exists
+                    cBase64 = clientCanvas.toDataURL('image/png'); // 有畫新東西
                 }
             }
 
-            // Determine driver base64 string
+            // 判斷司機簽名結果
             let dBase64 = existDriver || "";
             if (driverCanvas.isModified) {
                 if (driverCanvas.isCleared) {
-                    dBase64 = ""; // Explicitly cleared and nothing drawn
+                    dBase64 = ""; // 被明確按下清除且沒有再畫新東西
                 } else {
-                    dBase64 = driverCanvas.toDataURL('image/png'); // New drawing exists
+                    dBase64 = driverCanvas.toDataURL('image/png'); // 有畫新東西
                 }
             }
 
-            // Allow submission if they are clearing an existing signature or if they are adding a new one.
-            // Only block if BOTH are empty strings after logic resolution.
+            // 防呆：如果兩邊都變成空字串了，擋住送出
             if (!cBase64 && !dBase64) {
                  return alert("請至少一方完成簽名！(司機或飯店)");
             }
@@ -654,8 +653,7 @@
             const btn = document.getElementById('submitBtn');
             btn.innerText = "傳送中..."; btn.disabled = true;
 
-            // Only trigger auto-sync to other departments if a *new* signature was actually drawn.
-            // If they just cleared their signature, we don't automatically delete signatures in other departments.
+            // 判斷是否為「全新且有效」的司機簽名，才觸發同步功能
             let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
             let payloads = [];
             let syncDepts = [];
