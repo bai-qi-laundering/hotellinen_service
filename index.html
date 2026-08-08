@@ -195,7 +195,10 @@
          ========================================== -->
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbyPrkLoz1QNrynxKK09CWgMNbuePWCmQdtmx8Iqwq9l90xk0ZGZSOc-N-bkTePyXb4RVA/exec";
-        const todayHotels = ["歐遊", "H2O", "花季Ａ館", "花季Ｃ館", "花季", "捷中正", "文七", "好六"]; 
+        
+        // ★ 在此加入特定飯店的專屬日期設定
+        const todayHotels = ["歐遊", "H2O", "花季Ａ館", "花季Ｃ館", "花季", "文七", "好六"]; 
+        const yesterdayHotels = ["捷中正"]; // ★ 加入捷中正，預設帶入前一天
 
         let masterData = []; 
         let userInputs = {}; 
@@ -298,7 +301,7 @@
                     let targetItems = []; let canCheck = false;
                     
                     if (targetDept === "房務") {
-                        let pillowIdx = templateItems.findIndex(i => (i || "").trim() === "枕套");
+                        let pillowIdx = templateItems.findIndex(i => (i || "").trim().includes("枕套"));
                         if (pillowIdx !== -1) targetItems = templateItems.slice(pillowIdx + 1);
                         else targetItems = [...templateItems];
                         canCheck = true;
@@ -350,17 +353,36 @@
             }
         }
 
+        // ★ 核心變更：判斷點擊進去的預設日期
         function getTargetDateStr(baseName) {
             const today = new Date();
-            if (todayHotels.some(keyword => baseName.includes(keyword))) return getLocalDateString(today);
-            const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+            
+            // 1. 如果是在「今天」名單
+            if (todayHotels.some(keyword => baseName.includes(keyword))) {
+                return getLocalDateString(today);
+            }
+            
+            // 2. 如果是在「昨天」名單 (捷中正)
+            if (yesterdayHotels.some(keyword => baseName.includes(keyword))) {
+                const yesterday = new Date(); 
+                yesterday.setDate(today.getDate() - 1);
+                return getLocalDateString(yesterday);
+            }
+            
+            // 3. 其他預設都是「明天」
+            const tomorrow = new Date(); 
+            tomorrow.setDate(today.getDate() + 1);
             return getLocalDateString(tomorrow);
         }
 
         function goToHotel(baseName) {
             currentBaseHotel = baseName;
-            document.getElementById('datePicker').value = getTargetDateStr(baseName);
-            document.getElementById('dateDisplay').innerText = `${new Date(getTargetDateStr(baseName)).getMonth() + 1}月${new Date(getTargetDateStr(baseName)).getDate()}日`;
+            
+            // 使用新的時間判定器
+            const targetDateStr = getTargetDateStr(baseName);
+            document.getElementById('datePicker').value = targetDateStr;
+            const d = new Date(targetDateStr);
+            document.getElementById('dateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`;
 
             let depts = hotelStructure[baseName] || [];
             currentDept = depts.includes("房務") ? "房務" : (depts[0] || "");
