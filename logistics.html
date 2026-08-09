@@ -101,7 +101,7 @@
         let currentDate = "";
         let groupedData = {}; 
         let activeDeptKey = ""; 
-        let globalItemOrder = {}; 
+        let masterTemplate = []; // ★ 改變：儲存整個試算表設定，以供精準配對
         let autoSyncTimer = null; 
 
         const clientCanvas = document.getElementById('clientCanvas');
@@ -109,7 +109,6 @@
         const clientCtx = clientCanvas.getContext('2d');
         const driverCtx = driverCanvas.getContext('2d');
 
-        // 👉 加上這 4 行，讓 HTML 中的 onclick 可以抓到畫布變數
         window.clientCanvas = clientCanvas;
         window.driverCanvas = driverCanvas;
         window.clientCtx = clientCtx;
@@ -193,11 +192,7 @@
 
             if (cachedTemplate) {
                 try {
-                    let template = JSON.parse(cachedTemplate);
-                    globalItemOrder = {};
-                    template.forEach((t, idx) => {
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx; 
-                    });
+                    masterTemplate = JSON.parse(cachedTemplate);
                 } catch(e){}
             }
 
@@ -215,12 +210,8 @@
 
             getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
-                    let template = templateDoc.data().items;
-                    localStorage.setItem(`inventory_masterData`, JSON.stringify(template));
-                    globalItemOrder = {};
-                    template.forEach((t, idx) => {
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
-                    });
+                    masterTemplate = templateDoc.data().items;
+                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
                 }
             });
 
@@ -474,6 +465,27 @@
                 deptIndex++;
                 let deptId = `dept_${deptIndex}`;
 
+                // ★ 精準抓取專屬排序號碼牌邏輯開始 ★
+                let localItemOrder = {};
+                if (masterTemplate && masterTemplate.length > 0) {
+                    // 1. 先嚴格過濾出「這家飯店」而且是「這個部門」的設定
+                    let matchedItems = masterTemplate.filter(t => 
+                        (t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel))) && 
+                        ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && t.hotel.includes(dept)))
+                    );
+                    
+                    // 2. 萬一上面沒抓到（防呆），至少抓「這家飯店」整體的順序來用
+                    if (matchedItems.length === 0) {
+                        matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
+                    }
+
+                    // 3. 給它們專屬的號碼牌
+                    matchedItems.forEach((t, idx) => {
+                        if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx;
+                    });
+                }
+                // ★ 排序邏輯結束 ★
+
                 let hasClientSig = groupedData[dept].clientSig ? true : false;
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
                 let isCompleted = hasClientSig && hasDriverSig;
@@ -493,9 +505,10 @@
                     actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md">📝 進行點交與簽名</button>`;
                 }
 
+                // ★ 使用上面產生的「專屬號碼牌」進行排序 ★
                 groupedData[dept].items.sort((a, b) => {
-                    let idxA = globalItemOrder[a.itemName] !== undefined ? globalItemOrder[a.itemName] : 9999;
-                    let idxB = globalItemOrder[b.itemName] !== undefined ? globalItemOrder[b.itemName] : 9999;
+                    let idxA = localItemOrder[a.itemName] !== undefined ? localItemOrder[a.itemName] : 9999;
+                    let idxB = localItemOrder[b.itemName] !== undefined ? localItemOrder[b.itemName] : 9999;
                     return idxA - idxB;
                 });
 
@@ -568,12 +581,12 @@
 
         function setupCanvas(canvas, ctx) {
             canvas.isModified = false;
-            canvas.isCleared = false; // 追蹤是否被主動清除
+            canvas.isCleared = false; 
 
             function start(e) { 
                 e.preventDefault(); 
                 canvas.painting = true; 
-                canvas.isCleared = false; // 開始畫圖代表不再是空蕩蕩的清除狀態
+                canvas.isCleared = false; 
                 draw(e); 
             }
             function draw(e) {
@@ -595,7 +608,7 @@
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
             canvas.isModified = true; 
-            canvas.isCleared = true; // 明確標記已被清除
+            canvas.isCleared = true; 
         }
 
         function openSignModal(deptName) {
@@ -611,7 +624,7 @@
                     c.width = c.offsetWidth; 
                     c.height = 160; 
                     c.isModified = false; 
-                    c.isCleared = false; // 開啟時重置清除狀態
+                    c.isCleared = false; 
                 });
                 [clientCtx, driverCtx].forEach(ctx => { 
                     ctx.lineWidth = 4; 
@@ -631,27 +644,24 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
 
-            // 判斷飯店主管簽名結果
             let cBase64 = existClient || ""; 
             if (clientCanvas.isModified) {
                 if (clientCanvas.isCleared) {
-                    cBase64 = ""; // 被明確按下清除且沒有再畫新東西
+                    cBase64 = ""; 
                 } else {
-                    cBase64 = clientCanvas.toDataURL('image/png'); // 有畫新東西
+                    cBase64 = clientCanvas.toDataURL('image/png'); 
                 }
             }
 
-            // 判斷司機簽名結果
             let dBase64 = existDriver || "";
             if (driverCanvas.isModified) {
                 if (driverCanvas.isCleared) {
-                    dBase64 = ""; // 被明確按下清除且沒有再畫新東西
+                    dBase64 = ""; 
                 } else {
-                    dBase64 = driverCanvas.toDataURL('image/png'); // 有畫新東西
+                    dBase64 = driverCanvas.toDataURL('image/png'); 
                 }
             }
 
-            // 防呆：如果兩邊都變成空字串了，擋住送出
             if (!cBase64 && !dBase64) {
                  return alert("請至少一方完成簽名！(司機或飯店)");
             }
@@ -659,7 +669,6 @@
             const btn = document.getElementById('submitBtn');
             btn.innerText = "傳送中..."; btn.disabled = true;
 
-            // 判斷是否為「全新且有效」的司機簽名，才觸發同步功能
             let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
             let payloads = [];
             let syncDepts = [];
@@ -742,7 +751,6 @@
 
                 btn.innerText = "確認送出"; btn.disabled = false;
                 
-                // Update local state directly so we don't have to wait for the network to re-fetch
                 groupedData[activeDeptKey].clientSig = cBase64;
                 groupedData[activeDeptKey].driverSig = dBase64;
                 
@@ -774,3 +782,4 @@
     </script>
 </body>
 </html>
+
