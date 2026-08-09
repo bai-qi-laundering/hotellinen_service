@@ -190,16 +190,11 @@
         </div>
     </div>
 
-    <!-- ==========================================
-         ★ 1. 瞬間繪製核心 + 無痕DOM更新技術
-         ========================================== -->
     <script>
-        // ★ 已經換上您最新部署、帶有完整權限的新網址！
         const API_URL = "https://script.google.com/macros/s/AKfycbwU6OP2FBXGnHzljDbypoYxCZmY2CcaTITlPKo0xSQeznvFbTf-tspQSHfKHLOsrQCnow/exec";
         
-        // ★ 特定飯店的專屬日期設定
         const todayHotels = ["歐遊", "H2O", "花季Ａ館", "花季Ｃ館", "花季", "文七", "好六"]; 
-        const yesterdayHotels = ["捷中正"]; // ★ 加入捷中正，預設帶入前一天
+        const yesterdayHotels = ["捷中正"]; 
 
         let masterData = []; 
         let userInputs = {}; 
@@ -217,9 +212,9 @@
         const canvas = document.getElementById('signCanvas');
         const ctx = canvas.getContext('2d');
 
-        // ★ 核心工具：產生不會衝突的安全 ID，用來做無痕更新
+        // ★ 修正 3：加入防呆機制，避免名稱為 null/undefined 導致 crash
         window.getSafeId = function(str) {
-            return "id_" + Array.from(str).map(c => c.charCodeAt(0).toString(16)).join('_');
+            return "id_" + Array.from(String(str || "")).map(c => c.charCodeAt(0).toString(16)).join('_');
         };
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
@@ -271,17 +266,14 @@
         
         instantBoot();
 
-        // =========================================================================
-        // ★ 無痕更新：首頁儀表板
-        // =========================================================================
         function renderHome(forceRebuild = false) {
             const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
             const filtered = allBaseHotels.filter(c => c.toLowerCase().includes(keyword));
             const grid = document.getElementById('hotelGrid');
             
-            let needsRebuild = forceRebuild || grid.children.length === 0;
+            // ★ 修正 2：確保 DOM 數量與過濾後的數量完全一致，避免幽靈卡片
+            let needsRebuild = forceRebuild || grid.children.length === 0 || grid.children.length !== filtered.length;
 
-            // 檢查畫面上是不是有少按鈕 (防呆)
             if (!needsRebuild) {
                 filtered.forEach(c => {
                     if (!document.getElementById(`btn_${window.getSafeId(c)}`)) needsRebuild = true;
@@ -341,7 +333,6 @@
                                             <span id="span_${safeId}" class="text-3xl font-black break-words w-full text-center leading-tight tracking-wide" style="font-weight: 900; ${shadowStyle}">${c}</span>
                                         </button>`;
                     } else {
-                        // ★ 無痕更新：只替換顏色，不重刷畫面！
                         document.getElementById(`btn_${safeId}`).className = `${btnClasses} rounded-2xl p-1 transition-colors flex items-center justify-center aspect-square`;
                         document.getElementById(`span_${safeId}`).style = `font-weight: 900; ${shadowStyle}`;
                     }
@@ -354,23 +345,16 @@
             }
         }
 
-        // ★ 核心變更：判斷點擊進去的預設日期
         function getTargetDateStr(baseName) {
             const today = new Date();
-            
-            // 1. 如果是在「今天」名單
             if (todayHotels.some(keyword => baseName.includes(keyword))) {
                 return getLocalDateString(today);
             }
-            
-            // 2. 如果是在「昨天」名單 (捷中正)
             if (yesterdayHotels.some(keyword => baseName.includes(keyword))) {
                 const yesterday = new Date(); 
                 yesterday.setDate(today.getDate() - 1);
                 return getLocalDateString(yesterday);
             }
-            
-            // 3. 其他預設都是「明天」
             const tomorrow = new Date(); 
             tomorrow.setDate(today.getDate() + 1);
             return getLocalDateString(tomorrow);
@@ -379,7 +363,6 @@
         function goToHotel(baseName) {
             currentBaseHotel = baseName;
             
-            // 使用新的時間判定器
             const targetDateStr = getTargetDateStr(baseName);
             document.getElementById('datePicker').value = targetDateStr;
             const d = new Date(targetDateStr);
@@ -400,7 +383,10 @@
             document.getElementById('deptSelect').innerHTML = html;
 
             updateCurrentHotelName();
-            renderItems(true); // 切換飯店必須強制重繪
+            renderItems(true); 
+            
+            // 通知 Firebase 監聽這個新的日期
+            if (window.attachRealtimeListener) window.attachRealtimeListener(targetDateStr);
         }
 
         function updateCurrentHotelName() {
@@ -413,9 +399,6 @@
         function homeDateChanged() { const d = new Date(document.getElementById('homeDatePicker').value); document.getElementById('homeDateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`; renderHome(true); }
         function dateChanged() { const d = new Date(document.getElementById('datePicker').value); document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; if(currentHotelName) renderItems(true); }
 
-        // =========================================================================
-        // ★ 無痕更新：內頁盤點項目 (絕對不干擾打字)
-        // =========================================================================
         function renderItems(forceRebuild = false) {
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
@@ -425,9 +408,10 @@
             for (let itemName in todayInputs) { if (!displayItems.includes(itemName)) displayItems.push(itemName); }
 
             const itemsList = document.getElementById('itemsList');
-            let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.dataset.hotel !== currentHotelName;
+            
+            // ★ 修正 2：確保 DOM 數量與實際顯示的項目數量一致，避免幽靈卡片
+            let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.children.length !== displayItems.length || itemsList.dataset.hotel !== currentHotelName;
 
-            // 檢查畫面上是不是有少卡片 (例如有新項目加入)
             if (!needsRebuild) {
                 displayItems.forEach(itemName => {
                     if (!document.getElementById(`card_${window.getSafeId(itemName)}`)) needsRebuild = true;
@@ -436,7 +420,7 @@
 
             if (needsRebuild) {
                 itemsList.dataset.hotel = currentHotelName;
-                itemsList.innerHTML = ""; // 準備重建
+                itemsList.innerHTML = ""; 
             }
 
             let htmlContent = "";
@@ -491,7 +475,6 @@
                         <input type="text" id="note_${safeId}" oninput="handleInput('${dateStr}', '${currentHotelName}', '${itemName}', 'note', this.value)" onchange="window.firebaseSubmit('${currentHotelName}', '${itemName}')" value="${u.note || ''}" ${isSaving ? 'disabled' : ''} class="w-full p-3 border border-gray-200 rounded-xl text-base outline-none bg-gray-50 relative z-20 focus:border-blue-500" placeholder="📝 點此可寫備註(寫完自動存)">
                     </div>`;
                 } else {
-                    // ★ 無痕更新：只替換裡面的內容！如果使用者正在打字，絕對不干擾他！
                     document.getElementById(`card_${safeId}`).className = `${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300`;
                     document.getElementById(`aunt_bg_${safeId}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${supSignedEver ? 'opacity-60' : ''}`;
                     
@@ -504,7 +487,6 @@
                     document.getElementById(`sup_action_${safeId}`).innerHTML = supActionButton;
 
                     let noteInput = document.getElementById(`note_${safeId}`);
-                    // ⚠️ 最重要的一行：如果游標在這個備註欄裡，系統「絕對不」替換他的文字！
                     if (noteInput && document.activeElement !== noteInput) {
                         noteInput.value = u.note || '';
                         noteInput.disabled = isSaving;
@@ -539,7 +521,6 @@
             }
         }
 
-        // 簽名板與計算機
         function setupCanvas() {
             canvas.isModified = false; canvas.isLocked = false; 
             function start(e) { if (canvas.isLocked) return showMessage("🔒 必須重新簽名才能修改數量！\n👉 請先點擊右上角的【清除重寫】按鈕。"); painting = true; draw(e); }
@@ -623,17 +604,14 @@
         
     </script>
 
-    <!-- ==========================================
-         ★ 2. 實時監聽器 (Real-time Snapshot)：別人打字，這裡瞬間改變
-         ========================================== -->
     <script type="module">
         let db;
         let isFirebaseLoaded = false;
+        let currentSnapshotUnsubscribe = null; // ★ 修正 1：用來儲存目前的監聽器，避免重複和過量讀取
 
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                // ★ 導入 onSnapshot (實時監聽)
                 const { getFirestore, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
 
                 const firebaseConfig = {
@@ -646,97 +624,63 @@
                 db = getFirestore(app);
                 isFirebaseLoaded = true;
 
-                // 初始化載入飯店設定
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterData = templateDoc.data().items;
                     buildHotelStructure();
                 }
 
-                // ★ 核心優化：開啟無痕即時監聽！
-                // 只要 Firebase 一有風吹草動，這段程式就會瞬間被喚醒！
-                const thirtyDaysAgoDate = new Date();
-                thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30);
-                const thirtyDaysAgoStr = getLocalDateString(thirtyDaysAgoDate);
-                const recordsQ = query(collection(db, 'inventory_records'), where("date", ">=", thirtyDaysAgoStr));
-
-                onSnapshot(recordsQ, (snapshot) => {
-                    let dataChanged = false;
+                // ★ 修正 1：設計一個動態綁定的監聽器，嚴格限制一次只拿「特定一天」的資料
+                window.attachRealtimeListener = function(targetDateStr) {
+                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); // 清除舊的監聽
                     
-                    snapshot.docChanges().forEach((change) => {
-                        if (change.type === "added" || change.type === "modified") {
-                            const r = change.doc.data();
-                            let dDate = String(r.date || "").replace(/\//g, '-').trim();
-                            if(!userInputs[dDate]) userInputs[dDate] = {};
-                            if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
-                            
-                            let local = userInputs[dDate][r.hotel][r.item];
-                            // 防衝突機制：如果這支手機正在努力存這筆資料，就先不要讓外面的資料蓋過去
-                            if (local && local.isSaving) return; 
-                            
-                            userInputs[dDate][r.hotel][r.item] = { 
-                                count: r.count || "", note: r.note || "", 
-                                hasSigned: false, isSubmitted: true, signature: r.signature || "", 
-                                doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", 
-                                doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",
-                                isSaving: false, saveError: false
-                            };
-                            dataChanged = true;
+                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "==", targetDateStr));
+                    
+                    currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
+                        let dataChanged = false;
+                        
+                        snapshot.docChanges().forEach((change) => {
+                            if (change.type === "added" || change.type === "modified") {
+                                const r = change.doc.data();
+                                let dDate = String(r.date || "").replace(/\//g, '-').trim();
+                                if(!userInputs[dDate]) userInputs[dDate] = {};
+                                if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
+                                
+                                let local = userInputs[dDate][r.hotel][r.item];
+                                if (local && local.isSaving) return; 
+                                
+                                userInputs[dDate][r.hotel][r.item] = { 
+                                    count: r.count || "", note: r.note || "", 
+                                    hasSigned: false, isSubmitted: true, signature: r.signature || "", 
+                                    doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", 
+                                    doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",
+                                    isSaving: false, saveError: false
+                                };
+                                dataChanged = true;
+                            }
+                        });
+
+                        if (dataChanged) {
+                            saveToLocal();
+                            if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(false);
+                            else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);
                         }
                     });
+                };
 
-                    if (dataChanged) {
-                        saveToLocal();
-                        // ★ 呼叫無痕更新 (傳入 false 代表絕對不撕毀重建畫面)
-                        if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(false);
-                        else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);
-                    }
-                });
+                // 初始化載入時，直接監聽當前顯示的日期
+                window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
 
-                window.fetchSpecificDateData = async function(targetDateStr) {
-                    if (!isFirebaseLoaded) return;
-                    showToast("☁️ 正在調閱歷史資料...");
-                    try {
-                        const q = query(collection(db, 'inventory_records'), where("date", "==", targetDateStr));
-                        const snap = await getDocs(q);
-                        let hasData = false;
-                        snap.forEach(docSnap => {
-                            const r = docSnap.data();
-                            let dDate = String(r.date || "").replace(/\//g, '-').trim();
-                            if(!userInputs[dDate]) userInputs[dDate] = {};
-                            if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
-                            userInputs[dDate][r.hotel][r.item] = { 
-                                count: r.count || "", note: r.note || "", 
-                                hasSigned: false, isSubmitted: true, signature: r.signature || "", 
-                                doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", 
-                                doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",
-                                isSaving: false, saveError: false
-                            };
-                            hasData = true;
-                        });
-                        if(hasData) {
-                            saveToLocal();
-                            if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(true);
-                            else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(true);
-                        } else showToast("此日期無盤點資料。");
-                    } catch(e) { console.error(e); }
-                }
-
+                // 綁定日期切換事件，一旦切換就重新掛載監聽器 (順便自動抓新資料)
                 const originalHomeDateChanged = window.homeDateChanged;
                 window.homeDateChanged = function() {
                     originalHomeDateChanged();
-                    checkAndFetchSpecificDate(document.getElementById('homeDatePicker').value);
+                    window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
                 }
                 const originalDateChanged = window.dateChanged;
                 window.dateChanged = function() {
                     originalDateChanged();
-                    checkAndFetchSpecificDate(document.getElementById('datePicker').value);
-                }
-
-                function checkAndFetchSpecificDate(dateStr) {
-                    if (!userInputs[dateStr] || Object.keys(userInputs[dateStr]).length === 0) {
-                        window.fetchSpecificDateData(dateStr);
-                    }
+                    window.attachRealtimeListener(document.getElementById('datePicker').value);
                 }
 
                 window.firebaseSubmit = async function(category, item) {
@@ -746,7 +690,7 @@
                     if (!u || (!u.signature && !u.doubleSignature)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
-                    renderItems(false); // ★ 存檔時只秀小圈圈，絕對不閃屏
+                    renderItems(false); 
 
                     const payload = { 
                         date: dateStr, hotel: category, item: item, 
@@ -773,7 +717,7 @@
                         handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'isSubmitted', true); 
                         handleInput(dateStr, category, item, 'hasSigned', false); handleInput(dateStr, category, item, 'doubleHasSigned', false); 
                         saveToLocal(); 
-                        renderItems(false); // ★ 存檔成功，無痕切換綠色勾勾
+                        renderItems(false); 
                     } catch(e) {
                         handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);
                         saveToLocal(); renderItems(false); showMessage("⚠️ 網路連線不穩！請點擊紅色按鈕重傳！");
@@ -828,7 +772,6 @@
                     finally { btn.innerHTML = originalText; btn.disabled = false; }
                 };
 
-                // ★ 手動重整鍵，現在只需要重整畫面即可，因為資料已經是實時連線了
                 window.manualRefresh = function() {
                     location.reload();
                 };
