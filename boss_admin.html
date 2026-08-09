@@ -8,7 +8,6 @@
     <style>
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
-        /* ★ 核心修復：加上 position: relative，把透明的日曆按鈕鎖在格子裡，防止它無限膨脹擋住畫面！ */
         input[type="date"] { position: relative; }
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
@@ -106,10 +105,11 @@
                             <th class="w-28 text-center">復點簽名</th>
                             <th class="w-60">精確復點時間 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
                             <th class="w-48">備註摘要 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                            <th class="w-16 text-center text-red-200 font-bold">操作</th>
                         </tr>
                     </thead>
                     <tbody id="invTableBody">
-                        <tr class="main-row"><td colspan="9" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></td></tr>
+                        <tr class="main-row"><td colspan="10" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -137,10 +137,11 @@
                             <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-24 text-center">復點數量</th>
                             <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-32 text-center">復點簽名</th>
                             <th style="background-color: #495057; color:white; padding:12px; position:sticky; top:0;" class="w-48">📋 備註</th>
+                            <th style="background-color: #495057; color:#fca5a5; padding:12px; position:sticky; top:0;" class="w-20 text-center font-bold">🗑️ 操作</th>
                         </tr>
                     </thead>
                     <tbody id="invHistoryBody">
-                        <tr><td colspan="8" class="py-20 text-center"><span class="text-gray-500 font-medium">請選擇日期並查詢</span></td></tr>
+                        <tr><td colspan="9" class="py-20 text-center"><span class="text-gray-500 font-medium">請選擇日期並查詢</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -213,7 +214,7 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -229,7 +230,38 @@
 
         let invRecords = []; let invFiltered = []; 
         let logRecords = []; let logFiltered = []; 
-        window.invHistoryRecords = []; // 提供歷史查詢全域存取
+        window.invHistoryRecords = []; 
+        
+        // ★ 新增：用來存放 Google 試算表最正確的排序順序
+        let masterData = []; 
+
+        // ★ 新增：載入基礎設定的大腦
+        async function ensureMasterData() {
+            if (masterData.length > 0) return;
+            try {
+                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
+                if (templateDoc.exists() && templateDoc.data().items) {
+                    masterData = templateDoc.data().items;
+                }
+            } catch (e) {
+                console.error("無法載入試算表基礎排序設定", e);
+            }
+        }
+
+        // ★ 新增：負責算出每一個品項排第幾名的工具函數
+        function getItemSortIndex(hotelName, itemName) {
+            // 先找那間飯店專屬的品項順序
+            let expectedOrder = masterData.filter(d => d.hotel === hotelName).map(d => d.item);
+            
+            // 如果沒找到，就用整份表的所有品項去查 (避免部門名稱沒對上)
+            if (expectedOrder.length === 0) {
+                 expectedOrder = [...new Set(masterData.map(d => d.item))];
+            }
+            
+            let index = expectedOrder.indexOf(itemName);
+            // 如果是試算表裡面沒有的「自訂項目」，就排到最下面 (99999名)
+            return index === -1 ? 99999 : index; 
+        }
 
         function getPossibleDates(dateStr) {
             if(!dateStr) return [];
@@ -276,6 +308,29 @@
         window.applyLogFilters = applyLogFilters;
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
+
+        // 全域刪除功能
+        window.deleteRecord = async function(collectionName, docId, e) {
+            if(e) e.stopPropagation(); 
+            
+            const confirmDelete = confirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！\n(若 Google 試算表中已有備份，請務必記得手動前往試算表刪除該行)`);
+            if (!confirmDelete) return;
+
+            try {
+                await deleteDoc(doc(db, collectionName, docId));
+                showToast("🗑️ 紀錄已成功從雲端刪除！");
+                
+                if (collectionName === 'inventory_records') {
+                    loadInvData();
+                } else if (collectionName === 'history_logs') {
+                    loadInvHistory();
+                } else if (collectionName === 'logistics_records') {
+                    loadLogData();
+                }
+            } catch (error) {
+                alert("刪除失敗，請檢查網路連線：" + error.message);
+            }
+        };
 
         // 全域簽名預覽
         window.toggleSigPreview = function(e, source, index, type) {
@@ -367,9 +422,11 @@
             const tbody = document.getElementById('invTableBody');
             const btn = document.getElementById('invLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
+            tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
             
             try {
+                await ensureMasterData(); // ★ 抓資料前，先確保試算表排序規則大腦已經上線！
+
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
@@ -395,15 +452,22 @@
                     }
                 });
 
+                // ★ 這裡被修正了！讓盤點明細也乖乖聽試算表的話排好
                 invRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
                     if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
+                    
+                    let indexA = getItemSortIndex(a.hotel, a.item);
+                    let indexB = getItemSortIndex(b.hotel, b.item);
+                    
+                    if (indexA !== indexB) return indexA - indexB;
                     return (a.item < b.item) ? -1 : 1;
                 });
+
                 populateInvDropdowns();
                 applyInvFilters();
             } catch (error) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
             } finally {
                 btn.innerHTML = `下載明細`; btn.disabled = false;
             }
@@ -412,7 +476,10 @@
         function populateInvDropdowns() {
             const dates = [...new Set(invRecords.map(r => r.date || ""))].filter(v=>v).sort();
             const hotels = [...new Set(invRecords.map(r => r.hotel || ""))].filter(v=>v).sort();
-            const items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v).sort();
+            
+            // 下拉選單品項排序也按照試算表
+            let items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v);
+            items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
             const fD = document.getElementById('fltInvDate'); const fH = document.getElementById('fltInvHotel'); const fI = document.getElementById('fltInvItem');
             const pD = fD.value; const pH = fH.value; const pI = fI.value;
@@ -438,7 +505,7 @@
         function renderInvTable(data) {
             const tbody = document.getElementById('invTableBody');
             if (data.length === 0) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="9" class="p-16 text-center text-gray-500 font-bold">沒有符合紀錄</td></tr>`; return;
+                tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-16 text-center text-gray-500 font-bold">沒有符合紀錄</td></tr>`; return;
             }
             
             tbody.innerHTML = data.map((r, index) => {
@@ -463,6 +530,9 @@
                             </div>
                         </td>
                         <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this)"></td>
+                        <td class="text-center">
+                            <button onclick="deleteRecord('inventory_records', '${r.docId}', event)" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
+                        </td>
                     </tr>
                 `;
             }).join('');
@@ -502,7 +572,7 @@
             if (!targetDate) { alert("請先選擇查詢日期！"); return; }
             
             btn.innerHTML = `查詢中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
             try {
                 const datesToQuery = getPossibleDates(targetDate);
                 const q = query(collection(db, "history_logs"), where("date", "in", datesToQuery));
@@ -510,11 +580,13 @@
                 
                 window.invHistoryRecords = []; 
                 snap.forEach(d => {
-                    window.invHistoryRecords.push(d.data());
+                    let data = d.data();
+                    data.docId = d.id; 
+                    window.invHistoryRecords.push(data);
                 });
                 window.invHistoryRecords.sort((a, b) => b.timestamp - a.timestamp);
 
-                if (window.invHistoryRecords.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center font-bold text-gray-400">這一天無盤點紀錄</td></tr>`; return; }
+                if (window.invHistoryRecords.length === 0) { tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-400">這一天無盤點紀錄</td></tr>`; return; }
 
                 tbody.innerHTML = window.invHistoryRecords.map((r, index) => {
                     let aSig = r.signature ? `<button onclick="toggleSigPreview(event, 'hist', ${index}, 'aunt')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100 active:bg-blue-200">👁️ 點擊查看</button>` : `<span class="text-xs text-gray-400 font-bold">無</span>`;
@@ -530,10 +602,13 @@
                         <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
                         <td class="text-center"><div class="sig-container">${dSig}</div></td>
                         <td class="text-gray-600">${r.note || '-'}</td>
+                        <td class="text-center">
+                            <button onclick="deleteRecord('history_logs', '${r.docId}', event)" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
+                        </td>
                     </tr>`
                 }).join('');
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="8" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
             } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
         }
 
@@ -546,6 +621,8 @@
             tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流簽收資料庫...</td></tr>`;
             
             try {
+                await ensureMasterData(); // ★ 抓資料前，先確保試算表排序規則大腦已經上線！
+
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
@@ -586,6 +663,15 @@
                         });
 
                         if (validItems.length > 0) {
+                            
+                            // ★ 這裡被修正了！物流展開的品項明細，也乖乖聽試算表的話排好
+                            validItems.sort((a, b) => {
+                                let indexA = getItemSortIndex(hotelName, a.itemName);
+                                let indexB = getItemSortIndex(hotelName, b.itemName);
+                                if (indexA !== indexB) return indexA - indexB;
+                                return (a.itemName < b.itemName) ? -1 : 1;
+                            });
+
                             logRecords.push({
                                 id: docSnap.id,
                                 date: dDate,
@@ -622,7 +708,10 @@
             
             let allItems = [];
             logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));
-            const items = [...new Set(allItems)].sort();
+            
+            // 下拉選單品項排序也按照試算表
+            let items = [...new Set(allItems)];
+            items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
             const fD = document.getElementById('fltLogDate'); 
             const fH = document.getElementById('fltLogHotel'); 
@@ -756,7 +845,8 @@
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
                         <td class="text-right pr-6 text-emerald-600 font-bold">
-                            <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors">▼ 展開明細</span>
+                            <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
+                            <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer">▼ 展開明細</span>
                         </td>
                     </tr>
                     <tr id="log_detail_${index}" class="hidden bg-gray-50 shadow-inner">
