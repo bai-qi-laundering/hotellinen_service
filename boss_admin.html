@@ -193,7 +193,7 @@
                             <th class="w-40"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">狀態 / 預定送達日</div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">單據日期 ▾</option></select></th>
                             <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">對象</div><select id="fltLogHotel" class="header-select w-full" onchange="applyLogFilters()"><option value="">飯店/部門 ▾</option></select></th>
                             <th class="w-48 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">系統押印</div>簽收時間 (精確)</th>
-                            <th class="w-32 bg-emerald-800 text-right pr-6">明細操作</th>
+                            <th class="w-48 bg-emerald-800 text-right pr-6">明細操作</th>
                         </tr>
                     </thead>
                     <tbody id="logTableBody">
@@ -232,10 +232,8 @@
         let logRecords = []; let logFiltered = []; 
         window.invHistoryRecords = []; 
         
-        // ★ 新增：用來存放 Google 試算表最正確的排序順序
         let masterData = []; 
 
-        // ★ 新增：載入基礎設定的大腦
         async function ensureMasterData() {
             if (masterData.length > 0) return;
             try {
@@ -248,18 +246,12 @@
             }
         }
 
-        // ★ 新增：負責算出每一個品項排第幾名的工具函數
         function getItemSortIndex(hotelName, itemName) {
-            // 先找那間飯店專屬的品項順序
             let expectedOrder = masterData.filter(d => d.hotel === hotelName).map(d => d.item);
-            
-            // 如果沒找到，就用整份表的所有品項去查 (避免部門名稱沒對上)
             if (expectedOrder.length === 0) {
                  expectedOrder = [...new Set(masterData.map(d => d.item))];
             }
-            
             let index = expectedOrder.indexOf(itemName);
-            // 如果是試算表裡面沒有的「自訂項目」，就排到最下面 (99999名)
             return index === -1 ? 99999 : index; 
         }
 
@@ -331,6 +323,56 @@
                 alert("刪除失敗，請檢查網路連線：" + error.message);
             }
         };
+
+        // ★ 新增：修改物流單據日期功能
+        window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
+            if(e) e.stopPropagation();
+
+            const newDate = prompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
+            
+            if (!newDate || newDate.trim() === "" || newDate === oldDate) return;
+            
+            // 基本日期格式驗證
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                alert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
+                return;
+            }
+
+            const confirmChange = confirm(`⚠️ 確定要將此單據日期從 ${oldDate} 改為 ${newDate} 嗎？`);
+            if (!confirmChange) return;
+
+            try {
+                showToast("⏳ 正在搬移單據...");
+                
+                // 1. 取得舊資料
+                const oldDocRef = doc(db, 'logistics_records', docId);
+                const oldDocSnap = await getDoc(oldDocRef);
+                
+                if (!oldDocSnap.exists()) {
+                    alert("找不到舊單據資料，可能已被刪除。");
+                    return;
+                }
+
+                let data = oldDocSnap.data();
+                data.date = newDate; // 更新為新日期
+                
+                // 2. 建立新文件 (使用新日期作為 ID 的一部分)
+                const newDocId = `${newDate}_${hotelKeyword}_${deptName}`;
+                await setDoc(doc(db, 'logistics_records', newDocId), data);
+
+                // 3. 刪除舊文件
+                await deleteDoc(oldDocRef);
+
+                showToast("✅ 單據日期已成功修改！");
+                
+                // 4. 重新載入畫面
+                loadLogData();
+            } catch (error) {
+                console.error("修改日期失敗:", error);
+                alert("修改失敗，請檢查網路連線：" + error.message);
+            }
+        };
+
 
         // 全域簽名預覽
         window.toggleSigPreview = function(e, source, index, type) {
@@ -425,7 +467,7 @@
             tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
             
             try {
-                await ensureMasterData(); // ★ 抓資料前，先確保試算表排序規則大腦已經上線！
+                await ensureMasterData(); 
 
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
@@ -452,7 +494,6 @@
                     }
                 });
 
-                // ★ 這裡被修正了！讓盤點明細也乖乖聽試算表的話排好
                 invRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
                     if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
@@ -477,7 +518,6 @@
             const dates = [...new Set(invRecords.map(r => r.date || ""))].filter(v=>v).sort();
             const hotels = [...new Set(invRecords.map(r => r.hotel || ""))].filter(v=>v).sort();
             
-            // 下拉選單品項排序也按照試算表
             let items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v);
             items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
@@ -621,7 +661,7 @@
             tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流簽收資料庫...</td></tr>`;
             
             try {
-                await ensureMasterData(); // ★ 抓資料前，先確保試算表排序規則大腦已經上線！
+                await ensureMasterData(); 
 
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
@@ -664,7 +704,6 @@
 
                         if (validItems.length > 0) {
                             
-                            // ★ 這裡被修正了！物流展開的品項明細，也乖乖聽試算表的話排好
                             validItems.sort((a, b) => {
                                 let indexA = getItemSortIndex(hotelName, a.itemName);
                                 let indexB = getItemSortIndex(hotelName, b.itemName);
@@ -675,6 +714,8 @@
                             logRecords.push({
                                 id: docSnap.id,
                                 date: dDate,
+                                hotelKeyword: d.hotelKeyword, // 給修改日期用
+                                deptName: d.deptName,         // 給修改日期用
                                 hotel: hotelName,
                                 items: validItems,
                                 driverSig: d.driverSig || "",
@@ -709,7 +750,6 @@
             let allItems = [];
             logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));
             
-            // 下拉選單品項排序也按照試算表
             let items = [...new Set(allItems)];
             items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
@@ -845,6 +885,8 @@
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
                         <td class="text-right pr-6 text-emerald-600 font-bold">
+                            <!-- ★ 新增：修改日期按鈕 -->
+                            <button onclick="changeLogisticsDate('${r.id}', '${r.date}', '${r.hotelKeyword}', '${r.deptName}', event)" class="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 transition-colors mr-2">📅 改日期</button>
                             <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
                             <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer">▼ 展開明細</span>
                         </td>
