@@ -213,8 +213,9 @@
 
     <!-- Firebase 模組載入 -->
     <script type="module">
+        // ★ 核心變更：加上初始化快取引擎所需的函數
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -226,7 +227,11 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        
+        // ★ 核心變更：啟動有快取引擎的 Firestore (降低讀取量)
+        const db = initializeFirestore(app, {
+            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+        });
 
         let invRecords = []; let invFiltered = []; 
         let logRecords = []; let logFiltered = []; 
@@ -301,7 +306,6 @@
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
 
-        // 全域刪除功能
         window.deleteRecord = async function(collectionName, docId, e) {
             if(e) e.stopPropagation(); 
             
@@ -324,7 +328,6 @@
             }
         };
 
-        // ★ 新增：修改物流單據日期功能
         window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
             if(e) e.stopPropagation();
 
@@ -332,7 +335,6 @@
             
             if (!newDate || newDate.trim() === "" || newDate === oldDate) return;
             
-            // 基本日期格式驗證
             if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
                 alert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
                 return;
@@ -344,7 +346,6 @@
             try {
                 showToast("⏳ 正在搬移單據...");
                 
-                // 1. 取得舊資料
                 const oldDocRef = doc(db, 'logistics_records', docId);
                 const oldDocSnap = await getDoc(oldDocRef);
                 
@@ -354,18 +355,15 @@
                 }
 
                 let data = oldDocSnap.data();
-                data.date = newDate; // 更新為新日期
+                data.date = newDate; 
                 
-                // 2. 建立新文件 (使用新日期作為 ID 的一部分)
                 const newDocId = `${newDate}_${hotelKeyword}_${deptName}`;
                 await setDoc(doc(db, 'logistics_records', newDocId), data);
 
-                // 3. 刪除舊文件
                 await deleteDoc(oldDocRef);
 
                 showToast("✅ 單據日期已成功修改！");
                 
-                // 4. 重新載入畫面
                 loadLogData();
             } catch (error) {
                 console.error("修改日期失敗:", error);
@@ -374,7 +372,6 @@
         };
 
 
-        // 全域簽名預覽
         window.toggleSigPreview = function(e, source, index, type) {
             e.stopPropagation();
             const box = document.getElementById('globalSigPreview');
@@ -474,6 +471,7 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
+                // ★ 快取引擎會自動攔截這裡的請求，如果以前查過，就不會耗費讀取額度
                 const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -668,6 +666,7 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
+                // ★ 快取引擎同樣會保護這裡的查詢
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -714,8 +713,8 @@
                             logRecords.push({
                                 id: docSnap.id,
                                 date: dDate,
-                                hotelKeyword: d.hotelKeyword, // 給修改日期用
-                                deptName: d.deptName,         // 給修改日期用
+                                hotelKeyword: d.hotelKeyword, 
+                                deptName: d.deptName,         
                                 hotel: hotelName,
                                 items: validItems,
                                 driverSig: d.driverSig || "",
@@ -885,7 +884,7 @@
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
                         <td class="text-right pr-6 text-emerald-600 font-bold">
-                            <!-- ★ 新增：修改日期按鈕 -->
+                            <!-- ★ 修改日期按鈕 -->
                             <button onclick="changeLogisticsDate('${r.id}', '${r.date}', '${r.hotelKeyword}', '${r.deptName}', event)" class="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 transition-colors mr-2">📅 改日期</button>
                             <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
                             <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer">▼ 展開明細</span>
