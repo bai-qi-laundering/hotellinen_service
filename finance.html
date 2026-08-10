@@ -234,8 +234,8 @@
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwU6OP2FBXGnHzljDbypoYxCZmY2CcaTITlPKo0xSQeznvFbTf-tspQSHfKHLOsrQCnow/exec"; // ⚠️ 請替換為您的正確網址！
         
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 核心修復：加入快取引擎載入模組
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 核心修復：把 doc 和 getDoc 補回來了，確保系統能正常讀取試算表大腦設定！
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -247,7 +247,7 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        // ★ 核心修復：啟動 Firebase 本地快取引擎，大幅降低讀取次數
+        // ★ 啟動 Firebase 本地快取引擎
         const db = initializeFirestore(app, {
             localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
         });
@@ -258,7 +258,6 @@
         let sheetPrices = {}; 
         let sheetClients = {}; 
 
-        // ★ 設定您的群組關鍵字
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
 
@@ -323,7 +322,6 @@
 
                     sheetClients = {};
                     if(json.clients) {
-                        // 假設欄位：[0]請款抬頭, [1]統編, [2]聯絡人, [3]電話, [4]地址, [5]付款條件, [6]付款方式
                         json.clients.forEach((row, index) => {
                             if(index === 0) return;
                             let companyName = String(row[0]).trim();
@@ -355,10 +353,9 @@
 
         function getPrice(comp, item) {
             let key = `${comp}_${item}`;
-            return sheetPrices[key] !== undefined ? sheetPrices[key] : null; // 若找不到回傳 null
+            return sheetPrices[key] !== undefined ? sheetPrices[key] : null; 
         }
 
-        // 載入畫面時自動同步一次大腦
         window.addEventListener('DOMContentLoaded', () => {
             syncMasterDataFromSheet();
         });
@@ -420,9 +417,6 @@
             checkboxes.forEach(cb => { if (keywords.some(kw => cb.value.includes(kw))) cb.checked = true; });
         }
 
-        // ==========================================
-        // 🚀 內部核對總表 (強迫認列試算表單價)
-        // ==========================================
         async function loadFinanceData() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
@@ -432,7 +426,6 @@
             const btn = document.getElementById('loadBtn');
             btn.innerHTML = `計算中...`; btn.disabled = true;
             
-            // 每次載入預覽時，重新抓一次試算表確保價格最新
             await syncMasterDataFromSheet();
 
             tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在從物流資料庫抓取實點數量...</td></tr>`;
@@ -497,7 +490,6 @@
                     records.forEach(r => {
                         let price = getPrice(r.parentCompany, r.item); 
                         
-                        // 防呆顯示：如果找不到價格，顯示紅字提醒
                         let priceDisplay = "";
                         let subtotalDisplay = "";
                         
@@ -566,7 +558,6 @@
             document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
         }
 
-        // 唯讀模式：抓取大腦中的客戶設定檔
         function loadClientProfile() {
             const comp = document.getElementById('invoiceTargetCompany').value;
             if(!comp) {
@@ -575,7 +566,6 @@
                 document.getElementById('ciAddress').value = ""; return;
             }
             
-            // 直接抓 sheetClients
             const p = sheetClients[comp] || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
             document.getElementById('ciName').value = p.name; 
             document.getElementById('ciTaxId').value = p.taxId;
@@ -594,7 +584,6 @@
             const comp = document.getElementById('invoiceTargetCompany').value;
             if(!comp) { alert("請選擇請款母公司！"); return; }
 
-            // 嚴格使用大腦資料
             const profile = {
                 name: document.getElementById('ciName').value, taxId: document.getElementById('ciTaxId').value,
                 contact: document.getElementById('ciContact').value, phone: document.getElementById('ciPhone').value,
@@ -614,7 +603,7 @@
 
             invoiceData.forEach(r => {
                 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                let price = getPrice(comp, r.item) || 0; // 若沒建檔，對帳單上算 0 元
+                let price = getPrice(comp, r.item) || 0; 
                 let amt = r.qty * price; grandTotal += amt;
                 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
                 if(!itemSummary[r.item]) itemSummary[r.item] = 0;
@@ -666,7 +655,6 @@
                 </div>
             `;
 
-            // 附件明細頁 
             let pageNum = 2;
             for (let [deptName, records] of Object.entries(deptsData)) {
                 
