@@ -101,7 +101,8 @@
         let currentDate = "";
         let groupedData = {}; 
         let activeDeptKey = ""; 
-        let masterTemplate = []; // ★ 改變：儲存整個試算表設定，以供精準配對
+        let masterTemplate = []; 
+        let globalItemOrder = {}; 
         let autoSyncTimer = null; 
 
         const clientCanvas = document.getElementById('clientCanvas');
@@ -131,7 +132,7 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <div class="text-blue-700 font-black text-xl animate-pulse tracking-wide">初次載入資料中...</div>
+                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">載入中...</div>
             </div>
         `;
 
@@ -144,12 +145,6 @@
             const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
             const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
-        }
-
-        function setupDateLimits() {
-            const today = new Date();
-            document.getElementById('datePicker').value = getLocalDateString(today);
-            updateDateDisplay();
         }
 
         function updateDateDisplay() {
@@ -169,6 +164,64 @@
             }
         }
 
+        // ★ 核心新功能：自動尋找最新單據的日期！
+        async function autoFindLatestDate(hotelKeyword) {
+            let itemsToCheck = [];
+            // 找出這家飯店在試算表中的專屬品項
+            let hotelItems = masterTemplate.filter(t => t.baseName === hotelKeyword || (t.hotel && t.hotel.includes(hotelKeyword)));
+            
+            if (hotelItems.length > 0) {
+                // 挑前 3 個熱門品項當作探測針 (省配額)
+                itemsToCheck = hotelItems.slice(0, 3);
+            } else {
+                // 如果第一次開還沒快取，預設查最常見的三種
+                itemsToCheck = [
+                    { hotel: hotelKeyword + " 房務", item: "床包" },
+                    { hotel: hotelKeyword + " 房務", item: "被套" },
+                    { hotel: hotelKeyword + " 房務", item: "大毛" }
+                ];
+            }
+
+            let checkDate = new Date();
+            // 往前最多找 15 天，沒找到就算了，預設回傳今天
+            for (let i = 0; i < 15; i++) { 
+                let dStr = getLocalDateString(checkDate);
+                
+                // 發射 3 根探測針查詢這天有沒有資料
+                let promises = itemsToCheck.map(t => {
+                    let docId = `${dStr}_${t.hotel}_${t.item.replace(/\//g, '-')}`;
+                    return getDoc(doc(db, "inventory_records", docId));
+                });
+                
+                try {
+                    let snaps = await Promise.all(promises);
+                    let hasData = snaps.some(snap => {
+                        if (snap.exists()) {
+                            let d = snap.data();
+                            // 只要有盤點數量或是簽名，就代表這天有單據！
+                            return (d.count && d.count !== "0") || 
+                                   (d.doubleCount && d.doubleCount !== "0") || 
+                                   d.signature || 
+                                   d.doubleSignature;
+                        }
+                        return false;
+                    });
+                    
+                    if (hasData) {
+                        return dStr; // 找到最新單據了！立刻回傳日期
+                    }
+                } catch(e) {
+                    console.error("Auto search error", e);
+                }
+                
+                // 這天沒有，找前一天
+                checkDate.setDate(checkDate.getDate() - 1);
+            }
+            
+            // 如果這家飯店最近 15 天完全沒單據，預設顯示今天
+            return getLocalDateString(new Date()); 
+        }
+
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -185,17 +238,42 @@
             }
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
-            setupDateLimits();
             
+            // 1. 優先從快取載入排序大腦 (給自動尋找日期當作探測針名單)
             let cachedTemplate = localStorage.getItem(`inventory_masterData`);
-            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
-
             if (cachedTemplate) {
                 try {
                     masterTemplate = JSON.parse(cachedTemplate);
+                    globalItemOrder = {};
+                    masterTemplate.forEach((t, idx) => {
+                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx; 
+                    });
                 } catch(e){}
             }
 
+            // 同步向雲端要最新設定 (背景執行，不卡畫面)
+            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
+                if (templateDoc.exists() && templateDoc.data().items) {
+                    masterTemplate = templateDoc.data().items;
+                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
+                    globalItemOrder = {};
+                    masterTemplate.forEach((t, idx) => {
+                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
+                    });
+                }
+            });
+
+            // 2. ★ 開始執行智慧尋找最新日期！
+            document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("載入中...", "🔍 自動搜尋最新單據中...");
+            
+            const latestDate = await autoFindLatestDate(currentHotel);
+            
+            // 把找到的最新日期設定上去
+            document.getElementById('datePicker').value = latestDate;
+            updateDateDisplay();
+
+            // 3. 載入該日期的資料
+            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
             if (cachedData) {
                 try {
                     processAndRenderData(JSON.parse(cachedData));
@@ -204,23 +282,15 @@
                     fetchData(false);
                 }
             } else {
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml;
                 fetchData(false);
             }
-
-            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
-                if (templateDoc.exists() && templateDoc.data().items) {
-                    masterTemplate = templateDoc.data().items;
-                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
-                }
-            });
 
             if (autoSyncTimer) clearInterval(autoSyncTimer); 
         }
 
         async function fetchData(isBackground = false) {
             if (!isBackground) {
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("初次載入資料中...", "讀取最新資料中...");
+                document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("載入中...", "讀取最新資料中...");
             } else {
                 const indicator = document.getElementById('syncIndicator');
                 if(indicator) {
@@ -345,7 +415,7 @@
             const cleanData = Object.values(uniqueDataMap);
 
             if (cleanData.length === 0) {
-                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">此日期無待點交資料！<br><span class="text-sm">可能飯店尚未盤點或無此飯店紀錄</span></div>';
+                document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">此日期無待點交資料！<br><span class="text-sm">請點擊上方日曆切換查詢日期</span></div>';
                 return;
             }
 
@@ -468,23 +538,19 @@
                 // ★ 精準抓取專屬排序號碼牌邏輯開始 ★
                 let localItemOrder = {};
                 if (masterTemplate && masterTemplate.length > 0) {
-                    // 1. 先嚴格過濾出「這家飯店」而且是「這個部門」的設定
                     let matchedItems = masterTemplate.filter(t => 
                         (t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel))) && 
                         ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && t.hotel.includes(dept)))
                     );
                     
-                    // 2. 萬一上面沒抓到（防呆），至少抓「這家飯店」整體的順序來用
                     if (matchedItems.length === 0) {
                         matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
                     }
 
-                    // 3. 給它們專屬的號碼牌
                     matchedItems.forEach((t, idx) => {
                         if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx;
                     });
                 }
-                // ★ 排序邏輯結束 ★
 
                 let hasClientSig = groupedData[dept].clientSig ? true : false;
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
@@ -505,7 +571,7 @@
                     actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-md">📝 進行點交與簽名</button>`;
                 }
 
-                // ★ 使用上面產生的「專屬號碼牌」進行排序 ★
+                // ★ 使用專屬號碼牌進行排序
                 groupedData[dept].items.sort((a, b) => {
                     let idxA = localItemOrder[a.itemName] !== undefined ? localItemOrder[a.itemName] : 9999;
                     let idxB = localItemOrder[b.itemName] !== undefined ? localItemOrder[b.itemName] : 9999;
@@ -782,4 +848,3 @@
     </script>
 </body>
 </html>
-
