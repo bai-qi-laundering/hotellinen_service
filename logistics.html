@@ -183,54 +183,6 @@
             }
         }
 
-        // 自動尋找最新單據的日期！
-        async function autoFindLatestDate(hotelKeyword) {
-            let itemsToCheck = [];
-            let hotelItems = masterTemplate.filter(t => t.baseName === hotelKeyword || (t.hotel && t.hotel.includes(hotelKeyword)));
-            
-            if (hotelItems.length > 0) {
-                itemsToCheck = hotelItems.slice(0, 3);
-            } else {
-                itemsToCheck = [
-                    { hotel: hotelKeyword + " 房務", item: "床包" },
-                    { hotel: hotelKeyword + " 房務", item: "被套" },
-                    { hotel: hotelKeyword + " 房務", item: "大毛" }
-                ];
-            }
-
-            let checkDate = new Date();
-            for (let i = 0; i < 15; i++) { 
-                let dStr = getLocalDateString(checkDate);
-                let promises = itemsToCheck.map(t => {
-                    let docId = `${dStr}_${t.hotel}_${t.item.replace(/\//g, '-')}`;
-                    return getDoc(doc(db, "inventory_records", docId));
-                });
-                
-                try {
-                    let snaps = await Promise.all(promises);
-                    let hasData = snaps.some(snap => {
-                        if (snap.exists()) {
-                            let d = snap.data();
-                            return (d.count && d.count !== "0") || 
-                                   (d.doubleCount && d.doubleCount !== "0") || 
-                                   d.signature || 
-                                   d.doubleSignature;
-                        }
-                        return false;
-                    });
-                    
-                    if (hasData) {
-                        return dStr; 
-                    }
-                } catch(e) {
-                    console.warn("Auto search minor error (continuing)", e);
-                }
-                
-                checkDate.setDate(checkDate.getDate() - 1);
-            }
-            return getLocalDateString(new Date()); 
-        }
-
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -260,7 +212,7 @@
                     });
                 } catch(e){}
             }
-
+            // 同步向雲端要最新設定 (背景執行)
             getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
@@ -272,12 +224,12 @@
                 }
             }).catch(e => console.warn("Failed to load master template (offline)", e));
 
-            document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("載入中...", "🔍 自動搜尋最新單據中...");
-            
-            const latestDate = await autoFindLatestDate(currentHotel);
-            document.getElementById('datePicker').value = latestDate;
+            // ★ 移除自動搜尋最新單據，直接鎖定為「今日」，大幅提升載入速度！
+            const today = getLocalDateString(new Date());
+            document.getElementById('datePicker').value = today;
             updateDateDisplay();
 
+            // 3. 載入該日期的資料
             let cachedData = null;
             try { cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`); } catch(e){}
             
