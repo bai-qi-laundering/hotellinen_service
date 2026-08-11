@@ -13,7 +13,11 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
         }
         
-        .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
+        .sign-canvas { 
+            display: block; width: 100%; height: 160px; background: #fff; 
+            border: 2px dashed #cbd5e1; border-radius: 0.5rem; 
+            touch-action: none; cursor: crosshair; 
+        }
     </style>
 </head>
 <body class="p-3 pb-32 relative">
@@ -82,8 +86,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 核心修復：加入快取引擎載入模組
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 核心修復：加入 getFirestore 以作為快取引擎失敗時的備用方案
+        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -96,10 +100,17 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        // ★ 核心修復：啟動 Firebase 本地快取引擎，大幅降低讀取次數並支援離線體驗
-        const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-        });
+        let db;
+        
+        // ★ 核心修復：加入 Try-Catch 防止無痕模式或快取鎖死導致全面癱瘓
+        try {
+            db = initializeFirestore(app, {
+                localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+            });
+        } catch (error) {
+            console.warn("啟動本地快取失敗(可能處於無痕模式或遭封鎖)，降級至標準模式", error);
+            db = getFirestore(app);
+        }
         
         let currentHotel = "";
         let currentDate = "";
@@ -159,7 +170,11 @@
 
         function dateChanged() { 
             updateDateDisplay(); 
-            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+            let cachedData = null;
+            try {
+                cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+            } catch(e) {}
+            
             if (cachedData) {
                 processAndRenderData(JSON.parse(cachedData));
                 fetchData(true); 
@@ -171,14 +186,11 @@
         // 自動尋找最新單據的日期！
         async function autoFindLatestDate(hotelKeyword) {
             let itemsToCheck = [];
-            // 找出這家飯店在試算表中的專屬品項
             let hotelItems = masterTemplate.filter(t => t.baseName === hotelKeyword || (t.hotel && t.hotel.includes(hotelKeyword)));
             
             if (hotelItems.length > 0) {
-                // 挑前 3 個熱門品項當作探測針 (省配額)
                 itemsToCheck = hotelItems.slice(0, 3);
             } else {
-                // 如果第一次開還沒快取，預設查最常見的三種
                 itemsToCheck = [
                     { hotel: hotelKeyword + " 房務", item: "床包" },
                     { hotel: hotelKeyword + " 房務", item: "被套" },
@@ -187,11 +199,8 @@
             }
 
             let checkDate = new Date();
-            // 往前最多找 15 天，沒找到就算了，預設回傳今天
             for (let i = 0; i < 15; i++) { 
                 let dStr = getLocalDateString(checkDate);
-                
-                // 發射探測針查詢這天有沒有資料
                 let promises = itemsToCheck.map(t => {
                     let docId = `${dStr}_${t.hotel}_${t.item.replace(/\//g, '-')}`;
                     return getDoc(doc(db, "inventory_records", docId));
@@ -214,12 +223,11 @@
                         return dStr; 
                     }
                 } catch(e) {
-                    console.error("Auto search error", e);
+                    console.warn("Auto search minor error (continuing)", e);
                 }
                 
                 checkDate.setDate(checkDate.getDate() - 1);
             }
-            
             return getLocalDateString(new Date()); 
         }
 
@@ -230,7 +238,7 @@
             if (!currentHotel || currentHotel.trim() === "") {
                 document.getElementById('hotelTitle').innerText = "連結錯誤";
                 document.getElementById('departmentsContainer').innerHTML = `
-                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200">
+                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200 mx-4">
                         <span class="text-4xl block mb-2">🚫</span>
                         <div class="text-red-600 font-black text-xl mb-2">無效的存取連結</div>
                         <div class="text-red-500 font-bold text-sm">請向物流單位索取您所屬飯店的專屬點交網址</div>
@@ -240,8 +248,9 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            // 1. 優先從快取載入排序大腦
-            let cachedTemplate = localStorage.getItem(`inventory_masterData`);
+            let cachedTemplate = null;
+            try { cachedTemplate = localStorage.getItem(`inventory_masterData`); } catch(e){}
+            
             if (cachedTemplate) {
                 try {
                     masterTemplate = JSON.parse(cachedTemplate);
@@ -252,28 +261,26 @@
                 } catch(e){}
             }
 
-            // 同步向雲端要最新設定 (背景執行)
             getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
-                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
+                    try { localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate)); } catch(e){}
                     globalItemOrder = {};
                     masterTemplate.forEach((t, idx) => {
                         if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                     });
                 }
-            });
+            }).catch(e => console.warn("Failed to load master template (offline)", e));
 
-            // 2. 執行智慧尋找最新日期
             document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("載入中...", "🔍 自動搜尋最新單據中...");
             
             const latestDate = await autoFindLatestDate(currentHotel);
-            
             document.getElementById('datePicker').value = latestDate;
             updateDateDisplay();
 
-            // 3. 載入該日期的資料
-            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+            let cachedData = null;
+            try { cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`); } catch(e){}
+            
             if (cachedData) {
                 try {
                     processAndRenderData(JSON.parse(cachedData));
@@ -322,13 +329,17 @@
                     }
                 });
 
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
+                // ★ 核心修復：拔除雙 where 條件，避免需要建立複合索引導致讀取失敗。
+                // 改為在記憶體中比對 currentHotel
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate));
                 const logSnap = await getDocs(logQ);
                 let savedLogistics = {};
                 
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    savedLogistics[d.deptName] = d;
+                    if (d.hotelKeyword === currentHotel || (d.hotelKeyword && d.hotelKeyword.includes(currentHotel))) {
+                        savedLogistics[d.deptName] = d;
+                    }
                 });
 
                 baseInventoryItems.forEach(item => {
@@ -396,12 +407,27 @@
                     }
                 }
 
-                localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
+                // ★ 加入 try-catch 避免無痕模式阻擋 localStorage
+                try {
+                    localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
+                } catch(err) {
+                    console.warn("本機暫存寫入受阻", err);
+                }
+                
                 processAndRenderData(rawData);
             } catch (err) {
-                console.error(err);
+                console.error("Fetch Data Error: ", err);
                 if (!isBackground) {
-                    document.getElementById('departmentsContainer').innerHTML = `<div class="text-center py-10 text-red-500 font-bold">讀取失敗：請檢查網路連線</div>`;
+                    // ★ 核心修復：顯示詳細錯誤資訊，方便未來判斷是否為權限或連線問題
+                    document.getElementById('departmentsContainer').innerHTML = `
+                        <div class="text-center py-10 bg-red-50 rounded-xl border border-red-200 shadow-sm mx-4">
+                            <span class="text-4xl block mb-2">⚠️</span>
+                            <div class="text-red-600 font-black text-xl mb-1">讀取失敗</div>
+                            <div class="text-red-500 font-bold text-sm mb-3">請檢查網路連線或重新整理頁面</div>
+                            <div class="text-xs text-red-400 bg-white p-2 rounded max-w-[90%] mx-auto overflow-auto break-all border border-red-100 text-left font-mono">
+                                System Error:<br>${err.message}
+                            </div>
+                        </div>`;
                 }
             }
         }
@@ -535,7 +561,6 @@
                 deptIndex++;
                 let deptId = `dept_${deptIndex}`;
 
-                // ★ 精準抓取專屬排序號碼牌邏輯
                 let localItemOrder = {};
                 if (masterTemplate && masterTemplate.length > 0) {
                     let matchedItems = masterTemplate.filter(t => 
@@ -667,6 +692,7 @@
             canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
             canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
         }
+        
         setupCanvas(clientCanvas, clientCtx);
         setupCanvas(driverCanvas, driverCtx);
 
@@ -839,10 +865,11 @@
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
-                alert("網路傳送失敗，請確認網路！");
+                alert(`網路傳送失敗，請確認網路！\n錯誤碼: ${e.message}`);
             }
         }
-
+        
+        // 啟動系統
         init();
     </script>
 </body>
