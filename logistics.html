@@ -13,11 +13,7 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
         }
         
-        .sign-canvas { 
-            display: block; width: 100%; height: 160px; background: #fff; 
-            border: 2px dashed #cbd5e1; border-radius: 0.5rem; 
-            touch-action: none; cursor: crosshair; 
-        }
+        .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
     </style>
 </head>
 <body class="p-3 pb-32 relative">
@@ -86,8 +82,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 核心修復：加入 getFirestore 以作為快取引擎失敗時的備用方案
-        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 核心修復：拔除會導致 Safari 錯亂的 persistentLocalCache，改回最穩定的 getFirestore
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -100,17 +96,8 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        let db;
-        
-        // ★ 核心修復：加入 Try-Catch 防止無痕模式或快取鎖死導致全面癱瘓
-        try {
-            db = initializeFirestore(app, {
-                localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-            });
-        } catch (error) {
-            console.warn("啟動本地快取失敗(可能處於無痕模式或遭封鎖)，降級至標準模式", error);
-            db = getFirestore(app);
-        }
+        // ★ 核心修復：使用標準連線，完全杜絕 Unexpected state 錯誤
+        const db = getFirestore(app);
         
         let currentHotel = "";
         let currentDate = "";
@@ -170,11 +157,7 @@
 
         function dateChanged() { 
             updateDateDisplay(); 
-            let cachedData = null;
-            try {
-                cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
-            } catch(e) {}
-            
+            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
             if (cachedData) {
                 processAndRenderData(JSON.parse(cachedData));
                 fetchData(true); 
@@ -190,7 +173,7 @@
             if (!currentHotel || currentHotel.trim() === "") {
                 document.getElementById('hotelTitle').innerText = "連結錯誤";
                 document.getElementById('departmentsContainer').innerHTML = `
-                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200 mx-4">
+                    <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200">
                         <span class="text-4xl block mb-2">🚫</span>
                         <div class="text-red-600 font-black text-xl mb-2">無效的存取連結</div>
                         <div class="text-red-500 font-bold text-sm">請向物流單位索取您所屬飯店的專屬點交網址</div>
@@ -200,9 +183,8 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            let cachedTemplate = null;
-            try { cachedTemplate = localStorage.getItem(`inventory_masterData`); } catch(e){}
-            
+            // 優先從快取載入排序大腦
+            let cachedTemplate = localStorage.getItem(`inventory_masterData`);
             if (cachedTemplate) {
                 try {
                     masterTemplate = JSON.parse(cachedTemplate);
@@ -212,27 +194,27 @@
                     });
                 } catch(e){}
             }
+
             // 同步向雲端要最新設定 (背景執行)
             getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
-                    try { localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate)); } catch(e){}
+                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
                     globalItemOrder = {};
                     masterTemplate.forEach((t, idx) => {
                         if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                     });
                 }
-            }).catch(e => console.warn("Failed to load master template (offline)", e));
+            }).catch(e => console.error("Template load error:", e));
 
-            // ★ 移除自動搜尋最新單據，直接鎖定為「今日」，大幅提升載入速度！
-            const today = getLocalDateString(new Date());
-            document.getElementById('datePicker').value = today;
+            // ★ 優化：直接預設為今天，秒開畫面！不再花時間往回找
+            const latestDate = getLocalDateString(new Date());
+            
+            document.getElementById('datePicker').value = latestDate;
             updateDateDisplay();
 
-            // 3. 載入該日期的資料
-            let cachedData = null;
-            try { cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`); } catch(e){}
-            
+            // 載入該日期的資料
+            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
             if (cachedData) {
                 try {
                     processAndRenderData(JSON.parse(cachedData));
@@ -281,17 +263,13 @@
                     }
                 });
 
-                // ★ 核心修復：拔除雙 where 條件，避免需要建立複合索引導致讀取失敗。
-                // 改為在記憶體中比對 currentHotel
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate));
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 const logSnap = await getDocs(logQ);
                 let savedLogistics = {};
                 
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    if (d.hotelKeyword === currentHotel || (d.hotelKeyword && d.hotelKeyword.includes(currentHotel))) {
-                        savedLogistics[d.deptName] = d;
-                    }
+                    savedLogistics[d.deptName] = d;
                 });
 
                 baseInventoryItems.forEach(item => {
@@ -359,27 +337,21 @@
                     }
                 }
 
-                // ★ 加入 try-catch 避免無痕模式阻擋 localStorage
-                try {
-                    localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
-                } catch(err) {
-                    console.warn("本機暫存寫入受阻", err);
-                }
-                
+                localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
                 processAndRenderData(rawData);
             } catch (err) {
-                console.error("Fetch Data Error: ", err);
+                console.error("Fetch Data Error:", err);
                 if (!isBackground) {
-                    // ★ 核心修復：顯示詳細錯誤資訊，方便未來判斷是否為權限或連線問題
+                    // ★ 顯示清楚的錯誤讓開發者好除錯
                     document.getElementById('departmentsContainer').innerHTML = `
-                        <div class="text-center py-10 bg-red-50 rounded-xl border border-red-200 shadow-sm mx-4">
-                            <span class="text-4xl block mb-2">⚠️</span>
-                            <div class="text-red-600 font-black text-xl mb-1">讀取失敗</div>
-                            <div class="text-red-500 font-bold text-sm mb-3">請檢查網路連線或重新整理頁面</div>
-                            <div class="text-xs text-red-400 bg-white p-2 rounded max-w-[90%] mx-auto overflow-auto break-all border border-red-100 text-left font-mono">
-                                System Error:<br>${err.message}
-                            </div>
-                        </div>`;
+                    <div class="text-center py-10 bg-red-50 rounded-2xl border border-red-200 mt-6 mx-4">
+                        <span class="text-4xl block mb-3">⚠️</span>
+                        <div class="text-red-600 font-black text-xl mb-2">讀取失敗</div>
+                        <div class="text-red-500 font-bold text-sm mb-4">請檢查網路連線或重新整理頁面</div>
+                        <div class="text-xs text-left bg-white p-3 rounded text-red-400 mx-4 overflow-auto font-mono border border-red-100">
+                            System Error:<br>${err.message || 'Unknown Network Error'}
+                        </div>
+                    </div>`;
                 }
             }
         }
@@ -644,7 +616,6 @@
             canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
             canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
         }
-        
         setupCanvas(clientCanvas, clientCtx);
         setupCanvas(driverCanvas, driverCtx);
 
@@ -817,10 +788,10 @@
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
-                alert(`網路傳送失敗，請確認網路！\n錯誤碼: ${e.message}`);
+                alert("網路傳送失敗，請確認網路！");
             }
         }
-        
+
         // 啟動系統
         init();
     </script>
