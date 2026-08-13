@@ -8,6 +8,7 @@
     <style>
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
+        /* ★ 核心修復：加上 position: relative，把透明的日曆按鈕鎖在格子裡，防止它無限膨脹擋住畫面！ */
         input[type="date"] { position: relative; }
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
@@ -213,7 +214,6 @@
 
     <!-- Firebase 模組載入 -->
     <script type="module">
-        // ★ 核心變更：加上初始化快取引擎所需的函數
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -227,8 +227,6 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        
-        // ★ 核心變更：啟動有快取引擎的 Firestore (降低讀取量)
         const db = initializeFirestore(app, {
             localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
         });
@@ -278,12 +276,6 @@
         }
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
-        function getExactTimeString() {
-            const now = new Date();
-            const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, '0'); const d = String(now.getDate()).padStart(2, '0');
-            const h = String(now.getHours()).padStart(2, '0'); const min = String(now.getMinutes()).padStart(2, '0'); const s = String(now.getSeconds()).padStart(2, '0');
-            return `${y}-${m}-${d} ${h}:${min}:${s}`;
-        }
         
         const today = new Date();
         const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -298,15 +290,16 @@
         window.loadInvData = loadInvData;
         window.applyInvFilters = applyInvFilters;
         window.updateInvField = updateInvField;
-        window.autoFillInvTime = autoFillInvTime;
-        window.autoFillInvExactTime = autoFillInvExactTime;
         window.loadInvHistory = loadInvHistory;
         window.loadLogData = loadLogData;
         window.applyLogFilters = applyLogFilters;
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
 
-        window.deleteRecord = async function(collectionName, docId, e) {
+        // ===============================================
+        // ★ 自動穿透刪除：在藍色區刪除，也會把物流單據裡的品項砍掉
+        // ===============================================
+        window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation(); 
             
             const confirmDelete = confirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！\n(若 Google 試算表中已有備份，請務必記得手動前往試算表刪除該行)`);
@@ -314,6 +307,41 @@
 
             try {
                 await deleteDoc(doc(db, collectionName, docId));
+                
+                // 如果是刪除藍色盤點區，順便把綠色物流區的對應品項也清掉
+                if (collectionName === 'inventory_records' && category && item && dateStr) {
+                    try {
+                        let hotelKeyword = category;
+                        let deptName = "房務";
+                        let catParts = category.split(' ');
+                        if (catParts.length > 1) {
+                            deptName = catParts.pop();
+                            hotelKeyword = catParts.join(' ');
+                        }
+                        
+                        let targetCat = masterData.find(d => d.hotel === category);
+                        if (targetCat) {
+                            hotelKeyword = targetCat.baseName;
+                            deptName = targetCat.deptName || "房務";
+                        }
+
+                        const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                        const logDocRef = doc(db, 'logistics_records', logDocId);
+                        const logSnap = await getDoc(logDocRef);
+
+                        if (logSnap.exists()) {
+                            let logData = logSnap.data();
+                            let logItems = logData.items || [];
+                            let newItems = logItems.filter(i => i.itemName !== item);
+                            
+                            // 更新陣列，把該品項剔除
+                            await setDoc(logDocRef, { items: newItems }, { merge: true });
+                        }
+                    } catch(delErr) {
+                        console.warn("連動刪除物流單品項失敗", delErr);
+                    }
+                }
+
                 showToast("🗑️ 紀錄已成功從雲端刪除！");
                 
                 if (collectionName === 'inventory_records') {
@@ -359,18 +387,15 @@
                 
                 const newDocId = `${newDate}_${hotelKeyword}_${deptName}`;
                 await setDoc(doc(db, 'logistics_records', newDocId), data);
-
                 await deleteDoc(oldDocRef);
 
                 showToast("✅ 單據日期已成功修改！");
-                
                 loadLogData();
             } catch (error) {
                 console.error("修改日期失敗:", error);
                 alert("修改失敗，請檢查網路連線：" + error.message);
             }
         };
-
 
         window.toggleSigPreview = function(e, source, index, type) {
             e.stopPropagation();
@@ -471,7 +496,6 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                // ★ 快取引擎會自動攔截這裡的請求，如果以前查過，就不會耗費讀取額度
                 const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -551,55 +575,104 @@
                 let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100 active:bg-green-200">👁️ 查看簽名</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
                 return `
                     <tr class="main-row">
-                        <td><input type="date" value="${r.date || ''}" class="clean-input font-mono" onblur="updateInvField('${r.docId}', 'date', this.value, this)"></td>
+                        <td><input type="date" value="${r.date || ''}" class="clean-input font-mono" disabled title="如需修改日期，請至物流查帳後台操作"></td>
                         <td class="font-bold text-gray-800">${r.hotel}</td>
                         <td class="text-blue-700 font-bold">${r.item}</td>
                         <td class="text-center font-bold text-gray-600">${r.count || '-'}</td>
                         <td class="text-center"><div class="sig-container">${aSig}</div></td>
-                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                        <td class="text-center font-bold text-blue-700">
+                            <input type="number" value="${r.doubleCount || ''}" class="clean-input text-center font-black text-blue-700 w-16" onblur="updateInvField('${r.docId}', 'doubleCount', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')">
+                        </td>
                         <td class="text-center"><div class="sig-container">${dSig}</div></td>
                         <td>
                             <div class="flex items-center gap-2">
-                                <input type="text" id="invTime_${r.docId}" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px]" placeholder="尚未記錄" onblur="updateInvField('${r.docId}', 'doubleSignDate', this.value, this)">
-                                <div class="flex flex-col gap-1">
-                                    <button onclick="autoFillInvExactTime('${r.docId}')" class="text-[10px] px-1 bg-blue-50 text-blue-600 border border-blue-200 shadow-sm rounded hover:bg-blue-100">⌚</button>
-                                    <button onclick="autoFillInvTime('${r.docId}')" class="text-[10px] px-1 bg-orange-50 text-orange-500 border border-orange-200 shadow-sm rounded hover:bg-orange-100">💡</button>
-                                </div>
+                                <input type="text" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px]" placeholder="尚未記錄" onblur="updateInvField('${r.docId}', 'doubleSignDate', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')">
                             </div>
                         </td>
-                        <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this)"></td>
+                        <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')"></td>
                         <td class="text-center">
-                            <button onclick="deleteRecord('inventory_records', '${r.docId}', event)" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
+                            <button onclick="deleteRecord('inventory_records', '${r.docId}', event, '${r.hotel}', '${r.item}', '${r.date}')" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
                         </td>
                     </tr>
                 `;
             }).join('');
         }
 
-        async function updateInvField(docId, field, newValue, inputEl) {
+        // ===============================================
+        // ★ 自動穿透更新：在藍色區修改數量，也會把物流單據裡的品項跟著改好
+        // ===============================================
+        async function updateInvField(docId, field, newValue, inputEl, category, item, dateStr) {
             const record = invRecords.find(r => r.docId === docId);
             if (!record || record[field] === newValue.trim()) return; 
+            
             inputEl.style.opacity = '0.5';
+            const cleanVal = newValue.trim();
+
             try {
-                await setDoc(doc(db, 'inventory_records', docId), { [field]: newValue.trim(), timestamp: new Date().toLocaleString() }, { merge: true });
-                record[field] = newValue.trim(); inputEl.style.opacity = '1'; showToast("盤點資料已儲存！");
+                // 1. 更新盤點區 (藍色)
+                await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: new Date().toLocaleString() }, { merge: true });
+                
+                // 2. 如果改的是「數量」或「備註」，自動穿透到物流區 (綠色)
+                if (field === 'doubleCount' || field === 'count' || field === 'note') {
+                    try {
+                        let hotelKeyword = category;
+                        let deptName = "房務";
+                        let catParts = category.split(' ');
+                        if (catParts.length > 1) {
+                            deptName = catParts.pop();
+                            hotelKeyword = catParts.join(' ');
+                        }
+                        
+                        let targetCat = masterData.find(d => d.hotel === category);
+                        if (targetCat) {
+                            hotelKeyword = targetCat.baseName;
+                            deptName = targetCat.deptName || "房務";
+                        }
+
+                        const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                        const logDocRef = doc(db, 'logistics_records', logDocId);
+                        const logSnap = await getDoc(logDocRef);
+
+                        if (logSnap.exists()) {
+                            let logData = logSnap.data();
+                            let logItems = logData.items || [];
+                            let itemIndex = logItems.findIndex(i => i.itemName === item);
+                            
+                            // 無論是改 doubleCount 還是 count，只要更新，就強制把實收數量 (actualQty) 蓋過去
+                            let finalQty = field === 'doubleCount' ? cleanVal : (record.doubleCount !== "" ? record.doubleCount : cleanVal);
+
+                            if (itemIndex > -1) {
+                                if (field === 'doubleCount' || field === 'count') {
+                                    logItems[itemIndex].originalQty = String(finalQty);
+                                    logItems[itemIndex].actualQty = String(finalQty); // 強制覆蓋實收數量
+                                }
+                                if (field === 'note') {
+                                    logItems[itemIndex].auntNote = cleanVal;
+                                }
+                            } else {
+                                // 如果物流單裡還沒有這筆，就自動把它塞進去 (例如老闆在後台臨時加的品項)
+                                logItems.push({
+                                    itemName: item,
+                                    originalQty: String(finalQty),
+                                    actualQty: String(finalQty),
+                                    auntNote: field === 'note' ? cleanVal : (record.note || ""),
+                                    driverNote: "後台強制新增"
+                                });
+                            }
+                            await setDoc(logDocRef, { items: logItems }, { merge: true });
+                        }
+                    } catch (syncErr) {
+                        console.warn("連動更新物流單失敗", syncErr);
+                    }
+                }
+
+                record[field] = cleanVal; 
+                inputEl.style.opacity = '1'; 
+                showToast("✅ 資料已同步至物流與財務系統！");
             } catch (e) {
-                inputEl.style.color = 'red'; alert("更新失敗！");
+                inputEl.style.color = 'red'; 
+                alert("更新失敗！");
             }
-        }
-
-        async function autoFillInvExactTime(docId) {
-            const timeInput = document.getElementById(`invTime_${docId}`);
-            timeInput.value = getExactTimeString();
-            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);
-        }
-
-        async function autoFillInvTime(docId) {
-            const record = invRecords.find(r => r.docId === docId);
-            const dateStr = record ? record.date : document.getElementById('invStartDate').value;
-            const timeInput = document.getElementById(`invTime_${docId}`);
-            timeInput.value = `${dateStr} 23:59:59`;
-            updateInvField(docId, 'doubleSignDate', timeInput.value, timeInput);
         }
 
         async function loadInvHistory() {
@@ -666,7 +739,6 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                // ★ 快取引擎同樣會保護這裡的查詢
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -690,13 +762,17 @@
                         let validItems = [];
 
                         (d.items || []).forEach(item => {
-                            if (!item.originalQty || item.originalQty == "0") return;
-                            let actual = (item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty;
-                            if (String(actual) !== String(item.originalQty)) hasIssue = true; 
+                            let orig = item.originalQty || "0";
+                            let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : orig;
+                            
+                            // ★ 修復重點：臨時新增的品項如果只輸入 0，那才會被隱藏
+                            if (orig === "0" && actual === "0") return; 
+                            
+                            if (String(actual) !== String(orig)) hasIssue = true; 
                             
                             validItems.push({
                                 itemName: item.itemName,
-                                bqQty: item.originalQty,
+                                bqQty: orig,
                                 actualQty: actual
                             });
                         });
@@ -884,7 +960,6 @@
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
                         <td class="text-right pr-6 text-emerald-600 font-bold">
-                            <!-- ★ 修改日期按鈕 -->
                             <button onclick="changeLogisticsDate('${r.id}', '${r.date}', '${r.hotelKeyword}', '${r.deptName}', event)" class="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 transition-colors mr-2">📅 改日期</button>
                             <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
                             <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer">▼ 展開明細</span>
