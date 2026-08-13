@@ -8,7 +8,6 @@
     <style>
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
-        /* ★ 核心修復：加上 position: relative，把透明的日曆按鈕鎖在格子裡，防止它無限膨脹擋住畫面！ */
         input[type="date"] { position: relative; }
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
@@ -356,6 +355,119 @@
             }
         };
 
+        // ===============================================
+        // ★ 自動穿透修改日期：盤點區改日期，物流區的品項跟著搬家！
+        // ===============================================
+        window.changeInventoryDate = async function(docId, oldDate, newDate, hotel, item, inputEl) {
+            if (!newDate || newDate === oldDate) {
+                inputEl.value = oldDate; 
+                return;
+            }
+
+            const confirmChange = confirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
+            if (!confirmChange) {
+                inputEl.value = oldDate; 
+                return;
+            }
+
+            try {
+                showToast("⏳ 正在搬移單據...");
+                inputEl.style.opacity = '0.5';
+
+                // 1. 取得舊資料
+                const oldDocRef = doc(db, 'inventory_records', docId);
+                const oldDocSnap = await getDoc(oldDocRef);
+                
+                if (!oldDocSnap.exists()) {
+                    alert("找不到舊單據資料，可能已被刪除。");
+                    loadInvData();
+                    return;
+                }
+
+                let data = oldDocSnap.data();
+                data.date = newDate; 
+                
+                // 2. 寫入新文件
+                const safeItem = item.replace(/\//g, '-');
+                const newDocId = `${newDate}_${hotel}_${safeItem}`;
+                await setDoc(doc(db, 'inventory_records', newDocId), data);
+
+                // 3. 刪除舊文件
+                await deleteDoc(oldDocRef);
+
+                // 4. 連動處理：把物流區的舊紀錄拔除，塞到新日期的物流紀錄裡
+                try {
+                    let hotelKeyword = hotel;
+                    let deptName = "房務";
+                    let catParts = hotel.split(' ');
+                    if (catParts.length > 1) {
+                        deptName = catParts.pop();
+                        hotelKeyword = catParts.join(' ');
+                    }
+                    
+                    let targetCat = masterData.find(d => d.hotel === hotel);
+                    if (targetCat) {
+                        hotelKeyword = targetCat.baseName;
+                        deptName = targetCat.deptName || "房務";
+                    }
+
+                    // 拔除舊物流單裡的該品項
+                    const oldLogDocId = `${oldDate}_${hotelKeyword}_${deptName}`;
+                    const oldLogDocRef = doc(db, 'logistics_records', oldLogDocId);
+                    const oldLogSnap = await getDoc(oldLogDocRef);
+                    
+                    let movedItemData = null;
+
+                    if (oldLogSnap.exists()) {
+                        let logData = oldLogSnap.data();
+                        let logItems = logData.items || [];
+                        movedItemData = logItems.find(i => i.itemName === item);
+                        let newItems = logItems.filter(i => i.itemName !== item);
+                        await setDoc(oldLogDocRef, { items: newItems }, { merge: true });
+                    }
+
+                    // 塞入新物流單裡
+                    if (movedItemData) {
+                        const newLogDocId = `${newDate}_${hotelKeyword}_${deptName}`;
+                        const newLogDocRef = doc(db, 'logistics_records', newLogDocId);
+                        const newLogSnap = await getDoc(newLogDocRef);
+
+                        if (newLogSnap.exists()) {
+                            let logData = newLogSnap.data();
+                            let logItems = logData.items || [];
+                            let existingIdx = logItems.findIndex(i => i.itemName === item);
+                            if (existingIdx > -1) {
+                                logItems[existingIdx] = movedItemData;
+                            } else {
+                                logItems.push(movedItemData);
+                            }
+                            await setDoc(newLogDocRef, { items: logItems }, { merge: true });
+                        } else {
+                            await setDoc(newLogDocRef, {
+                                date: newDate,
+                                hotelKeyword: hotelKeyword,
+                                deptName: deptName,
+                                items: [movedItemData],
+                                clientSig: "",
+                                driverSig: "",
+                                timestamp: new Date().toLocaleString()
+                            });
+                        }
+                    }
+                } catch (syncErr) {
+                    console.warn("連動搬移物流單品項失敗", syncErr);
+                }
+
+                showToast("✅ 盤點日期已成功修改！");
+                loadInvData(); 
+            } catch (error) {
+                console.error("修改日期失敗:", error);
+                alert("修改失敗，請檢查網路連線：" + error.message);
+                inputEl.style.opacity = '1';
+                inputEl.value = oldDate;
+            }
+        };
+
         window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
             if(e) e.stopPropagation();
 
@@ -575,7 +687,10 @@
                 let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100 active:bg-green-200">👁️ 查看簽名</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
                 return `
                     <tr class="main-row">
-                        <td><input type="date" value="${r.date || ''}" class="clean-input font-mono" disabled title="如需修改日期，請至物流查帳後台操作"></td>
+                        <td class="text-center">
+                            <!-- ★ 解鎖：可以直接在這裡改盤點單的日期！ -->
+                            <input type="date" value="${r.date || ''}" class="clean-input font-mono cursor-pointer" onchange="changeInventoryDate('${r.docId}', '${r.date}', this.value, '${r.hotel}', '${r.item}', this)" title="點擊修改盤點日期">
+                        </td>
                         <td class="font-bold text-gray-800">${r.hotel}</td>
                         <td class="text-blue-700 font-bold">${r.item}</td>
                         <td class="text-center font-bold text-gray-600">${r.count || '-'}</td>
