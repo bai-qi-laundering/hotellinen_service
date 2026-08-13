@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- ★ 優化3: 強制瀏覽器每次都抓最新網頁，解決客人死當在舊版、必須開無痕的問題 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
     <title>百麒物流 - 飯店點收簽單</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -82,7 +87,6 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 核心修復：拔除會導致 Safari 錯亂的 persistentLocalCache，改回最穩定的 getFirestore
         import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -96,7 +100,6 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        // ★ 核心修復：使用標準連線，完全杜絕 Unexpected state 錯誤
         const db = getFirestore(app);
         
         let currentHotel = "";
@@ -134,7 +137,7 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">載入中...</div>
+                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速載入中...</div>
             </div>
         `;
 
@@ -157,13 +160,25 @@
 
         function dateChanged() { 
             updateDateDisplay(); 
-            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
-            if (cachedData) {
-                processAndRenderData(JSON.parse(cachedData));
-                fetchData(true); 
-            } else {
-                fetchData(false); 
+            loadDataFromCacheOrNetwork();
+        }
+        
+        // ★ 優化2: 清道夫機制 - 檢查並處理有問題的快取
+        function loadDataFromCacheOrNetwork() {
+            let cachedDataStr = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
+            if (cachedDataStr) {
+                try {
+                    let parsedData = JSON.parse(cachedDataStr);
+                    // 如果快取是空白陣列 (代表之前 quota 爆掉時存下的錯亂資料)，就丟棄它強制重抓！
+                    if (parsedData && parsedData.length > 0) {
+                        processAndRenderData(parsedData);
+                        fetchData(true); // 背景靜默更新
+                        return;
+                    }
+                } catch(e) {}
             }
+            // 如果沒快取或快取壞掉，顯示載入中並抓新資料
+            fetchData(false);
         }
 
         async function init() {
@@ -183,6 +198,13 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
+            // 清理過期的舊快取，避免佔用客人手機空間與產生靈異現象
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('logistics_cache_') && !key.includes(getLocalDateString(new Date()))) {
+                    localStorage.removeItem(key);
+                }
+            });
+
             // 優先從快取載入排序大腦
             let cachedTemplate = localStorage.getItem(`inventory_masterData`);
             if (cachedTemplate) {
@@ -207,31 +229,19 @@
                 }
             }).catch(e => console.error("Template load error:", e));
 
-            // ★ 優化：直接預設為今天，秒開畫面！不再花時間往回找
             const latestDate = getLocalDateString(new Date());
-            
             document.getElementById('datePicker').value = latestDate;
             updateDateDisplay();
 
-            // 載入該日期的資料
-            let cachedData = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
-            if (cachedData) {
-                try {
-                    processAndRenderData(JSON.parse(cachedData));
-                    fetchData(true); 
-                } catch(e) {
-                    fetchData(false);
-                }
-            } else {
-                fetchData(false);
-            }
+            // 啟動資料載入
+            loadDataFromCacheOrNetwork();
 
             if (autoSyncTimer) clearInterval(autoSyncTimer); 
         }
 
         async function fetchData(isBackground = false) {
             if (!isBackground) {
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml.replace("載入中...", "讀取最新資料中...");
+                document.getElementById('departmentsContainer').innerHTML = loadingHtml;
             } else {
                 const indicator = document.getElementById('syncIndicator');
                 if(indicator) {
@@ -245,7 +255,10 @@
                 let baseInventoryItems = [];
 
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
-                const invSnap = await getDocs(invQ);
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
+                
+                // ★ 優化1: 並行處理 (Promise.all) - 讓原本要等兩次的時間變成一次，大幅提升載入速度！
+                const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
@@ -263,10 +276,7 @@
                     }
                 });
 
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
-                const logSnap = await getDocs(logQ);
                 let savedLogistics = {};
-                
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
                     savedLogistics[d.deptName] = d;
@@ -337,12 +347,14 @@
                     }
                 }
 
-                localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
+                // 只把有效的資料存進快取，防止存入錯亂的空資料
+                if (rawData.length > 0) {
+                    localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
+                }
                 processAndRenderData(rawData);
             } catch (err) {
                 console.error("Fetch Data Error:", err);
                 if (!isBackground) {
-                    // ★ 顯示清楚的錯誤讓開發者好除錯
                     document.getElementById('departmentsContainer').innerHTML = `
                     <div class="text-center py-10 bg-red-50 rounded-2xl border border-red-200 mt-6 mx-4">
                         <span class="text-4xl block mb-3">⚠️</span>
