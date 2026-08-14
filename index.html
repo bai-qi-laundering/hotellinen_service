@@ -235,26 +235,25 @@
             });
         }
 
-        // ★ 核心修復：加入記憶體爆量防護機制 (QuotaExceededError) 與自動瘦身
+        // ★ 核心修復：加入記憶體爆量防護機制 (保留當下正在看的日期)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
                 let keys = Object.keys(userInputs).sort().reverse();
                 let recentInputs = {};
-                // 只保留最近 7 天的資料以防爆量，因為簽名圖檔非常大
                 for (let i = 0; i < Math.min(7, keys.length); i++) {
                     recentInputs[keys[i]] = userInputs[keys[i]];
                 }
-                userInputs = recentInputs; // 同步更新當下記憶體中的資料
+                userInputs = recentInputs; 
                 localStorage.setItem('inventory_userInputs', JSON.stringify(recentInputs));
             } catch (e) { 
                 console.error("Local storage 存檔失敗，開始強制清理記憶體...", e); 
-                // 如果還是爆滿，強制清空只保留當天
                 if (e.name === 'QuotaExceededError') {
                     try {
-                        const todayDate = getLocalDateString(new Date());
+                        // 確保至少保留目前正在瀏覽的日期，避免正在看的頁面當機
+                        const targetDate = document.getElementById('datePicker') ? document.getElementById('datePicker').value : getLocalDateString(new Date());
                         const emergencyInputs = {};
-                        if (userInputs[todayDate]) emergencyInputs[todayDate] = userInputs[todayDate];
+                        if (userInputs[targetDate]) emergencyInputs[targetDate] = userInputs[targetDate];
                         userInputs = emergencyInputs;
                         localStorage.setItem('inventory_userInputs', JSON.stringify(emergencyInputs));
                         showToast("⚠️ 記憶體已滿，已為您自動清理歷史暫存以維持運作！");
@@ -305,7 +304,6 @@
                     const safeId = window.getSafeId(c);
                     const targetDate = document.getElementById('homeDatePicker').value;
                     
-                    // ★ 判斷是否被手動標記為黑色粗框
                     let isManualBlackBorder = false;
                     if (userInputs[targetDate] && userInputs[targetDate]['_MANUAL_STATES_'] && userInputs[targetDate]['_MANUAL_STATES_'][c]) {
                         isManualBlackBorder = true;
@@ -318,7 +316,6 @@
                     let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
                     let targetItems = []; let canCheck = false;
                     
-                    // ★ 擷取需要檢查的品項範圍 (浴巾到抹布)
                     if (targetDept === "房務") {
                         let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
                         let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
@@ -335,14 +332,12 @@
                         targetItems = [...templateItems]; canCheck = true;
                     }
                     
-                    // ★ 橘色判斷邏輯 (重新修復)
                     if (canCheck && targetItems.length > 0) {
                         let docInputs = userInputs[targetDate] ? userInputs[targetDate][fullHotelName] : null;
                         
                         if (docInputs) {
                             let isAllSigned = true;
                             
-                            // 1. 檢查必須的 targetItems 是否都已簽名
                             for (let item of targetItems) {
                                 let u = docInputs[item];
                                 if (!u || !u.doubleSignature) { 
@@ -351,7 +346,6 @@
                                 }
                             }
 
-                            // 2. 檢查今天額外新增的自訂品項 (排除保留字) 是否都已簽名
                             if (isAllSigned) {
                                 const customItems = Object.keys(docInputs).filter(item => 
                                     !templateItems.includes(item) && 
@@ -370,24 +364,20 @@
                             
                             isOrange = isAllSigned;
                         } else {
-                            // 如果這間飯店今天根本沒有任何輸入紀錄，當然是未完成
                             isOrange = false; 
                         }
                     }
 
-                    // ★ 獨立處理背景色與邊框
                     let baseClasses = "rounded-2xl p-1 transition-all flex items-center justify-center aspect-square ";
                     
-                    // 1. 決定背景色 (只看是否完成橘色條件)
                     if (isOrange) {
                         baseClasses += "bg-orange-500 text-white shadow-lg active:bg-orange-600 ";
                     } else {
                         baseClasses += "bg-white text-blue-900 shadow-md active:bg-blue-100 ";
                     }
 
-                    // 2. 決定邊框樣式 (黑色粗框獨立覆蓋)
                     if (isManualBlackBorder) {
-                        baseClasses += "border-[4px] border-black "; // 黑色粗框
+                        baseClasses += "border-[4px] border-black "; 
                     } else {
                         if (isOrange) {
                             baseClasses += "border-2 border-orange-600 ";
@@ -396,7 +386,6 @@
                         }
                     }
 
-                    // 3. 決定文字陰影
                     let shadowStyle = isOrange ? "text-shadow: 1px 1px 0px rgba(0,0,0,0.3); font-weight: 900;" : "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3); font-weight: 900;";
 
                     if (needsRebuild) {
@@ -416,7 +405,6 @@
             }
         }
 
-        // ★ 更新內頁黑色粗框按鈕的狀態
         window.updateBorderBtnState = function() {
             const dateStr = document.getElementById('datePicker').value;
             const hasBorder = (userInputs[dateStr] && userInputs[dateStr]['_MANUAL_STATES_'] && userInputs[dateStr]['_MANUAL_STATES_'][currentBaseHotel]);
@@ -432,7 +420,6 @@
             }
         };
 
-        // ★ 手動切換黑框狀態
         window.toggleHotelBorder = function() {
             const dateStr = document.getElementById('datePicker').value;
             if (!userInputs[dateStr]) userInputs[dateStr] = {};
@@ -502,7 +489,6 @@
 
         function changeDept(newDept) { currentDept = newDept; updateCurrentHotelName(); renderItems(true); }
         
-        // ★ 修復：回首頁時默默更新，不讓畫面閃爍
         function goHome() { 
             const innerDate = document.getElementById('datePicker').value;
             if (innerDate) {
@@ -513,7 +499,7 @@
             document.getElementById('homeView').classList.remove('hidden'); 
             document.getElementById('hotelView').classList.add('hidden'); 
             document.getElementById('searchInput').value = ""; 
-            renderHome(false); // ★ 改為 false，默默更新按鈕狀態不重新繪製
+            renderHome(false); 
         }
         
         function homeDateChanged() { const d = new Date(document.getElementById('homeDatePicker').value); document.getElementById('homeDateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`; renderHome(true); }
@@ -692,9 +678,16 @@
         function calcPress(val) { calcExpr += val; document.getElementById('calcDisplay').innerText = calcExpr; }
         function calcBackspace() { calcExpr = calcExpr.slice(0, -1); document.getElementById('calcDisplay').innerText = calcExpr || "0"; }
         function calcClear() { calcExpr = ""; document.getElementById('calcDisplay').innerText = "0"; }
+        
+        // ★ 核心修復：強化計算結果，不會無端變成 0
         function calcConfirm() {
-            let finalValue = 0;
-            try { finalValue = /^[0-9\+\-]+$/.test(calcExpr) ? Function("return " + calcExpr)() : (parseInt(calcExpr) || 0); } catch (e) { finalValue = 0; }
+            let finalValue = "";
+            if (calcExpr.trim() !== "") {
+                try { 
+                    finalValue = /^[0-9\+\-]+$/.test(calcExpr) ? Function("return " + calcExpr)() : (parseInt(calcExpr) || 0); 
+                } catch (e) { finalValue = 0; }
+            }
+            
             const dateStr = document.getElementById('datePicker').value;
             if (activeRole === 'aunt') {
                 handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);
@@ -745,16 +738,12 @@
                 });
                 isFirebaseLoaded = true;
 
-                // ★ Firebase 同步黑框標記狀態
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
                     try {
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}_MANUAL_BORDER`), {
-                            date: dateStr,
-                            hotel: hotel,
-                            item: '_MANUAL_BORDER_',
-                            isBorder: isBorder,
-                            timestamp: new Date().toLocaleString()
+                            date: dateStr, hotel: hotel, item: '_MANUAL_BORDER_',
+                            isBorder: isBorder, timestamp: new Date().toLocaleString()
                         }, { merge: true });
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
@@ -778,7 +767,6 @@
                                 const r = change.doc.data();
                                 let dDate = String(r.date || "").replace(/\//g, '-').trim();
                                 
-                                // ★ 攔截黑框狀態更新
                                 if (r.item === '_MANUAL_BORDER_') {
                                     if(!userInputs[dDate]) userInputs[dDate] = {};
                                     if(!userInputs[dDate]['_MANUAL_STATES_']) userInputs[dDate]['_MANUAL_STATES_'] = {};
@@ -799,11 +787,17 @@
                                 let local = userInputs[dDate][r.hotel][r.item];
                                 if (local && local.isSaving) return; 
                                 
+                                // ★ 核心修復：防止數字 0 被消滅 & 修復重新簽名死結 (自動識別有沒有簽過)
                                 userInputs[dDate][r.hotel][r.item] = { 
-                                    count: r.count || "", note: r.note || "", 
-                                    hasSigned: false, isSubmitted: true, signature: r.signature || "", 
-                                    doubleCount: r.doubleCount || "", doubleSignature: r.doubleSignature || "", 
-                                    doubleHasSigned: false, doubleSignDate: r.doubleSignDate || "",
+                                    count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
+                                    note: r.note || "", 
+                                    hasSigned: !!r.signature, 
+                                    isSubmitted: true, 
+                                    signature: r.signature || "", 
+                                    doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
+                                    doubleSignature: r.doubleSignature || "", 
+                                    doubleHasSigned: !!r.doubleSignature, 
+                                    doubleSignDate: r.doubleSignDate || "",
                                     isSaving: false, saveError: false
                                 };
                                 dataChanged = true;
@@ -872,7 +866,6 @@
                     }
                 };
 
-                // ★ 更新：加強錯誤提示訊息
                 window.syncSettingsFromSheet = async function(event) {
                     if (!isFirebaseLoaded) return showMessage("尚未連線到 Firebase，請稍後重試。");
                     const btn = event.currentTarget; 
@@ -882,7 +875,7 @@
                     try {
                         const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
                         if (!res.ok) {
-                             throw new Error(`伺服器回應錯誤 (狀態碼: ${res.status})。可能是 CORS 問題或網址失效。`);
+                             throw new Error(`伺服器回應錯誤 (狀態碼: ${res.status})。`);
                         }
                         const data = await res.json();
                         if (data.template && data.template.length > 0) {
@@ -895,13 +888,14 @@
                              showMessage("抓到的設定是空的！請檢查試算表是否沒有資料。");
                         }
                     } catch (e) { 
-                         showMessage(`同步失敗：\n${e.message}\n請檢查 API_URL 是否正確，或是否有發布新版本。`);
+                         showMessage(`同步失敗：\n${e.message}\n請檢查 API_URL 是否正確。`);
                     } finally { 
                         btn.innerText = originalText; 
                         btn.disabled = false; 
                     }
                 };
 
+                // ★ 核心修復：從試算表撈回資料時也要防止數字 0 消失
                 window.syncOldInventoryFromSheet = async function(event) {
                     if (!isFirebaseLoaded) return;
                     const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "⏳ 吸取中..."; btn.disabled = true;
@@ -922,8 +916,10 @@
                                     const safeItem = itemStr.replace(/\//g, '-');
                                     batch.set(doc(db, 'inventory_records', `${dateStr}_${hotelStr}_${safeItem}`.replace(/[\/\\?%*:|"<>]/g, '-')), {
                                         date: dateStr, hotel: hotelStr, item: itemStr,
-                                        count: String(r.count || ""), note: r.note || "", signature: r.signature || "",
-                                        doubleCount: String(r.doubleCount || ""), doubleSignature: r.doubleSignature || "",
+                                        count: (r.count !== undefined && r.count !== null) ? String(r.count) : "", 
+                                        note: r.note || "", signature: r.signature || "",
+                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null) ? String(r.doubleCount) : "", 
+                                        doubleSignature: r.doubleSignature || "",
                                         doubleSignDate: r.doubleSignDate || "", timestamp: new Date().toLocaleString()
                                     }, { merge: true });
                                 });
