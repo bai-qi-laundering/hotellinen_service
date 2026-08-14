@@ -234,6 +234,7 @@
             });
         }
 
+        // 把保留天數拉長到 7 天，支援多天跨日查核
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -242,7 +243,7 @@
                 let memoryInputs = {};  
                 let storageInputs = {}; 
                 
-                for (let i = 0; i < Math.min(3, keys.length); i++) {
+                for (let i = 0; i < Math.min(7, keys.length); i++) {
                     let d = keys[i];
                     memoryInputs[d] = userInputs[d];
                     storageInputs[d] = {};
@@ -288,6 +289,26 @@
         
         instantBoot();
 
+        function getTargetDateStr(baseName, refDateStr) {
+            let d;
+            if (refDateStr) {
+                const parts = refDateStr.split('-');
+                d = new Date(parts[0], parts[1] - 1, parts[2]);
+            } else {
+                d = new Date();
+            }
+
+            if (todayHotels.some(keyword => baseName.includes(keyword))) {
+                return getLocalDateString(d);
+            }
+            if (yesterdayHotels.some(keyword => baseName.includes(keyword))) {
+                d.setDate(d.getDate() - 1);
+                return getLocalDateString(d);
+            }
+            d.setDate(d.getDate() + 1);
+            return getLocalDateString(d);
+        }
+
         function renderHome(forceRebuild = false) {
             const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
             const filtered = allBaseHotels.filter(c => c.toLowerCase().includes(keyword));
@@ -306,7 +327,19 @@
                 filtered.forEach(c => {
                     let isOrange = false;
                     const safeId = window.getSafeId(c);
-                    const targetDate = document.getElementById('homeDatePicker').value;
+                    
+                    const baseDateStr = document.getElementById('homeDatePicker').value;
+                    const targetDate = getTargetDateStr(c, baseDateStr);
+                    
+                    // ★ 跨日檢查核心：取得目標日期，以及前兩天，共三天範圍
+                    let dObj = new Date(targetDate);
+                    const d0 = getLocalDateString(dObj);
+                    dObj.setDate(dObj.getDate() - 1);
+                    const d1 = getLocalDateString(dObj);
+                    dObj.setDate(dObj.getDate() - 1);
+                    const d2 = getLocalDateString(dObj);
+                    
+                    const checkDates = [d0, d1, d2]; // 檢查這三天
                     
                     let isManualBlackBorder = false;
                     if (userInputs[targetDate] && userInputs[targetDate]['_MANUAL_STATES_'] && userInputs[targetDate]['_MANUAL_STATES_'][c]) {
@@ -336,41 +369,54 @@
                         targetItems = [...templateItems]; canCheck = true;
                     }
                     
+                    // ★ 聰明儀表板：檢查三天內是否有完成紀錄
                     if (canCheck && targetItems.length > 0) {
-                        let docInputs = userInputs[targetDate] ? userInputs[targetDate][fullHotelName] : null;
+                        let isAllSigned = true;
+                        let hasAnyData = false; // 防呆：至少要有一天有輸入資料才亮燈
                         
-                        if (docInputs) {
-                            let isAllSigned = true;
-                            
-                            for (let item of targetItems) {
-                                let u = docInputs[item];
-                                // ★ 儀表板正確判斷標準：有永久主管簽名才算完成
-                                if (!u || !u.doubleSignature) { 
-                                    isAllSigned = false; 
-                                    break; 
+                        // 1. 檢查清單上的固定品項
+                        for (let item of targetItems) {
+                            let itemSigned = false;
+                            // 掃描這三天，只要有任何一天簽過，就算過關！
+                            for (let dStr of checkDates) {
+                                let hData = userInputs[dStr] ? userInputs[dStr][fullHotelName] : null;
+                                if (hData && hData[item] && hData[item].doubleSignature) {
+                                    itemSigned = true;
+                                    break;
                                 }
                             }
+                            
+                            if (itemSigned) {
+                                hasAnyData = true;
+                            } else {
+                                isAllSigned = false;
+                                break;
+                            }
+                        }
 
-                            if (isAllSigned) {
-                                const customItems = Object.keys(docInputs).filter(item => 
-                                    !templateItems.includes(item) && 
-                                    item !== '_MANUAL_BORDER_' && 
-                                    item !== '_MANUAL_STATES_'
-                                );
-                                
-                                for (let item of customItems) {
-                                    let u = docInputs[item];
-                                    if (!u || !u.doubleSignature) {
-                                        isAllSigned = false;
-                                        break;
+                        // 2. 檢查三天內是否有新增的「自訂品項」，若有新增也必須簽名
+                        if (isAllSigned && hasAnyData) {
+                            for (let dStr of checkDates) {
+                                let hData = userInputs[dStr] ? userInputs[dStr][fullHotelName] : null;
+                                if (hData) {
+                                    const customItems = Object.keys(hData).filter(item => 
+                                        !templateItems.includes(item) && 
+                                        item !== '_MANUAL_BORDER_' && 
+                                        item !== '_MANUAL_STATES_'
+                                    );
+                                    for (let item of customItems) {
+                                        let u = hData[item];
+                                        if (u && !u.doubleSignature) {
+                                            isAllSigned = false;
+                                            break;
+                                        }
                                     }
                                 }
+                                if (!isAllSigned) break;
                             }
-                            
-                            isOrange = isAllSigned;
-                        } else {
-                            isOrange = false; 
                         }
+                        
+                        isOrange = (hasAnyData && isAllSigned);
                     }
 
                     let baseClasses = "rounded-2xl p-1 transition-all flex items-center justify-center aspect-square ";
@@ -443,28 +489,16 @@
             }
         };
 
-        function getTargetDateStr(baseName) {
-            const today = new Date();
-            if (todayHotels.some(keyword => baseName.includes(keyword))) {
-                return getLocalDateString(today);
-            }
-            if (yesterdayHotels.some(keyword => baseName.includes(keyword))) {
-                const yesterday = new Date(); 
-                yesterday.setDate(today.getDate() - 1);
-                return getLocalDateString(yesterday);
-            }
-            const tomorrow = new Date(); 
-            tomorrow.setDate(today.getDate() + 1);
-            return getLocalDateString(tomorrow);
-        }
-
         function goToHotel(baseName) {
             currentBaseHotel = baseName;
             
-            const targetDateStr = getTargetDateStr(baseName);
+            const baseDateStr = document.getElementById('homeDatePicker').value;
+            const targetDateStr = getTargetDateStr(baseName, baseDateStr);
+            
             document.getElementById('datePicker').value = targetDateStr;
-            const d = new Date(targetDateStr);
-            document.getElementById('dateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`;
+            const parts = targetDateStr.split('-');
+            const d = new Date(parts[0], parts[1] - 1, parts[2]);
+            document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 
             let depts = hotelStructure[baseName] || [];
             currentDept = depts.includes("房務") ? "房務" : (depts[0] || "");
@@ -483,8 +517,6 @@
             updateCurrentHotelName();
             renderItems(true); 
             window.updateBorderBtnState(); 
-            
-            if (window.attachRealtimeListener) window.attachRealtimeListener(targetDateStr);
         }
 
         function updateCurrentHotelName() {
@@ -495,20 +527,24 @@
         function changeDept(newDept) { currentDept = newDept; updateCurrentHotelName(); renderItems(true); }
         
         function goHome() { 
-            const innerDate = document.getElementById('datePicker').value;
-            if (innerDate) {
-                document.getElementById('homeDatePicker').value = innerDate;
-                const d = new Date(innerDate);
-                document.getElementById('homeDateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`;
-            }
             document.getElementById('homeView').classList.remove('hidden'); 
             document.getElementById('hotelView').classList.add('hidden'); 
             document.getElementById('searchInput').value = ""; 
             renderHome(false); 
         }
         
-        function homeDateChanged() { const d = new Date(document.getElementById('homeDatePicker').value); document.getElementById('homeDateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`; renderHome(true); }
-        function dateChanged() { const d = new Date(document.getElementById('datePicker').value); document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; if(currentHotelName) { renderItems(true); window.updateBorderBtnState(); } }
+        function homeDateChanged() { 
+            const parts = document.getElementById('homeDatePicker').value.split('-');
+            document.getElementById('homeDateDisplay').innerText = `${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
+            renderHome(true); 
+            if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
+        }
+        
+        function dateChanged() { 
+            const parts = document.getElementById('datePicker').value.split('-');
+            document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
+            if(currentHotelName) { renderItems(true); window.updateBorderBtnState(); } 
+        }
 
         function renderItems(forceRebuild = false) {
             const dateStr = document.getElementById('datePicker').value;
@@ -541,16 +577,13 @@
                 const count = (u.count !== undefined && u.count !== null && u.count !== '') ? u.count : '';
                 const doubleCount = (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? u.doubleCount : '';
                 
-                // ★ 修正：這裡判斷的是「臨時正在簽名」的狀態
                 const hasSigned = u.hasSigned || false; 
                 const doubleHasSigned = u.doubleHasSigned || false;
                 const isSubmitted = u.isSubmitted || false; 
                 
-                // ★ 終極修正：判斷是否有永久簽名圖檔 (雲端載入或自己剛簽的都算)
                 const hasAuntSignature = !!u.signature;
                 const hasSupSignature = !!u.doubleSignature;
 
-                // 只要在簽名流程中，或是已經有永久圖檔了，就當作「已完成」狀態，保持按鈕不會退回灰色/藍色
                 const auntCompleted = hasSigned || hasAuntSignature;
                 const supCompleted = doubleHasSigned || hasSupSignature;
 
@@ -593,7 +626,6 @@
                     supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
                 }
 
-                // ★ 正確依據：只要有永久圖檔，粉紅色鎖定框就會出現，不會消失！
                 let cardClass = hasSupSignature ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
 
                 if (needsRebuild) {
@@ -647,8 +679,6 @@
             saveToLocal(); 
         }
 
-        // ★ 核心修復：強制要求修改一定要先「重新簽名」！
-        // 如果這個品項已經存檔過，點擊數字格子就會強迫打開簽名板，逼你要清除重寫負責！
         function handleItemClick(item, role) {
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
@@ -656,14 +686,10 @@
             
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
-                
-                // 只要沒有處於「臨時正在簽名過關」的狀態，就一律強制打開簽名板！
                 if (!u.hasSigned) return openSign(currentHotelName, item, 'aunt');
                 openCalc(currentHotelName, item, 'aunt');
                 
             } else if (role === 'sup') {
-                
-                // 只要沒有處於「臨時正在簽名過關」的狀態，就一律強制打開簽名板！
                 if (!u.doubleHasSigned) return openSign(currentHotelName, item, 'sup');
                 openCalc(currentHotelName, item, 'sup');
             }
@@ -706,7 +732,6 @@
                 ctx.fillStyle = '#ffffff'; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                // ★ 強制鎖定機制：只要以前有簽名，就會被鎖定，逼迫你按「清除重寫」
                 canvas.isLocked = (existingSig && !u.saveError) ? true : false;
                 const titleEl = document.getElementById('signModalTitle');
                 if (canvas.isLocked) { titleEl.innerText = "🔒 請先按【清除重寫】才能修改"; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; } 
@@ -782,7 +807,7 @@
             if (activeRole === 'aunt') {
                 handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);
                 const u = (userInputs[dateStr] && userInputs[dateStr][activeCategory] && userInputs[dateStr][activeCategory][activeItem]) || {};
-                if (!u.doubleHasSigned) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+                if (!u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             } else handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             closeCalc(); renderItems(true); window.firebaseSubmit(activeCategory, activeItem);
         }
@@ -844,10 +869,28 @@
                     buildHotelStructure();
                 }
 
-                window.attachRealtimeListener = function(targetDateStr) {
+                // ★ 超級雷達監聽器：一次抓取「昨天、今天、明天」共三天的資料更新
+                window.attachRealtimeListener = function(baseDateStr) {
+                    if (!baseDateStr) return;
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
                     
-                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "==", targetDateStr));
+                    const parts = baseDateStr.split('-');
+                    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+                    
+                    const d0 = new Date(d);
+                    const dMinus1 = new Date(d); dMinus1.setDate(d.getDate() - 1);
+                    const dMinus2 = new Date(d); dMinus2.setDate(d.getDate() - 2);
+                    const dPlus1 = new Date(d); dPlus1.setDate(d.getDate() + 1);
+                    
+                    // 擴大監聽範圍
+                    const datesToListen = [
+                        getLocalDateString(dMinus2),
+                        getLocalDateString(dMinus1),
+                        getLocalDateString(d0),
+                        getLocalDateString(dPlus1)
+                    ];
+                    
+                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
                     currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
                         let dataChanged = false;
@@ -906,12 +949,10 @@
                 const originalHomeDateChanged = window.homeDateChanged;
                 window.homeDateChanged = function() {
                     originalHomeDateChanged();
-                    window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
                 }
                 const originalDateChanged = window.dateChanged;
                 window.dateChanged = function() {
                     originalDateChanged();
-                    window.attachRealtimeListener(document.getElementById('datePicker').value);
                 }
 
                 window.firebaseSubmit = async function(category, item) {
@@ -919,7 +960,6 @@
                     const dateStr = document.getElementById('datePicker').value;
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
-                    // 防呆：如果沒有任何永久簽名，而且當下也沒有在簽名，就不允許上傳
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
