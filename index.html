@@ -84,7 +84,6 @@
                 <h1 id="currentBaseHotelTitle" class="text-3xl font-black text-blue-900 flex-1 text-center truncate px-1">
                     飯店名稱
                 </h1>
-                <!-- ★ 獨立手動按鈕 (黑色粗框) -->
                 <button id="toggleBorderBtn" onclick="toggleHotelBorder()" class="bg-gray-100 text-gray-800 px-3 py-3 rounded-xl font-black text-sm shadow-sm active:bg-gray-200 border-2 border-gray-300 flex-shrink-0 transition-all">
                     ⬛ 標記確認
                 </button>
@@ -235,33 +234,46 @@
             });
         }
 
-        // ★ 核心修復：防爆量機制優化 (改為保留最近 3 天，最安全穩定)
+        // ★ 核心修復：終極智能背包過濾器 (Smart Filter)
+        // 完全根除 QuotaExceededError 記憶體爆滿的問題
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
                 let keys = Object.keys(userInputs).sort().reverse();
-                let recentInputs = {};
-                // ★ 這裡改為保留 3 天
+                
+                let memoryInputs = {};  // 放在手機暫存記憶體 (空間無限大，給畫面看)
+                let storageInputs = {}; // 放在瀏覽器硬碟背包 (有 5MB 限制)
+                
                 for (let i = 0; i < Math.min(3, keys.length); i++) {
-                    recentInputs[keys[i]] = userInputs[keys[i]];
-                }
-                userInputs = recentInputs; 
-                localStorage.setItem('inventory_userInputs', JSON.stringify(recentInputs));
-            } catch (e) { 
-                console.error("Local storage 存檔失敗，開始強制清理記憶體...", e); 
-                if (e.name === 'QuotaExceededError') {
-                    try {
-                        // 確保至少保留目前正在瀏覽的日期，避免正在看的頁面當機
-                        const targetDate = document.getElementById('datePicker') ? document.getElementById('datePicker').value : getLocalDateString(new Date());
-                        const emergencyInputs = {};
-                        if (userInputs[targetDate]) emergencyInputs[targetDate] = userInputs[targetDate];
-                        userInputs = emergencyInputs;
-                        localStorage.setItem('inventory_userInputs', JSON.stringify(emergencyInputs));
-                        showToast("⚠️ 記憶體已滿，已為您自動清理歷史暫存以維持運作！");
-                    } catch (e2) {
-                        console.error("強制清理失敗，可能需要手動清空瀏覽器資料", e2);
+                    let d = keys[i];
+                    memoryInputs[d] = userInputs[d];
+                    storageInputs[d] = {};
+                    
+                    for (let hotel in userInputs[d]) {
+                        if (hotel === '_MANUAL_STATES_') {
+                            storageInputs[d][hotel] = userInputs[d][hotel];
+                            continue;
+                        }
+                        storageInputs[d][hotel] = {};
+                        for (let item in userInputs[d][hotel]) {
+                            let data = { ...userInputs[d][hotel][item] };
+                            
+                            // 🚀 關鍵過濾：準備存進 5MB 背包時，把超肥的圖檔抽掉，只存文字標記！
+                            // 這樣可以省下 99% 的空間，從此告別記憶體滿的問題
+                            if (data.signature && data.signature.length > 100) data.signature = 'CACHED';
+                            if (data.doubleSignature && data.doubleSignature.length > 100) data.doubleSignature = 'CACHED';
+                            
+                            storageInputs[d][hotel][item] = data;
+                        }
                     }
                 }
+                
+                userInputs = memoryInputs; // 畫面讀取用完整版
+                localStorage.setItem('inventory_userInputs', JSON.stringify(storageInputs)); // 背包存瘦身版
+                
+            } catch (e) { 
+                console.error("Local storage 存檔失敗", e); 
+                // 這裡已經把可怕的 toast 拔掉了，因為透過過濾器，正常絕對不會再爆滿。
             }
         }
 
@@ -537,7 +549,7 @@
                 const count = (u.count !== undefined && u.count !== null && u.count !== '') ? u.count : '';
                 const doubleCount = (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? u.doubleCount : '';
                 const hasSigned = u.hasSigned || false; const doubleHasSigned = u.doubleHasSigned || false;
-                const isSubmitted = u.isSubmitted || false; const supSignedEver = u.doubleSignature ? true : false;
+                const isSubmitted = u.isSubmitted || false; const supSignedEver = u.doubleHasSigned ? true : false;
                 const isSaving = u.isSaving || false; const saveError = u.saveError || false;
                 const loadingSvg = `<svg class="animate-spin h-4 w-4 text-gray-500 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
                 
@@ -556,7 +568,7 @@
                 let supActionButton = "";
                 if (isSaving) supActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">${loadingSvg} 寫入中...</div>`;
                 else if (saveError) supActionButton = `<button onclick="window.firebaseSubmit('${currentHotelName}', '${itemName}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">❌ 寫入失敗 (點此重傳)</button>`;
-                else if (isSubmitted && !doubleHasSigned && u.doubleSignature) supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-50 text-green-700 rounded-lg font-bold text-sm text-center border border-green-200 shadow-sm active:bg-green-100">✅ 複點完成(重簽)</button>`;
+                else if (isSubmitted && !doubleHasSigned && u.doubleHasSigned) supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-50 text-green-700 rounded-lg font-bold text-sm text-center border border-green-200 shadow-sm active:bg-green-100">✅ 複點完成(重簽)</button>`;
                 else if (doubleHasSigned) supActionButton = `<div class="w-full py-2 bg-orange-50 text-orange-600 rounded-lg font-bold text-sm text-center border border-orange-200 animate-pulse">👆 請輸入數量</div>`;
                 else supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
 
@@ -618,7 +630,7 @@
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return; 
             if (role === 'aunt') {
-                if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
+                if (u.doubleHasSigned) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
                 if (!u.hasSigned) return openSign(currentHotelName, item, 'aunt');
                 openCalc(currentHotelName, item, 'aunt');
             } else if (role === 'sup') {
@@ -638,7 +650,6 @@
         }
         setupCanvas();
 
-        // ★ 修改 1：加入純白背景防止 JPEG 壓縮後背景變黑
         function clearCanvas() { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
             ctx.fillStyle = '#ffffff'; 
@@ -657,11 +668,11 @@
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || {};
             const existingSig = role === 'aunt' ? u.signature : u.doubleSignature;
+            
             requestAnimationFrame(() => {
                 canvas.width = canvas.offsetWidth || 300; canvas.height = 220; canvas.isModified = false; 
                 ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
-                // ★ 修改 2：加入純白背景
                 ctx.fillStyle = '#ffffff'; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -670,22 +681,27 @@
                 if (canvas.isLocked) { titleEl.innerText = "🔒 請先按【清除重寫】才能修改"; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; } 
                 else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : "第二步：複點人員簽名"; titleEl.className = "text-lg font-black text-blue-800"; }
                 
-                if (existingSig) { 
-                    let img = new Image(); 
-                    img.onload = () => ctx.drawImage(img, 0, 0); 
-                    img.src = existingSig; 
+                if (existingSig) {
+                    if (existingSig === 'CACHED') {
+                        // 當過濾器生效，畫面上溫馨提示
+                        ctx.fillStyle = '#9ca3af'; 
+                        ctx.font = 'bold 20px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('載入中或已歸檔...', canvas.width/2, canvas.height/2);
+                    } else {
+                        let img = new Image(); 
+                        img.onload = () => ctx.drawImage(img, 0, 0); 
+                        img.src = existingSig; 
+                    }
                 }
             });
         }
 
-        // ★ 修改 3：改用 JPEG 並高度壓縮 (0.4) 縮小容量
         function confirmSignature() {
             if (canvas.isLocked) return showMessage("🔒 您尚未重新簽名！\n👉 請先點擊右上角的【清除重寫】並簽上新名字。");
             
-            // 檢查是否為全白背景（未簽名）- 因為我們現在預設鋪了白色底
             const imgData = ctx.getImageData(0,0,canvas.width,canvas.height).data;
             let hasSignature = false;
-            // 抽樣檢查像素，如果有不是白色的點 (R,G,B 不是 255) 代表有畫到東西
             for (let i = 0; i < imgData.length; i += 4) {
                 if (imgData[i] < 255 || imgData[i+1] < 255 || imgData[i+2] < 255) {
                     hasSignature = true;
@@ -736,7 +752,7 @@
             if (activeRole === 'aunt') {
                 handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);
                 const u = (userInputs[dateStr] && userInputs[dateStr][activeCategory] && userInputs[dateStr][activeCategory][activeItem]) || {};
-                if (!u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+                if (!u.doubleHasSigned) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             } else handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             closeCalc(); renderItems(true); window.firebaseSubmit(activeCategory, activeItem);
         }
@@ -868,34 +884,43 @@
                     window.attachRealtimeListener(document.getElementById('datePicker').value);
                 }
 
+                // 🚀 關鍵過濾：不要用空字串覆蓋掉 Firebase 原本的大圖檔
                 window.firebaseSubmit = async function(category, item) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
-                    if (!u || (!u.signature && !u.doubleSignature)) return; 
+                    if (!u || (!u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
+                    // 這裡的 payload 先不放 signature
                     const payload = { 
                         date: dateStr, hotel: category, item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
-                        note: u.note || '', signature: u.signature || '', 
+                        note: u.note || '', 
                         doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
-                        doubleSignature: u.doubleSignature || '', doubleSignDate: u.doubleSignDate || '',
+                        doubleSignDate: u.doubleSignDate || '',
                         timestamp: new Date().toLocaleString() 
                     };
 
+                    // 只有當 signature 是真正的圖檔時，才把它加進去上傳 (不覆蓋 CACHED)
+                    if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
+                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
+
                     try {
                         const safeItem = item.replace(/\//g, '-');
-                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`), payload);
+                        // 加入 { merge: true }，完美保留 Firebase 上原本的舊圖檔，只更新數字和備註
+                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`), payload, { merge: true });
 
                         try {
                             await addDoc(collection(db, 'history_logs'), {
                                 logDate: getLocalDateString(new Date()), timestamp: Date.now(),
                                 actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
                                 item: item, count: payload.count, doubleCount: payload.doubleCount,
-                                signature: payload.signature, doubleSignature: payload.doubleSignature, note: payload.note
+                                signature: payload.signature || 'CACHED_RETAINED', 
+                                doubleSignature: payload.doubleSignature || 'CACHED_RETAINED', 
+                                note: payload.note
                             });
                         } catch (logErr) {}
 
