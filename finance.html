@@ -111,6 +111,10 @@
             </div>
         </div>
 
+        <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
+            <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
+        </div>
+
         <!-- ==================== 【系統 1：財務對帳單】 ==================== -->
         <div id="sysFinance" class="block">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -156,7 +160,7 @@
                 <div class="p-4 bg-gray-50 flex justify-between items-center border-b border-gray-200 rounded-t-xl">
                     <div class="flex items-center gap-4">
                         <h3 class="font-black text-gray-800 text-lg">內部核對總表 <span class="text-sm text-gray-500 font-medium ml-2">各部門分段明細檢視</span></h3>
-                        <span class="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-full font-bold shadow-sm">若單價顯示紅字「缺報價」，請至試算表【價格總表】新增</span>
+                        <span class="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold shadow-sm">💡 現在您可以直接在表格內修改並記憶單價了！</span>
                     </div>
                     <button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2 rounded-lg shadow-sm flex items-center gap-2">
                         產生客戶對帳單
@@ -168,8 +172,8 @@
                             <tr>
                                 <th class="w-32 text-center">出貨日期</th>
                                 <th class="w-48">品項名稱</th>
-                                <th class="w-24 text-center">數量 (飯店實點)</th>
-                                <th class="w-28 text-center">帶入單價</th>
+                                <th class="w-24 text-center">數量 (實收)</th>
+                                <th class="w-28 text-center">單價 (可修改)</th>
                                 <th class="w-32 text-right pr-6">小計金額</th>
                             </tr>
                         </thead>
@@ -298,7 +302,8 @@
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec"; 
         
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 核心修復：加入了 setDoc 指令
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -325,6 +330,9 @@
         let sheetSchedules = {}; 
         let currentDriverStats = {};
         let currentUnassignedStats = {};
+        
+        // ★ 新增：儲存 Firebase 上的自訂價格
+        let customPrices = {}; 
 
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
@@ -375,9 +383,42 @@
         window.selectAllVisible = selectAllVisible;
         window.quickSelectGroup = quickSelectGroup;
         
-        // 司機業績綁定
         window.calculateDriverPerformance = calculateDriverPerformance;
         window.showDriverDetails = showDriverDetails;
+
+        // ★ 新增：修改單價並自動存進 Firebase 的功能
+        window.updateCustomPrice = async function(comp, item, newVal, inputEl) {
+            let key = `${comp}_${item}`;
+            
+            if (newVal.trim() === "") {
+                delete customPrices[key];
+            } else {
+                customPrices[key] = Number(newVal);
+            }
+
+            inputEl.style.opacity = '0.5';
+
+            try {
+                // 將修改好的自訂價格表，寫入 Firebase 中儲存
+                await setDoc(doc(db, 'inventory_config', 'custom_prices'), {
+                    prices: customPrices
+                }, { merge: true });
+                
+                showToast("✅ 價格已自動記憶更新！");
+                
+                // 儲存後，瞬間重新載入報表，讓金額重新計算
+                if (!document.getElementById('sysFinance').classList.contains('hidden')) {
+                    loadFinanceData();
+                } else {
+                    calculateDriverPerformance();
+                }
+            } catch (err) {
+                console.error(err);
+                alert("儲存價格失敗，請檢查網路連線！");
+            } finally {
+                inputEl.style.opacity = '1';
+            }
+        }
 
         // ==========================================
         // ★ 核心：一次性同步試算表的「基礎設定大腦」
@@ -421,7 +462,6 @@
                         });
                     }
 
-                    // 匯入路線與排班資料
                     sheetRoutes = {};
                     if(json.routes) {
                         json.routes.forEach((row, idx) => {
@@ -446,6 +486,16 @@
                         });
                     }
                     
+                    // 2. ★ 同步載入 Firebase 中的「自訂記憶價格」
+                    try {
+                        const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
+                        if (priceDoc.exists() && priceDoc.data().prices) {
+                            customPrices = priceDoc.data().prices;
+                        }
+                    } catch(err) {
+                        console.warn("載入自訂價格失敗", err);
+                    }
+
                     document.getElementById('syncStatus').innerText = "✅ 試算表設定同步完成";
                     document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
                 } else {
@@ -458,9 +508,20 @@
             }
         }
 
+        // ★ 核心變更：算錢時，先看網頁自訂價，沒有自訂價再看試算表
         function getPrice(comp, item) {
             let key = `${comp}_${item}`;
+            if (customPrices[key] !== undefined && customPrices[key] !== "") {
+                return Number(customPrices[key]);
+            }
             return sheetPrices[key] !== undefined ? sheetPrices[key] : null; 
+        }
+
+        function showToast(msg = "資料已自動儲存更新！") {
+            document.getElementById('toastMsg').innerText = msg;
+            const toast = document.getElementById('toast');
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]');
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
         }
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -611,13 +672,15 @@
                     let lastDate = ""; let deptSubtotal = 0;
                     records.forEach(r => {
                         let price = getPrice(r.parentCompany, r.item); 
-                        let priceDisplay = ""; let subtotalDisplay = "";
+                        let priceVal = price !== null ? price : "";
                         
-                        if (price === null) {
-                            priceDisplay = `<span class="price-missing">缺報價</span>`;
-                            subtotalDisplay = `<span class="text-red-500 text-xs">請至試算表建檔</span>`;
+                        // ★ 把單價顯示改成可以讓您隨時修改的輸入框
+                        let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.parentCompany}', '${r.item}', this.value, this)">`;
+                        
+                        let subtotalDisplay = "";
+                        if (price === null || price === "") {
+                            subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
                         } else {
-                            priceDisplay = `$${price}`;
                             let subtotal = r.qty * price;
                             deptSubtotal += subtotal; grandTotal += subtotal;
                             subtotalDisplay = `$${subtotal.toLocaleString()}`;
@@ -724,7 +787,7 @@
                         </tbody></table>
                         <div class="footer-notes">備註事項：<br>1. 本對帳單僅供雙方核對交易紀錄，實際金額以本公司稅務憑證為準。<br>2. 逾期未提出異議者，視同確認本對帳單內容無誤。</div>
                         <div class="signature-area">
-                            <div class="sign-box"><div class="sign-title">客戶確認 (請簽章)</div><div style="height:60px;"></div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>確認人：</span><span>日期：　　/　　/　　</span></div></div>
+                            <div class="sign-box"><div class="sign-title">客戶確認 (請簽章)</div><div style="height:60px;"></div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>確認人：</span><span>日期：  /  /  </span></div></div>
                             <div class="sign-box"><div class="sign-title">百麒物流 公司確認</div><div style="height:60px; font-weight:bold; color:#1e3a8a; text-align:center;">百麒物流 結算部</div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>經辦人：</span><span>日期：${printDate.replace(/-/g,'/')}</span></div></div>
                         </div>
                     </div>
@@ -924,7 +987,7 @@
             document.getElementById('driverDetailSection').classList.add('hidden');
         }
 
-        window.showDriverDetails = function(target) {
+        function showDriverDetails(target) {
             const section = document.getElementById('driverDetailSection');
             const title = document.getElementById('driverDetailTitle');
             const tbody = document.getElementById('driverDetailBody');
