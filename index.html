@@ -235,16 +235,34 @@
             });
         }
 
+        // ★ 核心修復：加入記憶體爆量防護機制 (QuotaExceededError) 與自動瘦身
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
                 let keys = Object.keys(userInputs).sort().reverse();
                 let recentInputs = {};
-                for (let i = 0; i < Math.min(30, keys.length); i++) {
+                // 只保留最近 7 天的資料以防爆量，因為簽名圖檔非常大
+                for (let i = 0; i < Math.min(7, keys.length); i++) {
                     recentInputs[keys[i]] = userInputs[keys[i]];
                 }
+                userInputs = recentInputs; // 同步更新當下記憶體中的資料
                 localStorage.setItem('inventory_userInputs', JSON.stringify(recentInputs));
-            } catch (e) { console.log("Local storage error", e); }
+            } catch (e) { 
+                console.error("Local storage 存檔失敗，開始強制清理記憶體...", e); 
+                // 如果還是爆滿，強制清空只保留當天
+                if (e.name === 'QuotaExceededError') {
+                    try {
+                        const todayDate = getLocalDateString(new Date());
+                        const emergencyInputs = {};
+                        if (userInputs[todayDate]) emergencyInputs[todayDate] = userInputs[todayDate];
+                        userInputs = emergencyInputs;
+                        localStorage.setItem('inventory_userInputs', JSON.stringify(emergencyInputs));
+                        showToast("⚠️ 記憶體已滿，已為您自動清理歷史暫存以維持運作！");
+                    } catch (e2) {
+                        console.error("強制清理失敗，可能需要手動清空瀏覽器資料", e2);
+                    }
+                }
+            }
         }
 
         function instantBoot() {
@@ -854,19 +872,34 @@
                     }
                 };
 
+                // ★ 更新：加強錯誤提示訊息
                 window.syncSettingsFromSheet = async function(event) {
-                    if (!isFirebaseLoaded) return;
-                    const btn = event.currentTarget; const originalText = btn.innerText; btn.innerText = "⏳ 下載中..."; btn.disabled = true;
+                    if (!isFirebaseLoaded) return showMessage("尚未連線到 Firebase，請稍後重試。");
+                    const btn = event.currentTarget; 
+                    const originalText = btn.innerText; 
+                    btn.innerText = "⏳ 下載中..."; 
+                    btn.disabled = true;
                     try {
                         const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
+                        if (!res.ok) {
+                             throw new Error(`伺服器回應錯誤 (狀態碼: ${res.status})。可能是 CORS 問題或網址失效。`);
+                        }
                         const data = await res.json();
                         if (data.template && data.template.length > 0) {
                             await setDoc(doc(db, 'inventory_config', 'master_template'), { items: data.template });
                             showToast("✅ 設定同步完成！"); 
                             setTimeout(()=>location.reload(), 1000);
-                        } else showMessage("抓到的設定是空的！");
-                    } catch (e) { showMessage("同步失敗：" + e.message); } 
-                    finally { btn.innerText = originalText; btn.disabled = false; }
+                        } else if (data.error) {
+                             showMessage(`Google Apps Script 錯誤: ${data.error}`);
+                        } else {
+                             showMessage("抓到的設定是空的！請檢查試算表是否沒有資料。");
+                        }
+                    } catch (e) { 
+                         showMessage(`同步失敗：\n${e.message}\n請檢查 API_URL 是否正確，或是否有發布新版本。`);
+                    } finally { 
+                        btn.innerText = originalText; 
+                        btn.disabled = false; 
+                    }
                 };
 
                 window.syncOldInventoryFromSheet = async function(event) {
