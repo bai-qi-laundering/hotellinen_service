@@ -568,13 +568,13 @@
                 document.getElementById('sectionLogistics').style.display = 'none';
                 document.getElementById('tabInventory').className = 'excel-tab active-blue';
                 document.getElementById('tabLogistics').className = 'excel-tab';
-                if (invRecords.length === 0) loadInvData();
+                // if (invRecords.length === 0) loadInvData(); // ★ 取消自動載入
             } else {
                 document.getElementById('sectionInventory').style.display = 'none';
                 document.getElementById('sectionLogistics').style.display = 'block';
                 document.getElementById('tabInventory').className = 'excel-tab';
                 document.getElementById('tabLogistics').className = 'excel-tab active-green';
-                if (logRecords.length === 0) loadLogData();
+                // if (logRecords.length === 0) loadLogData(); // ★ 取消自動載入
             }
         }
 
