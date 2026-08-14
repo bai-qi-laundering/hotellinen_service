@@ -79,13 +79,17 @@
 
         <!-- ==================== 【內頁：飯店部門盤點】 ==================== -->
         <div id="hotelView" class="hidden">
-            <div class="flex items-center gap-3 mb-4 mt-2">
-                <button onclick="goHome()" class="bg-gray-800 text-white px-5 py-3 rounded-xl font-black text-xl shadow-md active:bg-gray-700 flex-shrink-0">
-                    ⬅️ 回首頁
+            <div class="flex items-center gap-2 mb-4 mt-2">
+                <button onclick="goHome()" class="bg-gray-800 text-white px-3 py-3 rounded-xl font-black text-lg shadow-md active:bg-gray-700 flex-shrink-0">
+                    ⬅️ 
                 </button>
-                <h1 id="currentBaseHotelTitle" class="text-3xl font-black text-blue-900 flex-1 text-center truncate px-2">
+                <h1 id="currentBaseHotelTitle" class="text-3xl font-black text-blue-900 flex-1 text-center truncate px-1">
                     飯店名稱
                 </h1>
+                <!-- ★ 新增：獨立的手動確認藍色按鈕 -->
+                <button id="toggleBlueBtn" onclick="toggleHotelBlue()" class="bg-blue-50 text-blue-800 px-3 py-3 rounded-xl font-black text-sm shadow-sm active:bg-blue-100 border-2 border-blue-200 flex-shrink-0 transition-colors">
+                    🔵 標記確認
+                </button>
             </div>
 
             <div class="bg-white p-4 rounded-xl shadow-sm mb-5 border border-gray-200 flex flex-col gap-3">
@@ -191,7 +195,7 @@
     </div>
 
     <script>
-        const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
+        const API_URL = "https://script.google.com/macros/s/AKfycbwU6OP2FBXGnHzljDbypoYxCZmY2CcaTITlPKo0xSQeznvFbTf-tspQSHfKHLOsrQCnow/exec";
         
         const todayHotels = ["歐遊", "H2O", "花季Ａ館", "花季Ｃ館", "花季", "文七", "好六"]; 
         const yesterdayHotels = ["捷中正"]; 
@@ -284,6 +288,13 @@
                     let isOrange = false;
                     const safeId = window.getSafeId(c);
                     const targetDate = document.getElementById('homeDatePicker').value;
+                    
+                    // ★ 判斷是否被手動標記為藍色 (獨立判斷，優先級最高)
+                    let isManualBlue = false;
+                    if (userInputs[targetDate] && userInputs[targetDate]['_MANUAL_STATES_'] && userInputs[targetDate]['_MANUAL_STATES_'][c]) {
+                        isManualBlue = true;
+                    }
+
                     let depts = hotelStructure[c] || [];
                     let targetDept = depts.includes("房務") ? "房務" : (depts[0] || "");
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
@@ -291,7 +302,6 @@
                     let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
                     let targetItems = []; let canCheck = false;
                     
-                    // ★ 核心變更：修改為檢查從「浴巾」到「抹布」
                     if (targetDept === "房務") {
                         let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
                         let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
@@ -313,7 +323,7 @@
                         for (let d in userInputs) {
                             let docInputs = userInputs[d][fullHotelName];
                             if (!docInputs) continue;
-                            const customItems = Object.keys(docInputs).filter(item => !templateItems.includes(item));
+                            const customItems = Object.keys(docInputs).filter(item => !templateItems.includes(item) && item !== '_MANUAL_BLUE_'); // 忽略標記用的假品項
                             let allItemsToCheck = targetItems.concat(customItems);
                             if (allItemsToCheck.length === 0) continue;
 
@@ -331,8 +341,20 @@
                         isOrange = foundCompletedDocOnTargetDate;
                     }
 
-                    let btnClasses = isOrange ? "bg-orange-500 border-2 border-orange-600 shadow-lg active:bg-orange-600 text-white" : "bg-white border-2 border-blue-200 shadow-md active:bg-blue-100 text-blue-900";
-                    let shadowStyle = isOrange ? "text-shadow: 1px 1px 0px rgba(0,0,0,0.3);" : "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3);";
+                    let btnClasses = "";
+                    let shadowStyle = "";
+
+                    // 顏色優先順序：手動藍色 > 自動橘色 > 預設白色
+                    if (isManualBlue) {
+                        btnClasses = "bg-blue-700 border-2 border-blue-800 shadow-lg active:bg-blue-800 text-white";
+                        shadowStyle = "text-shadow: 1px 1px 0px rgba(0,0,0,0.4);";
+                    } else if (isOrange) {
+                        btnClasses = "bg-orange-500 border-2 border-orange-600 shadow-lg active:bg-orange-600 text-white";
+                        shadowStyle = "text-shadow: 1px 1px 0px rgba(0,0,0,0.3);";
+                    } else {
+                        btnClasses = "bg-white border-2 border-blue-200 shadow-md active:bg-blue-100 text-blue-900";
+                        shadowStyle = "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3);";
+                    }
 
                     if (needsRebuild) {
                         htmlContent += `<button id="btn_${safeId}" onclick="goToHotel('${c}')" class="${btnClasses} rounded-2xl p-1 transition-colors flex items-center justify-center aspect-square">
@@ -350,6 +372,42 @@
                 grid.innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-2xl">找不到飯店</div>`;
             }
         }
+
+        // ★ 新增：更新獨立藍色按鈕的 UI 狀態
+        window.updateBlueBtnState = function() {
+            const dateStr = document.getElementById('datePicker').value;
+            const isBlue = (userInputs[dateStr] && userInputs[dateStr]['_MANUAL_STATES_'] && userInputs[dateStr]['_MANUAL_STATES_'][currentBaseHotel]);
+            const btn = document.getElementById('toggleBlueBtn');
+            if (btn) {
+                if (isBlue) {
+                    btn.className = "bg-blue-600 text-white px-3 py-3 rounded-xl font-black text-sm shadow-md active:bg-blue-700 border-2 border-blue-800 flex-shrink-0 transition-colors";
+                    btn.innerText = "✅ 已確認";
+                } else {
+                    btn.className = "bg-blue-50 text-blue-800 px-3 py-3 rounded-xl font-black text-sm shadow-sm active:bg-blue-100 border-2 border-blue-200 flex-shrink-0 transition-colors";
+                    btn.innerText = "🔵 標記確認";
+                }
+            }
+        };
+
+        // ★ 新增：觸發手動標記藍色的功能
+        window.toggleHotelBlue = function() {
+            const dateStr = document.getElementById('datePicker').value;
+            if (!userInputs[dateStr]) userInputs[dateStr] = {};
+            if (!userInputs[dateStr]['_MANUAL_STATES_']) userInputs[dateStr]['_MANUAL_STATES_'] = {};
+            
+            const currentState = userInputs[dateStr]['_MANUAL_STATES_'][currentBaseHotel] || false;
+            const newState = !currentState;
+            userInputs[dateStr]['_MANUAL_STATES_'][currentBaseHotel] = newState;
+            
+            saveToLocal();
+            window.updateBlueBtnState();
+            showToast(newState ? "🔵 已標記為確認(藍色)" : "⚪ 已取消標記");
+            
+            // 如果 Firebase 已經載入，順便同步給其他裝置
+            if (window.firebaseSetBlue) {
+                window.firebaseSetBlue(dateStr, currentBaseHotel, newState);
+            }
+        };
 
         function getTargetDateStr(baseName) {
             const today = new Date();
@@ -390,6 +448,7 @@
 
             updateCurrentHotelName();
             renderItems(true); 
+            window.updateBlueBtnState(); // 更新按鈕狀態
             
             if (window.attachRealtimeListener) window.attachRealtimeListener(targetDateStr);
         }
@@ -402,7 +461,7 @@
         function changeDept(newDept) { currentDept = newDept; updateCurrentHotelName(); renderItems(true); }
         function goHome() { document.getElementById('homeView').classList.remove('hidden'); document.getElementById('hotelView').classList.add('hidden'); document.getElementById('searchInput').value = ""; renderHome(true); }
         function homeDateChanged() { const d = new Date(document.getElementById('homeDatePicker').value); document.getElementById('homeDateDisplay').innerText = `${d.getMonth() + 1}月${d.getDate()}日`; renderHome(true); }
-        function dateChanged() { const d = new Date(document.getElementById('datePicker').value); document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; if(currentHotelName) renderItems(true); }
+        function dateChanged() { const d = new Date(document.getElementById('datePicker').value); document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; if(currentHotelName) { renderItems(true); window.updateBlueBtnState(); } }
 
         function renderItems(forceRebuild = false) {
             const dateStr = document.getElementById('datePicker').value;
@@ -410,7 +469,7 @@
             let displayItems = masterData.filter(d => d.hotel === currentHotelName).map(d => d.item);
             
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
-            for (let itemName in todayInputs) { if (!displayItems.includes(itemName)) displayItems.push(itemName); }
+            for (let itemName in todayInputs) { if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BLUE_') displayItems.push(itemName); }
 
             const itemsList = document.getElementById('itemsList');
             
@@ -630,6 +689,20 @@
                 });
                 isFirebaseLoaded = true;
 
+                // ★ 給獨立手動標記藍色按鈕使用的 Firebase 同步函數
+                window.firebaseSetBlue = async function(dateStr, hotel, isBlue) {
+                    if (!isFirebaseLoaded || !db) return;
+                    try {
+                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}_MANUAL_BLUE`), {
+                            date: dateStr,
+                            hotel: hotel,
+                            item: '_MANUAL_BLUE_',
+                            isBlue: isBlue,
+                            timestamp: new Date().toLocaleString()
+                        }, { merge: true });
+                    } catch(e) { console.warn("藍色標記同步失敗", e); }
+                };
+
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterData = templateDoc.data().items;
@@ -648,6 +721,22 @@
                             if (change.type === "added" || change.type === "modified") {
                                 const r = change.doc.data();
                                 let dDate = String(r.date || "").replace(/\//g, '-').trim();
+                                
+                                // ★ 攔截手動藍色標記的資料，不要當成一般品項處理
+                                if (r.item === '_MANUAL_BLUE_') {
+                                    if(!userInputs[dDate]) userInputs[dDate] = {};
+                                    if(!userInputs[dDate]['_MANUAL_STATES_']) userInputs[dDate]['_MANUAL_STATES_'] = {};
+                                    
+                                    if (userInputs[dDate]['_MANUAL_STATES_'][r.hotel] !== r.isBlue) {
+                                        userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = r.isBlue;
+                                        dataChanged = true;
+                                        if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
+                                            if(window.updateBlueBtnState) window.updateBlueBtnState();
+                                        }
+                                    }
+                                    return; 
+                                }
+
                                 if(!userInputs[dDate]) userInputs[dDate] = {};
                                 if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
                                 
@@ -788,4 +877,3 @@
     </script>
 </body>
 </html>
-
