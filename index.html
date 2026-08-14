@@ -300,7 +300,7 @@
                     let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
                     let targetItems = []; let canCheck = false;
                     
-                    // ★ 還原為「浴巾」到「抹布」的判斷邏輯
+                    // ★ 擷取需要檢查的品項範圍 (浴巾到抹布)
                     if (targetDept === "房務") {
                         let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
                         let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
@@ -317,28 +317,44 @@
                         targetItems = [...templateItems]; canCheck = true;
                     }
                     
-                    if (canCheck) {
-                        let foundCompletedDocOnTargetDate = false;
-                        for (let d in userInputs) {
-                            let docInputs = userInputs[d][fullHotelName];
-                            if (!docInputs) continue;
-                            // 忽略標記用的假品項
-                            const customItems = Object.keys(docInputs).filter(item => !templateItems.includes(item) && item !== '_MANUAL_BORDER_');
-                            let allItemsToCheck = targetItems.concat(customItems);
-                            if (allItemsToCheck.length === 0) continue;
-
-                            let isAllSigned = true; let docCompletedDate = '';
-                            for (let item of allItemsToCheck) {
+                    // ★ 橘色判斷邏輯 (重新修復)
+                    if (canCheck && targetItems.length > 0) {
+                        let docInputs = userInputs[targetDate] ? userInputs[targetDate][fullHotelName] : null;
+                        
+                        if (docInputs) {
+                            let isAllSigned = true;
+                            
+                            // 1. 檢查必須的 targetItems 是否都已簽名
+                            for (let item of targetItems) {
                                 let u = docInputs[item];
-                                if (!u || !u.doubleSignature) { isAllSigned = false; break; }
-                                let signTime = u.doubleSignDate || (d + " 23:59:59");
-                                if (signTime > docCompletedDate) docCompletedDate = signTime;
+                                if (!u || !u.doubleSignature) { 
+                                    isAllSigned = false; 
+                                    break; 
+                                }
                             }
-                            if (isAllSigned && docCompletedDate.startsWith(targetDate)) {
-                                foundCompletedDocOnTargetDate = true; break;
+
+                            // 2. 檢查今天額外新增的自訂品項 (排除保留字) 是否都已簽名
+                            if (isAllSigned) {
+                                const customItems = Object.keys(docInputs).filter(item => 
+                                    !templateItems.includes(item) && 
+                                    item !== '_MANUAL_BORDER_' && 
+                                    item !== '_MANUAL_STATES_'
+                                );
+                                
+                                for (let item of customItems) {
+                                    let u = docInputs[item];
+                                    if (!u || !u.doubleSignature) {
+                                        isAllSigned = false;
+                                        break;
+                                    }
+                                }
                             }
+                            
+                            isOrange = isAllSigned;
+                        } else {
+                            // 如果這間飯店今天根本沒有任何輸入紀錄，當然是未完成
+                            isOrange = false; 
                         }
-                        isOrange = foundCompletedDocOnTargetDate;
                     }
 
                     // ★ 獨立處理背景色與邊框
