@@ -235,13 +235,14 @@
             });
         }
 
-        // ★ 核心修復：加入記憶體爆量防護機制 (保留當下正在看的日期)
+        // ★ 核心修復：防爆量機制優化 (改為保留最近 3 天，最安全穩定)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
                 let keys = Object.keys(userInputs).sort().reverse();
                 let recentInputs = {};
-                for (let i = 0; i < Math.min(7, keys.length); i++) {
+                // ★ 這裡改為保留 3 天
+                for (let i = 0; i < Math.min(3, keys.length); i++) {
                     recentInputs[keys[i]] = userInputs[keys[i]];
                 }
                 userInputs = recentInputs; 
@@ -637,8 +638,20 @@
         }
         setupCanvas();
 
-        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); canvas.isModified = true; canvas.isLocked = false; const titleEl = document.getElementById('signModalTitle'); titleEl.innerText = activeRole === 'aunt' ? "請現場人員簽上新名字" : "請複點人員簽上新名字"; titleEl.className = "text-lg font-black text-blue-800"; }
+        // ★ 修改 1：加入純白背景防止 JPEG 壓縮後背景變黑
+        function clearCanvas() { 
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            ctx.fillStyle = '#ffffff'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            canvas.isModified = true; canvas.isLocked = false; 
+            const titleEl = document.getElementById('signModalTitle'); 
+            titleEl.innerText = activeRole === 'aunt' ? "請現場人員簽上新名字" : "請複點人員簽上新名字"; 
+            titleEl.className = "text-lg font-black text-blue-800"; 
+        }
+
         function closeSign() { document.getElementById('signModal').classList.add('hidden'); }
+        
         function openSign(category, item, role) { 
             activeCategory = category; activeItem = item; activeRole = role; document.getElementById('signModal').classList.remove('hidden'); 
             const dateStr = document.getElementById('datePicker').value;
@@ -647,19 +660,51 @@
             requestAnimationFrame(() => {
                 canvas.width = canvas.offsetWidth || 300; canvas.height = 220; canvas.isModified = false; 
                 ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // ★ 修改 2：加入純白背景
+                ctx.fillStyle = '#ffffff'; 
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
                 canvas.isLocked = (u.isSubmitted && existingSig && !u.saveError) ? true : false;
                 const titleEl = document.getElementById('signModalTitle');
                 if (canvas.isLocked) { titleEl.innerText = "🔒 請先按【清除重寫】才能修改"; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; } 
                 else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : "第二步：複點人員簽名"; titleEl.className = "text-lg font-black text-blue-800"; }
-                if (existingSig) { let img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0); img.src = existingSig; }
+                
+                if (existingSig) { 
+                    let img = new Image(); 
+                    img.onload = () => ctx.drawImage(img, 0, 0); 
+                    img.src = existingSig; 
+                }
             });
         }
+
+        // ★ 修改 3：改用 JPEG 並高度壓縮 (0.4) 縮小容量
         function confirmSignature() {
             if (canvas.isLocked) return showMessage("🔒 您尚未重新簽名！\n👉 請先點擊右上角的【清除重寫】並簽上新名字。");
-            if (!ctx.getImageData(0,0,canvas.width,canvas.height).data.some(c => c !== 0)) return showMessage("請先在空白處簽名喔！");
-            const sigBase64 = canvas.toDataURL('image/png'); const dateStr = document.getElementById('datePicker').value; 
-            if (activeRole === 'aunt') { handleInput(dateStr, activeCategory, activeItem, 'signature', sigBase64); handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); } 
-            else { handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigBase64); handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); }
+            
+            // 檢查是否為全白背景（未簽名）- 因為我們現在預設鋪了白色底
+            const imgData = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+            let hasSignature = false;
+            // 抽樣檢查像素，如果有不是白色的點 (R,G,B 不是 255) 代表有畫到東西
+            for (let i = 0; i < imgData.length; i += 4) {
+                if (imgData[i] < 255 || imgData[i+1] < 255 || imgData[i+2] < 255) {
+                    hasSignature = true;
+                    break;
+                }
+            }
+            if (!hasSignature) return showMessage("請先在空白處簽名喔！");
+
+            const sigBase64 = canvas.toDataURL('image/jpeg', 0.4); 
+            const dateStr = document.getElementById('datePicker').value; 
+            
+            if (activeRole === 'aunt') { 
+                handleInput(dateStr, activeCategory, activeItem, 'signature', sigBase64); 
+                handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); 
+            } else { 
+                handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigBase64); 
+                handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); 
+                handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); 
+            }
             handleInput(dateStr, activeCategory, activeItem, 'isSubmitted', false); handleInput(dateStr, activeCategory, activeItem, 'saveError', false);
             closeSign(); renderItems(true); openCalc(activeCategory, activeItem, activeRole); 
         }
@@ -679,7 +724,6 @@
         function calcBackspace() { calcExpr = calcExpr.slice(0, -1); document.getElementById('calcDisplay').innerText = calcExpr || "0"; }
         function calcClear() { calcExpr = ""; document.getElementById('calcDisplay').innerText = "0"; }
         
-        // ★ 核心修復：強化計算結果，不會無端變成 0
         function calcConfirm() {
             let finalValue = "";
             if (calcExpr.trim() !== "") {
@@ -787,7 +831,6 @@
                                 let local = userInputs[dDate][r.hotel][r.item];
                                 if (local && local.isSaving) return; 
                                 
-                                // ★ 核心修復：防止數字 0 被消滅 & 修復重新簽名死結 (自動識別有沒有簽過)
                                 userInputs[dDate][r.hotel][r.item] = { 
                                     count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
                                     note: r.note || "", 
@@ -895,7 +938,6 @@
                     }
                 };
 
-                // ★ 核心修復：從試算表撈回資料時也要防止數字 0 消失
                 window.syncOldInventoryFromSheet = async function(event) {
                     if (!isFirebaseLoaded) return;
                     const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "⏳ 吸取中..."; btn.disabled = true;
