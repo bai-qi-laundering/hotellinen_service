@@ -234,15 +234,13 @@
             });
         }
 
-        // ★ 核心修復：終極智能背包過濾器 (Smart Filter)
-        // 完全根除 QuotaExceededError 記憶體爆滿的問題
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
                 let keys = Object.keys(userInputs).sort().reverse();
                 
-                let memoryInputs = {};  // 放在手機暫存記憶體 (空間無限大，給畫面看)
-                let storageInputs = {}; // 放在瀏覽器硬碟背包 (有 5MB 限制)
+                let memoryInputs = {};  
+                let storageInputs = {}; 
                 
                 for (let i = 0; i < Math.min(3, keys.length); i++) {
                     let d = keys[i];
@@ -257,24 +255,17 @@
                         storageInputs[d][hotel] = {};
                         for (let item in userInputs[d][hotel]) {
                             let data = { ...userInputs[d][hotel][item] };
-                            
-                            // 🚀 關鍵過濾：準備存進 5MB 背包時，把超肥的圖檔抽掉，只存文字標記！
-                            // 這樣可以省下 99% 的空間，從此告別記憶體滿的問題
                             if (data.signature && data.signature.length > 100) data.signature = 'CACHED';
                             if (data.doubleSignature && data.doubleSignature.length > 100) data.doubleSignature = 'CACHED';
-                            
                             storageInputs[d][hotel][item] = data;
                         }
                     }
                 }
                 
-                userInputs = memoryInputs; // 畫面讀取用完整版
-                localStorage.setItem('inventory_userInputs', JSON.stringify(storageInputs)); // 背包存瘦身版
+                userInputs = memoryInputs; 
+                localStorage.setItem('inventory_userInputs', JSON.stringify(storageInputs)); 
                 
-            } catch (e) { 
-                console.error("Local storage 存檔失敗", e); 
-                // 這裡已經把可怕的 toast 拔掉了，因為透過過濾器，正常絕對不會再爆滿。
-            }
+            } catch (e) { console.error("Local storage 存檔失敗", e); }
         }
 
         function instantBoot() {
@@ -353,6 +344,7 @@
                             
                             for (let item of targetItems) {
                                 let u = docInputs[item];
+                                // ★ 儀表板正確判斷標準：有永久主管簽名才算完成
                                 if (!u || !u.doubleSignature) { 
                                     isAllSigned = false; 
                                     break; 
@@ -548,38 +540,68 @@
                 
                 const count = (u.count !== undefined && u.count !== null && u.count !== '') ? u.count : '';
                 const doubleCount = (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? u.doubleCount : '';
-                const hasSigned = u.hasSigned || false; const doubleHasSigned = u.doubleHasSigned || false;
-                const isSubmitted = u.isSubmitted || false; const supSignedEver = u.doubleHasSigned ? true : false;
-                const isSaving = u.isSaving || false; const saveError = u.saveError || false;
+                
+                // ★ 修正：這裡判斷的是「臨時正在簽名」的狀態
+                const hasSigned = u.hasSigned || false; 
+                const doubleHasSigned = u.doubleHasSigned || false;
+                const isSubmitted = u.isSubmitted || false; 
+                
+                // ★ 終極修正：判斷是否有永久簽名圖檔 (雲端載入或自己剛簽的都算)
+                const hasAuntSignature = !!u.signature;
+                const hasSupSignature = !!u.doubleSignature;
+
+                // 只要在簽名流程中，或是已經有永久圖檔了，就當作「已完成」狀態，保持按鈕不會退回灰色/藍色
+                const auntCompleted = hasSigned || hasAuntSignature;
+                const supCompleted = doubleHasSigned || hasSupSignature;
+
+                const isSaving = u.isSaving || false; 
+                const saveError = u.saveError || false;
                 const loadingSvg = `<svg class="animate-spin h-4 w-4 text-gray-500 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
                 
-                let auntDisplayClass = hasSigned ? "bg-white text-gray-800 border-blue-300 shadow-inner" : "bg-gray-100 text-gray-400 border-gray-300";
-                let auntText = count !== "" ? count : (hasSigned ? "輸入數量" : "🔒");
+                let auntDisplayClass = auntCompleted ? "bg-white text-gray-800 border-blue-300 shadow-inner" : "bg-gray-100 text-gray-400 border-gray-300";
+                let auntText = count !== "" ? count : (auntCompleted ? "輸入數量" : "🔒");
                 let auntActionButton = "";
-                if (isSaving) auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">${loadingSvg} 寫入中...</div>`;
-                else if (supSignedEver) { auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300">🔒 已被複點鎖定</div>`; auntDisplayClass = "bg-gray-200 text-gray-500 border-gray-300"; }
-                else if (saveError) auntActionButton = `<button onclick="window.firebaseSubmit('${currentHotelName}', '${itemName}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">❌ 寫入失敗 (點此重傳)</button>`;
-                else if (isSubmitted && !hasSigned) auntActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'aunt')" class="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-sm active:bg-gray-200">✅ 存檔成功(點此重簽)</button>`;
-                else if (hasSigned) auntActionButton = `<div class="w-full py-2 bg-blue-100 text-blue-700 rounded-lg font-bold text-sm text-center border border-blue-200 animate-pulse">👆 請輸入數量</div>`;
-                else auntActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'aunt')" class="w-full py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-blue-700">第一步-簽名</button>`;
+                
+                if (isSaving) {
+                    auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">${loadingSvg} 寫入中...</div>`;
+                } else if (hasSupSignature) {
+                    auntActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300">🔒 已被複點鎖定</div>`;
+                    auntDisplayClass = "bg-gray-200 text-gray-500 border-gray-300";
+                } else if (saveError) {
+                    auntActionButton = `<button onclick="window.firebaseSubmit('${currentHotelName}', '${itemName}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">❌ 寫入失敗 (點此重傳)</button>`;
+                } else if (hasAuntSignature && !hasSigned) {
+                    auntActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'aunt')" class="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-sm active:bg-gray-200">✅ 存檔成功(點此重簽)</button>`;
+                } else if (hasSigned) {
+                    auntActionButton = `<div class="w-full py-2 bg-blue-100 text-blue-700 rounded-lg font-bold text-sm text-center border border-blue-200 animate-pulse">👆 請輸入數量</div>`;
+                } else {
+                    auntActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'aunt')" class="w-full py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-blue-700">第一步-簽名</button>`;
+                }
 
-                let supDisplayClass = doubleHasSigned ? "bg-white text-blue-800 border-green-500 shadow-inner" : "bg-white text-blue-400 border-blue-200";
-                let supText = doubleCount !== "" ? doubleCount : (doubleHasSigned ? "輸入數量" : "等待輸入");
+                let supDisplayClass = supCompleted ? "bg-white text-blue-800 border-green-500 shadow-inner" : "bg-white text-blue-400 border-blue-200";
+                let supText = doubleCount !== "" ? doubleCount : (supCompleted ? "輸入數量" : "等待輸入");
                 let supActionButton = "";
-                if (isSaving) supActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">${loadingSvg} 寫入中...</div>`;
-                else if (saveError) supActionButton = `<button onclick="window.firebaseSubmit('${currentHotelName}', '${itemName}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">❌ 寫入失敗 (點此重傳)</button>`;
-                else if (isSubmitted && !doubleHasSigned && u.doubleHasSigned) supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-50 text-green-700 rounded-lg font-bold text-sm text-center border border-green-200 shadow-sm active:bg-green-100">✅ 複點完成(重簽)</button>`;
-                else if (doubleHasSigned) supActionButton = `<div class="w-full py-2 bg-orange-50 text-orange-600 rounded-lg font-bold text-sm text-center border border-orange-200 animate-pulse">👆 請輸入數量</div>`;
-                else supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
+                
+                if (isSaving) {
+                    supActionButton = `<div class="w-full py-2 bg-gray-200 text-gray-500 rounded-lg font-bold text-sm text-center border border-gray-300 shadow-inner">${loadingSvg} 寫入中...</div>`;
+                } else if (saveError) {
+                    supActionButton = `<button onclick="window.firebaseSubmit('${currentHotelName}', '${itemName}')" class="w-full py-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm text-center border border-red-300 shadow-sm active:bg-red-200">❌ 寫入失敗 (點此重傳)</button>`;
+                } else if (hasSupSignature && !doubleHasSigned) {
+                    supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-50 text-green-700 rounded-lg font-bold text-sm text-center border border-green-200 shadow-sm active:bg-green-100">✅ 複點完成(重簽)</button>`;
+                } else if (doubleHasSigned) {
+                    supActionButton = `<div class="w-full py-2 bg-orange-50 text-orange-600 rounded-lg font-bold text-sm text-center border border-orange-200 animate-pulse">👆 請輸入數量</div>`;
+                } else {
+                    supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
+                }
 
-                let cardClass = supSignedEver ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
+                // ★ 正確依據：只要有永久圖檔，粉紅色鎖定框就會出現，不會消失！
+                let cardClass = hasSupSignature ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
 
                 if (needsRebuild) {
                     htmlContent += `
                     <div id="card_${safeId}" class="${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300">
                         <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">${itemName}</div>
                         <div class="flex gap-2 mb-4 relative z-20">
-                            <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${supSignedEver ? 'opacity-60' : ''}">
+                            <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${hasSupSignature ? 'opacity-60' : ''}">
                                 <div class="text-sm font-bold text-gray-500 mb-2 text-center">現場數量</div>
                                 <div id="aunt_box_${safeId}" onclick="handleItemClick('${itemName}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}">${auntText}</div>
                                 <div id="aunt_action_${safeId}">${auntActionButton}</div>
@@ -594,7 +616,7 @@
                     </div>`;
                 } else {
                     document.getElementById(`card_${safeId}`).className = `${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300`;
-                    document.getElementById(`aunt_bg_${safeId}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${supSignedEver ? 'opacity-60' : ''}`;
+                    document.getElementById(`aunt_bg_${safeId}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${hasSupSignature ? 'opacity-60' : ''}`;
                     
                     document.getElementById(`aunt_box_${safeId}`).className = `px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}`;
                     document.getElementById(`aunt_box_${safeId}`).innerHTML = auntText;
@@ -625,15 +647,23 @@
             saveToLocal(); 
         }
 
+        // ★ 核心修復：強制要求修改一定要先「重新簽名」！
+        // 如果這個品項已經存檔過，點擊數字格子就會強迫打開簽名板，逼你要清除重寫負責！
         function handleItemClick(item, role) {
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return; 
+            
             if (role === 'aunt') {
-                if (u.doubleHasSigned) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
+                if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
+                
+                // 只要沒有處於「臨時正在簽名過關」的狀態，就一律強制打開簽名板！
                 if (!u.hasSigned) return openSign(currentHotelName, item, 'aunt');
                 openCalc(currentHotelName, item, 'aunt');
+                
             } else if (role === 'sup') {
+                
+                // 只要沒有處於「臨時正在簽名過關」的狀態，就一律強制打開簽名板！
                 if (!u.doubleHasSigned) return openSign(currentHotelName, item, 'sup');
                 openCalc(currentHotelName, item, 'sup');
             }
@@ -676,14 +706,14 @@
                 ctx.fillStyle = '#ffffff'; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                canvas.isLocked = (u.isSubmitted && existingSig && !u.saveError) ? true : false;
+                // ★ 強制鎖定機制：只要以前有簽名，就會被鎖定，逼迫你按「清除重寫」
+                canvas.isLocked = (existingSig && !u.saveError) ? true : false;
                 const titleEl = document.getElementById('signModalTitle');
                 if (canvas.isLocked) { titleEl.innerText = "🔒 請先按【清除重寫】才能修改"; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; } 
                 else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : "第二步：複點人員簽名"; titleEl.className = "text-lg font-black text-blue-800"; }
                 
                 if (existingSig) {
                     if (existingSig === 'CACHED') {
-                        // 當過濾器生效，畫面上溫馨提示
                         ctx.fillStyle = '#9ca3af'; 
                         ctx.font = 'bold 20px sans-serif';
                         ctx.textAlign = 'center';
@@ -850,12 +880,12 @@
                                 userInputs[dDate][r.hotel][r.item] = { 
                                     count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
                                     note: r.note || "", 
-                                    hasSigned: !!r.signature, 
+                                    hasSigned: false, 
                                     isSubmitted: true, 
                                     signature: r.signature || "", 
                                     doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
                                     doubleSignature: r.doubleSignature || "", 
-                                    doubleHasSigned: !!r.doubleSignature, 
+                                    doubleHasSigned: false, 
                                     doubleSignDate: r.doubleSignDate || "",
                                     isSaving: false, saveError: false
                                 };
@@ -884,17 +914,17 @@
                     window.attachRealtimeListener(document.getElementById('datePicker').value);
                 }
 
-                // 🚀 關鍵過濾：不要用空字串覆蓋掉 Firebase 原本的大圖檔
                 window.firebaseSubmit = async function(category, item) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
-                    if (!u || (!u.hasSigned && !u.doubleHasSigned)) return; 
+                    
+                    // 防呆：如果沒有任何永久簽名，而且當下也沒有在簽名，就不允許上傳
+                    if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
-                    // 這裡的 payload 先不放 signature
                     const payload = { 
                         date: dateStr, hotel: category, item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
@@ -904,13 +934,11 @@
                         timestamp: new Date().toLocaleString() 
                     };
 
-                    // 只有當 signature 是真正的圖檔時，才把它加進去上傳 (不覆蓋 CACHED)
                     if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
                     if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
 
                     try {
                         const safeItem = item.replace(/\//g, '-');
-                        // 加入 { merge: true }，完美保留 Firebase 上原本的舊圖檔，只更新數字和備註
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`), payload, { merge: true });
 
                         try {
