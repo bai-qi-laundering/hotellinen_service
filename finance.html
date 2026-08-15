@@ -337,15 +337,28 @@
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
 
-        // ★ 修正：過濾掉 Google Sheet 日期可能自帶的 ISO 時間字尾 (例如 2024-05-12T16:00:00.000Z)
+        // ★ 終極修正版：完美處理 GAS 傳來的 UTC 時間位移，並保留字串防呆
         function standardizeDate(dStr) {
             if(!dStr) return "";
+            
+            // 處理 Google Apps Script 傳來的 UTC 時間差問題 (例: 2024-05-11T16:00:00.000Z 其實是台灣的 05-12)
+            if (dStr.includes('T') && dStr.includes('Z')) {
+                let d = new Date(dStr);
+                if (!isNaN(d.getTime())) {
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                }
+            }
+            
+            // 如果是一般字串
             if (dStr.includes('T')) {
                 dStr = dStr.split('T')[0];
             }
+            
             let parts = dStr.split(/[-/]/);
-            if(parts.length !== 3) return dStr;
-            return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            if(parts.length >= 3) {
+                return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].substring(0,2).padStart(2, '0')}`;
+            }
+            return String(dStr).trim();
         }
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
@@ -466,15 +479,15 @@
                         });
                     }
 
-                    // ★ 修正：路線與排班的防呆解析邏輯
+                    // ★ 終極修正版：過濾所有換行、隱形空白與大小寫干擾
                     sheetRoutes = {};
                     if(json.routes) {
                         json.routes.forEach((row, idx) => {
                             if (idx === 0) return;
-                            let routeName = row[0] ? String(row[0]).trim() : "";
+                            let routeName = row[0] ? String(row[0]).replace(/[\r\n\t]/g, '').trim() : "";
                             let rawKeywords = row[1] ? String(row[1]) : "";
-                            // 支援全形逗號、半形逗號、頓號分割
-                            let keywords = rawKeywords.split(/[,，、]/).map(k => k.trim()).filter(k => k);
+                            // 支援全形逗號、半形逗號、頓號分割，並清空隱形字元
+                            let keywords = rawKeywords.split(/[,，、]/).map(k => k.replace(/[\r\n\t]/g, '').trim()).filter(k => k);
                             
                             if (routeName && keywords.length > 0) {
                                 sheetRoutes[routeName] = keywords;
@@ -488,8 +501,8 @@
                             if (idx === 0) return;
                             let rawDate = row[0] ? String(row[0]) : "";
                             let dateStr = standardizeDate(rawDate);
-                            let driverName = row[1] ? String(row[1]).trim() : "";
-                            let routeName = row[2] ? String(row[2]).trim() : "";
+                            let driverName = row[1] ? String(row[1]).replace(/[\r\n\t]/g, '').trim() : "";
+                            let routeName = row[2] ? String(row[2]).replace(/[\r\n\t]/g, '').trim() : "";
                             
                             if (dateStr && driverName && routeName) {
                                 if (!sheetSchedules[dateStr]) sheetSchedules[dateStr] = {};
@@ -913,10 +926,16 @@
                         let hotelName = d.hotelKeyword;
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
                         
+                        // ★ 終極修正版：在配對飯店與路線時，完全無視大小寫和所有空白
+                        let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
+
                         // 1. 判定路線 (Keyword Matching)
                         let assignedRoute = "未分類路線";
                         for (let [routeName, keywords] of Object.entries(sheetRoutes)) {
-                            if (keywords.some(kw => hotelName.includes(kw))) {
+                            if (keywords.some(kw => {
+                                let cleanKw = kw.replace(/\s+/g, '').toLowerCase();
+                                return cleanKw && cleanHotelName.includes(cleanKw);
+                            })) {
                                 assignedRoute = routeName; break;
                             }
                         }
