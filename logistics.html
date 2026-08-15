@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <!-- ★ 優化3: 強制瀏覽器每次都抓最新網頁，解決客人死當在舊版、必須開無痕的問題 -->
+    <!-- ★ 強制瀏覽器每次都抓最新網頁，解決客人死當在舊版、必須開無痕的問題 -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -23,8 +23,8 @@
 </head>
 <body class="p-3 pb-32 relative">
 
-    <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 bg-green-700 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">
-        ✅ 點收簽單已成功更新！
+    <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">
+        <!-- Toast message will be injected here -->
     </div>
 
     <div class="main-container">
@@ -33,7 +33,7 @@
             <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">載入中...</h1>
             <div class="flex justify-center items-center gap-3 mt-2">
                 <p id="dateTitle" class="text-lg font-bold text-blue-200">出貨點收系統</p>
-                <button onclick="fetchData(true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
+                <button onclick="fetchData(false)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
                     🔄 重新載入
                 </button>
             </div>
@@ -108,7 +108,6 @@
         let activeDeptKey = ""; 
         let masterTemplate = []; 
         let globalItemOrder = {}; 
-        let autoSyncTimer = null; 
 
         const clientCanvas = document.getElementById('clientCanvas');
         const driverCanvas = document.getElementById('driverCanvas');
@@ -137,9 +136,17 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速載入中...</div>
+                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速雲端載入中...</div>
             </div>
         `;
+
+        function showToastMsg(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.className = `fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-[10000] font-bold text-center ${isError ? 'bg-red-600' : 'bg-green-700'}`;
+            toast.classList.remove('opacity-0'); 
+            setTimeout(() => toast.classList.add('opacity-0'), 3000);
+        }
 
         function getLocalDateString(dateObj) {
             return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
@@ -160,25 +167,22 @@
 
         function dateChanged() { 
             updateDateDisplay(); 
-            loadDataFromCacheOrNetwork();
+            fetchData(false); // 直接向雲端索取資料，無快取
         }
-        
-        // ★ 優化2: 清道夫機制 - 檢查並處理有問題的快取
-        function loadDataFromCacheOrNetwork() {
-            let cachedDataStr = localStorage.getItem(`logistics_cache_${currentHotel}_${currentDate}`);
-            if (cachedDataStr) {
-                try {
-                    let parsedData = JSON.parse(cachedDataStr);
-                    // 如果快取是空白陣列 (代表之前 quota 爆掉時存下的錯亂資料)，就丟棄它強制重抓！
-                    if (parsedData && parsedData.length > 0) {
-                        processAndRenderData(parsedData);
-                        fetchData(true); // 背景靜默更新
-                        return;
-                    }
-                } catch(e) {}
-            }
-            // 如果沒快取或快取壞掉，顯示載入中並抓新資料
-            fetchData(false);
+
+        // ★ 核心邏輯：檢查該單據日期是否已超過「3天後的 12:00」
+        function checkIsLocked(dateStr) {
+            if (!dateStr) return false;
+            let parts = dateStr.split('-');
+            if (parts.length !== 3) return false;
+            // 設定該單據日期的 12:00:00 (注意 month 是 0-11，所以 -1)
+            let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+            // 加上 3 天 (例如 8/15 + 3 = 8/18)
+            lockDate.setDate(lockDate.getDate() + 3);
+            
+            let now = new Date();
+            // 如果現在時間大於或等於鎖定時間，回傳 true
+            return now >= lockDate;
         }
 
         async function init() {
@@ -198,45 +202,33 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            // 清理過期的舊快取，避免佔用客人手機空間與產生靈異現象
+            // ★ 終極殺手：無差別清理所有物流相關快取，確保沒有殘留的錯亂資料
             Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('logistics_cache_') && !key.includes(getLocalDateString(new Date()))) {
+                if (key.startsWith('logistics_cache_') || key === 'inventory_masterData') {
                     localStorage.removeItem(key);
                 }
             });
 
-            // 優先從快取載入排序大腦
-            let cachedTemplate = localStorage.getItem(`inventory_masterData`);
-            if (cachedTemplate) {
-                try {
-                    masterTemplate = JSON.parse(cachedTemplate);
-                    globalItemOrder = {};
-                    masterTemplate.forEach((t, idx) => {
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx; 
-                    });
-                } catch(e){}
-            }
-
-            // 同步向雲端要最新設定 (背景執行)
-            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
+            // 啟動時直接向雲端索取排序大腦
+            try {
+                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
-                    localStorage.setItem(`inventory_masterData`, JSON.stringify(masterTemplate));
                     globalItemOrder = {};
                     masterTemplate.forEach((t, idx) => {
                         if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                     });
                 }
-            }).catch(e => console.error("Template load error:", e));
+            } catch (e) {
+                console.error("Template load error:", e);
+            }
 
             const latestDate = getLocalDateString(new Date());
             document.getElementById('datePicker').value = latestDate;
             updateDateDisplay();
 
-            // 啟動資料載入
-            loadDataFromCacheOrNetwork();
-
-            if (autoSyncTimer) clearInterval(autoSyncTimer); 
+            // 啟動資料載入 (無快取機制，直接去後台拿)
+            fetchData(false);
         }
 
         async function fetchData(isBackground = false) {
@@ -257,7 +249,7 @@
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 
-                // ★ 優化1: 並行處理 (Promise.all) - 讓原本要等兩次的時間變成一次，大幅提升載入速度！
+                // 並行處理 (Promise.all) - 讓原本要等兩次的時間變成一次，提升載入速度！
                 const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
                 invSnap.forEach(docSnap => {
@@ -347,10 +339,7 @@
                     }
                 }
 
-                // 只把有效的資料存進快取，防止存入錯亂的空資料
-                if (rawData.length > 0) {
-                    localStorage.setItem(`logistics_cache_${currentHotel}_${currentDate}`, JSON.stringify(rawData));
-                }
+                // 直接處理資料並渲染，不寫入 localStorage
                 processAndRenderData(rawData);
             } catch (err) {
                 console.error("Fetch Data Error:", err);
@@ -366,21 +355,6 @@
                     </div>`;
                 }
             }
-        }
-
-        // ★ 新增：檢查該單據日期是否已超過「3天後的 12:00」
-        function checkIsLocked(dateStr) {
-            if (!dateStr) return false;
-            let parts = dateStr.split('-');
-            if (parts.length !== 3) return false;
-            // 設定該單據日期的 12:00:00 (注意 month 是 0-11，所以 -1)
-            let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            // 加上 3 天 (例如 8/15 + 3 = 8/18)
-            lockDate.setDate(lockDate.getDate() + 3);
-            
-            let now = new Date();
-            // 如果現在時間大於或等於鎖定時間，回傳 true
-            return now >= lockDate;
         }
 
         function processAndRenderData(rawData) {
@@ -459,13 +433,13 @@
             const newItemName = inputEl.value.trim();
 
             if (!newItemName) {
-                alert("請輸入要新增的品項名稱！");
+                showToastMsg("⚠️ 請輸入要新增的品項名稱！", true);
                 return;
             }
             
             let exists = groupedData[deptName].items.some(i => i.itemName === newItemName);
             if (exists) {
-                alert("這個品項已經在上方列表裡面囉！");
+                showToastMsg("⚠️ 這個品項已經在上方列表裡面囉！", true);
                 return;
             }
 
@@ -479,12 +453,7 @@
             });
 
             inputEl.value = "";
-            
-            const toast = document.getElementById('toast');
-            toast.innerText = "✅ 已新增臨時品項！";
-            toast.classList.remove('opacity-0'); 
-            setTimeout(() => toast.classList.add('opacity-0'), 2000);
-
+            showToastMsg("✅ 已新增臨時品項！");
             renderDepartments(); 
         }
 
@@ -717,7 +686,8 @@
             }
 
             if (!cBase64 && !dBase64) {
-                 return alert("請至少一方完成簽名！(司機或飯店)");
+                 showToastMsg("⚠️ 請至少一方完成簽名！(司機或飯店)", true);
+                 return;
             }
 
             const btn = document.getElementById('submitBtn');
@@ -817,18 +787,16 @@
                 closeSignModal();
                 fetchData(true);
                 
-                const toast = document.getElementById('toast');
-                toast.innerText = (isNewDriverSig && syncDepts.length > 0)
-                    ? `✅ 已點收，並同步簽名至 ${syncDepts.length} 個部門！` 
-                    : "✅ 點收簽單已成功更新！";
-                
-                toast.classList.remove('opacity-0'); 
-                setTimeout(() => toast.classList.add('opacity-0'), 3000);
+                if (isNewDriverSig && syncDepts.length > 0) {
+                    showToastMsg(`✅ 已點收，並同步簽名至 ${syncDepts.length + 1} 個部門！`);
+                } else {
+                    showToastMsg("✅ 點收簽單已成功更新！");
+                }
 
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
-                alert("網路傳送失敗，請確認網路！");
+                showToastMsg("⚠️ 網路傳送失敗，請確認網路連線！", true);
             }
         }
 
