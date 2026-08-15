@@ -368,6 +368,21 @@
             }
         }
 
+        // ★ 新增：檢查該單據日期是否已超過「3天後的 12:00」
+        function checkIsLocked(dateStr) {
+            if (!dateStr) return false;
+            let parts = dateStr.split('-');
+            if (parts.length !== 3) return false;
+            // 設定該單據日期的 12:00:00 (注意 month 是 0-11，所以 -1)
+            let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+            // 加上 3 天 (例如 8/15 + 3 = 8/18)
+            lockDate.setDate(lockDate.getDate() + 3);
+            
+            let now = new Date();
+            // 如果現在時間大於或等於鎖定時間，回傳 true
+            return now >= lockDate;
+        }
+
         function processAndRenderData(rawData) {
             let uniqueDataMap = {};
             rawData.forEach(item => {
@@ -493,6 +508,9 @@
 
             const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
 
+            // ★ 檢查這個畫面的單據日期是否已經「鎖定 (逾期)」
+            let isSystemLocked = checkIsLocked(currentDate);
+
             for (let dept in groupedData) {
                 deptIndex++;
                 let deptId = `dept_${deptIndex}`;
@@ -517,12 +535,21 @@
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
                 let isCompleted = hasClientSig && hasDriverSig;
 
+                // ★ 只要「已完成」或「系統鎖定」，就把輸入框和按鈕禁用
+                let inputDisabled = isCompleted || isSystemLocked;
+
                 let actionButton = "";
 
                 if (isCompleted) {
                     actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2">
                         <span>✅ 已點收完畢</span>
                         <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看簽名</button>
+                    </div>`;
+                } else if (isSystemLocked) {
+                    // ★ 逾期的按鈕顯示狀態
+                    actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-1">
+                        <span>🔒 逾期系統已自動結單</span>
+                        <span class="text-sm text-gray-400 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
                     </div>`;
                 } else if (hasClientSig && !hasDriverSig) {
                     actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🚚 等待司機簽名確認</button>`;
@@ -559,21 +586,22 @@
                                 <span class="font-bold text-blue-900">實收(請款)量：</span>
                                 <div class="flex items-center">
                                     <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this.value)" value="${item.actualQty}" 
-                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${isCompleted ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
-                                           ${isCompleted ? 'disabled' : ''}>
+                                           class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${inputDisabled ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
+                                           ${inputDisabled ? 'disabled' : ''}>
                                     <span id="status-${dept}-${idx}" class="${statusClass}">${statusText}</span>
                                 </div>
                             </div>
                         </div>
                     </div>
-                `}).join('');
+                    `}).join('');
 
                 let dropdownHtml = commonItems.map(val => 
                     `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`
                 ).join('');
 
+                // ★ 系統沒有鎖定才可以臨時新增品項
                 let addItemHtml = "";
-                if (!isCompleted) {
+                if (!inputDisabled) {
                     addItemHtml = `
                     <div class="mt-4 bg-indigo-50 p-4 rounded-xl border border-dashed border-indigo-300">
                         <h3 class="text-sm font-black mb-2 text-indigo-800">➕ 臨時新增出貨品項</h3>
