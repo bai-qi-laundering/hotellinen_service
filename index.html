@@ -234,7 +234,7 @@
             });
         }
 
-        // 把保留天數拉長到 7 天，支援多天跨日查核
+        // ★ 修改 1：精準保留 4 天 (最省效能的黃金比例)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -243,7 +243,7 @@
                 let memoryInputs = {};  
                 let storageInputs = {}; 
                 
-                for (let i = 0; i < Math.min(7, keys.length); i++) {
+                for (let i = 0; i < Math.min(4, keys.length); i++) {
                     let d = keys[i];
                     memoryInputs[d] = userInputs[d];
                     storageInputs[d] = {};
@@ -328,21 +328,11 @@
                     let isOrange = false;
                     const safeId = window.getSafeId(c);
                     
-                    const baseDateStr = document.getElementById('homeDatePicker').value;
-                    const targetDate = getTargetDateStr(c, baseDateStr);
-                    
-                    // ★ 跨日檢查核心：取得目標日期，以及前兩天，共三天範圍
-                    let dObj = new Date(targetDate);
-                    const d0 = getLocalDateString(dObj);
-                    dObj.setDate(dObj.getDate() - 1);
-                    const d1 = getLocalDateString(dObj);
-                    dObj.setDate(dObj.getDate() - 1);
-                    const d2 = getLocalDateString(dObj);
-                    
-                    const checkDates = [d0, d1, d2]; // 檢查這三天
+                    const dashboardDateStr = document.getElementById('homeDatePicker').value;
+                    const targetDateStr = getTargetDateStr(c, dashboardDateStr);
                     
                     let isManualBlackBorder = false;
-                    if (userInputs[targetDate] && userInputs[targetDate]['_MANUAL_STATES_'] && userInputs[targetDate]['_MANUAL_STATES_'][c]) {
+                    if (userInputs[targetDateStr] && userInputs[targetDateStr]['_MANUAL_STATES_'] && userInputs[targetDateStr]['_MANUAL_STATES_'][c]) {
                         isManualBlackBorder = true;
                     }
 
@@ -369,54 +359,56 @@
                         targetItems = [...templateItems]; canCheck = true;
                     }
                     
-                    // ★ 聰明儀表板：檢查三天內是否有完成紀錄
                     if (canCheck && targetItems.length > 0) {
-                        let isAllSigned = true;
-                        let hasAnyData = false; // 防呆：至少要有一天有輸入資料才亮燈
-                        
-                        // 1. 檢查清單上的固定品項
-                        for (let item of targetItems) {
-                            let itemSigned = false;
-                            // 掃描這三天，只要有任何一天簽過，就算過關！
-                            for (let dStr of checkDates) {
-                                let hData = userInputs[dStr] ? userInputs[dStr][fullHotelName] : null;
-                                if (hData && hData[item] && hData[item].doubleSignature) {
-                                    itemSigned = true;
+                        // 尋找記憶體裡所有日期的單據
+                        for (let docDate in userInputs) {
+                            if (docDate === '_MANUAL_STATES_') continue;
+                            let hData = userInputs[docDate][fullHotelName];
+                            if (!hData) continue; 
+
+                            let isAllSigned = true;
+                            let latestSignDateStr = "";
+                            let hasAnyTargetData = false;
+
+                            for (let item of targetItems) {
+                                let u = hData[item];
+                                if (!u || !u.doubleSignature) {
+                                    isAllSigned = false;
                                     break;
                                 }
+                                hasAnyTargetData = true;
+                                let signDate = u.doubleSignDate || (docDate + " 00:00:00");
+                                if (signDate > latestSignDateStr) {
+                                    latestSignDateStr = signDate;
+                                }
                             }
-                            
-                            if (itemSigned) {
-                                hasAnyData = true;
-                            } else {
-                                isAllSigned = false;
-                                break;
-                            }
-                        }
 
-                        // 2. 檢查三天內是否有新增的「自訂品項」，若有新增也必須簽名
-                        if (isAllSigned && hasAnyData) {
-                            for (let dStr of checkDates) {
-                                let hData = userInputs[dStr] ? userInputs[dStr][fullHotelName] : null;
-                                if (hData) {
-                                    const customItems = Object.keys(hData).filter(item => 
-                                        !templateItems.includes(item) && 
-                                        item !== '_MANUAL_BORDER_' && 
-                                        item !== '_MANUAL_STATES_'
-                                    );
-                                    for (let item of customItems) {
-                                        let u = hData[item];
-                                        if (u && !u.doubleSignature) {
-                                            isAllSigned = false;
-                                            break;
-                                        }
+                            if (isAllSigned && hasAnyTargetData) {
+                                const customItems = Object.keys(hData).filter(item => 
+                                    !templateItems.includes(item) && item !== '_MANUAL_BORDER_' && item !== '_MANUAL_STATES_'
+                                );
+                                for (let item of customItems) {
+                                    let u = hData[item];
+                                    if (!u || !u.doubleSignature) {
+                                        isAllSigned = false;
+                                        break;
+                                    }
+                                    let signDate = u.doubleSignDate || (docDate + " 00:00:00");
+                                    if (signDate > latestSignDateStr) {
+                                        latestSignDateStr = signDate;
                                     }
                                 }
-                                if (!isAllSigned) break;
+                            }
+
+                            // ★ 判斷這張全簽完的單子，是否在你選的儀表板這天完成的
+                            if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
+                                let completionDay = latestSignDateStr.split(' ')[0]; 
+                                if (completionDay === dashboardDateStr) {
+                                    isOrange = true;
+                                    break; 
+                                }
                             }
                         }
-                        
-                        isOrange = (hasAnyData && isAllSigned);
                     }
 
                     let baseClasses = "rounded-2xl p-1 transition-all flex items-center justify-center aspect-square ";
@@ -869,7 +861,7 @@
                     buildHotelStructure();
                 }
 
-                // ★ 超級雷達監聽器：一次抓取「昨天、今天、明天」共三天的資料更新
+                // ★ 修改 2：監聽範圍為精準的 4 天 (-2 到 +1)
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
@@ -877,18 +869,13 @@
                     const parts = baseDateStr.split('-');
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
-                    const d0 = new Date(d);
-                    const dMinus1 = new Date(d); dMinus1.setDate(d.getDate() - 1);
-                    const dMinus2 = new Date(d); dMinus2.setDate(d.getDate() - 2);
-                    const dPlus1 = new Date(d); dPlus1.setDate(d.getDate() + 1);
-                    
-                    // 擴大監聽範圍
-                    const datesToListen = [
-                        getLocalDateString(dMinus2),
-                        getLocalDateString(dMinus1),
-                        getLocalDateString(d0),
-                        getLocalDateString(dPlus1)
-                    ];
+                    const datesToListen = [];
+                    // 最精準完美的黃金比例：往前兩天，往後一天，共包含儀表板自己是 4 天
+                    for(let i = -2; i <= 1; i++) {
+                        let tmp = new Date(d);
+                        tmp.setDate(tmp.getDate() + i);
+                        datesToListen.push(getLocalDateString(tmp));
+                    }
                     
                     const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
