@@ -302,7 +302,6 @@
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec"; 
         
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 核心修復：加入了 setDoc 指令
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -331,17 +330,14 @@
         let currentDriverStats = {};
         let currentUnassignedStats = {};
         
-        // ★ 新增：儲存 Firebase 上的自訂價格
         let customPrices = {}; 
 
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
 
-        // ★ 終極修正版：完美處理 GAS 傳來的 UTC 時間位移，並保留字串防呆
         function standardizeDate(dStr) {
             if(!dStr) return "";
             
-            // 處理 Google Apps Script 傳來的 UTC 時間差問題 (例: 2024-05-11T16:00:00.000Z 其實是台灣的 05-12)
             if (dStr.includes('T') && dStr.includes('Z')) {
                 let d = new Date(dStr);
                 if (!isNaN(d.getTime())) {
@@ -349,7 +345,6 @@
                 }
             }
             
-            // 如果是一般字串
             if (dStr.includes('T')) {
                 dStr = dStr.split('T')[0];
             }
@@ -403,9 +398,9 @@
         window.calculateDriverPerformance = calculateDriverPerformance;
         window.showDriverDetails = showDriverDetails;
 
-        // ★ 新增：修改單價並自動存進 Firebase 的功能
-        window.updateCustomPrice = async function(comp, item, newVal, inputEl) {
-            let key = `${comp}_${item}`;
+        // ★ 更新單價：強制綁定完整的飯店+部門名稱 (例如: 承億 回洗_床單)
+        window.updateCustomPrice = async function(hotelName, item, newVal, inputEl) {
+            let key = `${hotelName}_${item}`;
             
             if (newVal.trim() === "") {
                 delete customPrices[key];
@@ -416,14 +411,12 @@
             inputEl.style.opacity = '0.5';
 
             try {
-                // 將修改好的自訂價格表，寫入 Firebase 中儲存
                 await setDoc(doc(db, 'inventory_config', 'custom_prices'), {
                     prices: customPrices
                 }, { merge: true });
                 
-                showToast("✅ 價格已自動記憶更新！");
+                showToast("✅ 單價已儲存！");
                 
-                // 儲存後，瞬間重新載入報表，讓金額重新計算
                 if (!document.getElementById('sysFinance').classList.contains('hidden')) {
                     loadFinanceData();
                 } else {
@@ -437,9 +430,6 @@
             }
         }
 
-        // ==========================================
-        // ★ 核心：一次性同步試算表的「基礎設定大腦」
-        // ==========================================
         async function syncMasterDataFromSheet() {
             if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
                 document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
@@ -479,14 +469,12 @@
                         });
                     }
 
-                    // ★ 終極修正版：過濾所有換行、隱形空白與大小寫干擾
                     sheetRoutes = {};
                     if(json.routes) {
                         json.routes.forEach((row, idx) => {
                             if (idx === 0) return;
                             let routeName = row[0] ? String(row[0]).replace(/[\r\n\t]/g, '').trim() : "";
                             let rawKeywords = row[1] ? String(row[1]) : "";
-                            // 支援全形逗號、半形逗號、頓號分割，並清空隱形字元
                             let keywords = rawKeywords.split(/[,，、]/).map(k => k.replace(/[\r\n\t]/g, '').trim()).filter(k => k);
                             
                             if (routeName && keywords.length > 0) {
@@ -511,7 +499,6 @@
                         });
                     }
                     
-                    // 2. ★ 同步載入 Firebase 中的「自訂記憶價格」
                     try {
                         const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
                         if (priceDoc.exists() && priceDoc.data().prices) {
@@ -533,13 +520,23 @@
             }
         }
 
-        // ★ 核心變更：算錢時，先看網頁自訂價，沒有自訂價再看試算表
-        function getPrice(comp, item) {
-            let key = `${comp}_${item}`;
-            if (customPrices[key] !== undefined && customPrices[key] !== "") {
-                return Number(customPrices[key]);
+        // ★ 核心變更：完全精準比對 (不自動繼承)
+        // 必須是 "飯店名稱(含部門)_品項" 才會讀取到價格，找不到就是沒有報價
+        function getPrice(hotelName, item) {
+            let exactKey = `${hotelName}_${item}`;
+            
+            // 1. 找網頁自訂價
+            if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") {
+                return Number(customPrices[exactKey]);
             }
-            return sheetPrices[key] !== undefined ? sheetPrices[key] : null; 
+            
+            // 2. 找試算表報價
+            if (sheetPrices[exactKey] !== undefined) {
+                return sheetPrices[exactKey];
+            }
+            
+            // 找不到就回傳 null，表示沒有報價
+            return null; 
         }
 
         function showToast(msg = "資料已自動儲存更新！") {
@@ -696,11 +693,11 @@
 
                     let lastDate = ""; let deptSubtotal = 0;
                     records.forEach(r => {
-                        let price = getPrice(r.parentCompany, r.item); 
+                        // ★ 完全精準比對：傳入包含部門的 r.hotel
+                        let price = getPrice(r.hotel, r.item); 
                         let priceVal = price !== null ? price : "";
                         
-                        // ★ 把單價顯示改成可以讓您隨時修改的輸入框
-                        let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.parentCompany}', '${r.item}', this.value, this)">`;
+                        let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.hotel}', '${r.item}', this.value, this)">`;
                         
                         let subtotalDisplay = "";
                         if (price === null || price === "") {
@@ -780,7 +777,8 @@
 
             invoiceData.forEach(r => {
                 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                let price = getPrice(comp, r.item) || 0; 
+                // ★ 完全精準比對
+                let price = getPrice(r.hotel, r.item) || 0; 
                 let amt = r.qty * price; grandTotal += amt;
                 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
                 if(!itemSummary[r.item]) itemSummary[r.item] = 0;
@@ -866,7 +864,8 @@
             let deptsData = {}; let grandTotal = 0;
             invoiceData.forEach(r => {
                 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                let price = getPrice(comp, r.item) || 0;
+                // ★ 完全精準比對
+                let price = getPrice(r.hotel, r.item) || 0;
                 let amt = r.qty * price; grandTotal += amt;
                 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
             });
@@ -926,7 +925,6 @@
                         let hotelName = d.hotelKeyword;
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
                         
-                        // ★ 終極修正版：在配對飯店與路線時，完全無視大小寫和所有空白
                         let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
 
                         // 1. 判定路線 (Keyword Matching)
@@ -950,7 +948,8 @@
                         (d.items || []).forEach(item => {
                             let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
                             if (actual > 0) {
-                                let price = getPrice(d.hotelKeyword, item.itemName) || 0;
+                                // ★ 完全精準比對
+                                let price = getPrice(hotelName, item.itemName) || 0;
                                 let amt = actual * price;
                                 
                                 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt, route: assignedRoute };
@@ -1072,3 +1071,4 @@
     </script>
 </body>
 </html>
+```eof
