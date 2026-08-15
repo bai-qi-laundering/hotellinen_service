@@ -337,8 +337,12 @@
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
 
+        // ★ 修正：過濾掉 Google Sheet 日期可能自帶的 ISO 時間字尾 (例如 2024-05-12T16:00:00.000Z)
         function standardizeDate(dStr) {
             if(!dStr) return "";
+            if (dStr.includes('T')) {
+                dStr = dStr.split('T')[0];
+            }
             let parts = dStr.split(/[-/]/);
             if(parts.length !== 3) return dStr;
             return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
@@ -462,13 +466,19 @@
                         });
                     }
 
+                    // ★ 修正：路線與排班的防呆解析邏輯
                     sheetRoutes = {};
                     if(json.routes) {
                         json.routes.forEach((row, idx) => {
                             if (idx === 0) return;
-                            let routeName = String(row[0]).trim();
-                            let keywords = String(row[1]).split(',').map(k => k.trim()).filter(k => k);
-                            if (routeName && keywords.length > 0) sheetRoutes[routeName] = keywords;
+                            let routeName = row[0] ? String(row[0]).trim() : "";
+                            let rawKeywords = row[1] ? String(row[1]) : "";
+                            // 支援全形逗號、半形逗號、頓號分割
+                            let keywords = rawKeywords.split(/[,，、]/).map(k => k.trim()).filter(k => k);
+                            
+                            if (routeName && keywords.length > 0) {
+                                sheetRoutes[routeName] = keywords;
+                            }
                         });
                     }
 
@@ -476,9 +486,11 @@
                     if(json.schedules) {
                         json.schedules.forEach((row, idx) => {
                             if (idx === 0) return;
-                            let dateStr = standardizeDate(String(row[0]));
-                            let driverName = String(row[1]).trim();
-                            let routeName = String(row[2]).trim();
+                            let rawDate = row[0] ? String(row[0]) : "";
+                            let dateStr = standardizeDate(rawDate);
+                            let driverName = row[1] ? String(row[1]).trim() : "";
+                            let routeName = row[2] ? String(row[2]).trim() : "";
+                            
                             if (dateStr && driverName && routeName) {
                                 if (!sheetSchedules[dateStr]) sheetSchedules[dateStr] = {};
                                 sheetSchedules[dateStr][routeName] = driverName;
