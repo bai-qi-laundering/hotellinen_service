@@ -53,9 +53,6 @@
                     <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">
                         📥 吸取舊盤點資料
                     </button>
-                    <button onclick="syncFromFirebaseHistory(event)" class="bg-red-100 text-red-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-red-200 w-full text-center">
-                        🔥 從雲端流水帳重建資料
-                    </button>
                 </div>
             </div>
             
@@ -237,6 +234,7 @@
             });
         }
 
+        // 精準保留 4 天資料以減輕本機存儲與啟動負擔
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -342,7 +340,12 @@
                     let targetDept = depts.includes("房務") ? "房務" : (depts[0] || "");
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
-                    let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
+                    
+                    // ★ 橘燈修復點 1：儀表板計算完成度時，必須一併過濾掉 undefined 幽靈品項，才不會因為等不到它被簽名而永遠無法亮橘燈
+                    let templateItems = masterData
+                        .filter(d => d.hotel === fullHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
+                        .map(d => String(d.item).trim());
+                        
                     let targetItems = []; let canCheck = false;
                     
                     if (targetDept === "房務") {
@@ -385,8 +388,9 @@
                             }
 
                             if (isAllSigned && hasAnyTargetData) {
+                                // ★ 橘燈修復點 2：手動新增品項也要過濾異常值
                                 const customItems = Object.keys(hData).filter(item => 
-                                    !templateItems.includes(item) && item !== '_MANUAL_BORDER_' && item !== '_MANUAL_STATES_'
+                                    !templateItems.includes(item) && item !== '_MANUAL_BORDER_' && item !== '_MANUAL_STATES_' && item !== 'undefined' && String(item).trim() !== ''
                                 );
                                 for (let item of customItems) {
                                     let u = hData[item];
@@ -542,14 +546,13 @@
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
             
-            // ★ 修復 1：嚴格過濾來自設定檔(masterData)的無效品項 (排除 undefined, null, 空字串, 或是字串 "undefined")
+            // 嚴格過濾無效的品項
             let displayItems = masterData
                 .filter(d => d.hotel === currentHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
                 .map(d => String(d.item).trim());
             
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             
-            // ★ 修復 2：嚴格過濾來自 Firebase/手機快取中殘留的異常屬性
             for (let itemName in todayInputs) { 
                 if (itemName && itemName !== '_MANUAL_BORDER_' && itemName !== '_MANUAL_STATES_' && itemName !== 'undefined' && String(itemName).trim() !== '') {
                     if (!displayItems.includes(itemName)) {
@@ -841,7 +844,6 @@
         let isFirebaseLoaded = false;
         let currentSnapshotUnsubscribe = null; 
         
-        // ★ 優化 1：新增全域變數，紀錄目前正在監聽的日期範圍字串，防止重複觸發扣費
         let currentListenDatesStr = ""; 
 
         async function initFirebaseAndSync() {
@@ -871,7 +873,6 @@
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
 
-                // ★ 優化 2：攔截冗餘的 Master Template 讀取 (若本機已有，則不耗費讀取額度)
                 if (!masterData || masterData.length === 0) {
                     try {
                         const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
@@ -885,7 +886,6 @@
                     }
                 }
 
-                // ★ 優化 3：監聽範圍精準控制在 4 天，並且阻斷相同條件下的重複連線
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     
@@ -893,7 +893,6 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // 最精準完美的黃金比例：往前兩天，往後一天，共包含儀表板自己是 4 天
                     for(let i = -2; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -902,7 +901,7 @@
                     
                     const newListenStr = datesToListen.join(',');
                     if (currentListenDatesStr === newListenStr) {
-                        return; // 如果日期範圍沒變，不需重複掛載浪費流量跟讀取次數
+                        return; 
                     }
                     currentListenDatesStr = newListenStr;
 
@@ -1082,83 +1081,6 @@
                         } else showMessage("沒有舊資料！");
                     } catch (e) { showMessage("吸取失敗！"); } 
                     finally { btn.innerHTML = originalText; btn.disabled = false; }
-                };
-
-                window.syncFromFirebaseHistory = async function(event) {
-                    if (!isFirebaseLoaded) return;
-                    if (!confirm("⚠️ 警告：這將會讀取 Firebase 中所有的流水帳紀錄，並過濾出最新狀態回填至系統中。\n\n※ 注意：如果您的流水帳筆數極多，會消耗同等數量的 Firebase 讀取額度。請問確定要執行嗎？")) return;
-                    
-                    const btn = event.currentTarget; 
-                    const originalText = btn.innerHTML; 
-                    btn.innerHTML = "⏳ 撈取與計算中..."; 
-                    btn.disabled = true;
-
-                    try {
-                        const querySnapshot = await getDocs(collection(db, 'history_logs'));
-                        if (querySnapshot.empty) {
-                            showMessage("沒有找到任何歷史流水帳！");
-                            btn.innerHTML = originalText; 
-                            btn.disabled = false;
-                            return;
-                        }
-
-                        // 1. 分類並抓取每個(日期+飯店+品項)的「最新一筆」紀錄
-                        const latestRecords = {};
-                        querySnapshot.forEach((docSnap) => {
-                            const data = docSnap.data();
-                            if (!data.date || !data.hotel || !data.item) return;
-
-                            const key = `${data.date}_${data.hotel}_${data.item}`;
-                            if (!latestRecords[key] || latestRecords[key].timestamp < data.timestamp) {
-                                latestRecords[key] = data;
-                            }
-                        });
-
-                        const recordsArray = Object.values(latestRecords);
-                        if (recordsArray.length === 0) {
-                            showMessage("無法解析歷史紀錄。");
-                            return;
-                        }
-
-                        btn.innerHTML = `⏳ 重建 ${recordsArray.length} 筆中...`;
-
-                        // 2. 批次寫入狀態檔 (inventory_records)
-                        const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
-                        const recordChunks = chunkArray(recordsArray, 450); // Firestore 批次寫入上限為 500
-
-                        for (let i = 0; i < recordChunks.length; i++) {
-                            const batch = writeBatch(db);
-                            recordChunks[i].forEach(r => {
-                                let dateStr = String(r.date || "").replace(/\//g, '-').trim();
-                                let hotelStr = String(r.hotel || "").trim();
-                                let itemStr = String(r.item || "").trim();
-                                const safeItem = itemStr.replace(/\//g, '-');
-                                const docId = `${dateStr}_${hotelStr}_${safeItem}`.replace(/[\/\\?%*:|"<>]/g, '-');
-
-                                let docData = {
-                                    date: dateStr, hotel: hotelStr, item: itemStr,
-                                    count: (r.count !== undefined && r.count !== null) ? String(r.count) : "",
-                                    note: r.note || "",
-                                    doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null) ? String(r.doubleCount) : "",
-                                    timestamp: new Date().toLocaleString()
-                                };
-                                // 如果有簽名且不是系統省空間用的快取標記，才覆蓋進去
-                                if (r.signature && r.signature !== 'CACHED_RETAINED') docData.signature = r.signature;
-                                if (r.doubleSignature && r.doubleSignature !== 'CACHED_RETAINED') docData.doubleSignature = r.doubleSignature;
-                                if (r.doubleSignDate) docData.doubleSignDate = r.doubleSignDate;
-
-                                batch.set(doc(db, 'inventory_records', docId), docData, { merge: true });
-                            });
-                            await batch.commit();
-                        }
-                        showMessage(`✅ 成功從 Firebase 流水帳重建資料\n\n系統已為您過濾出 ${recordsArray.length} 筆最新狀態！\n\n(請點擊畫面上的「手動重載」更新畫面)`, false);
-                    } catch (e) {
-                        console.error(e);
-                        showMessage("重建失敗！請檢查網路或系統控制台。");
-                    } finally {
-                        btn.innerHTML = originalText; 
-                        btn.disabled = false;
-                    }
                 };
 
                 window.manualRefresh = function() {
