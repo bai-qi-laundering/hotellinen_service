@@ -50,9 +50,6 @@
                             🔄 手動重載
                         </button>
                     </div>
-                    <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">
-                        📥 吸取舊盤點資料
-                    </button>
                 </div>
             </div>
             
@@ -234,7 +231,6 @@
             });
         }
 
-        // 精準保留 4 天資料以減輕本機存儲與啟動負擔
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -341,7 +337,7 @@
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
                     
-                    // ★ 橘燈修復點 1：儀表板計算完成度時，必須一併過濾掉 undefined 幽靈品項，才不會因為等不到它被簽名而永遠無法亮橘燈
+                    // 嚴格過濾無效品項 (包含 undefined)
                     let templateItems = masterData
                         .filter(d => d.hotel === fullHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
                         .map(d => String(d.item).trim());
@@ -365,6 +361,7 @@
                     }
                     
                     if (canCheck && targetItems.length > 0) {
+                        // 尋找記憶體裡所有日期的單據 (不管單據是哪一天，只看最後簽名日)
                         for (let docDate in userInputs) {
                             if (docDate === '_MANUAL_STATES_') continue;
                             let hData = userInputs[docDate][fullHotelName];
@@ -376,8 +373,8 @@
 
                             for (let item of targetItems) {
                                 let u = hData[item];
-                                // ★ 橘燈條件 1：浴巾到抹布「必須有複點簽名」且「數量不能為空 (填 0 也可以)」
-                                if (!u || !u.doubleSignature || u.doubleCount === undefined || u.doubleCount === null || u.doubleCount === "") {
+                                // ★ 橘燈嚴格條件：必須要有複點簽名，且數量不能為空（填 0 也可以，因為 "0" !== ""）
+                                if (!u || !u.doubleSignature || u.doubleCount === undefined || u.doubleCount === null || String(u.doubleCount).trim() === "") {
                                     isAllSigned = false;
                                     break;
                                 }
@@ -388,9 +385,7 @@
                                 }
                             }
 
-                            // ★ 橘燈條件 2：移除對「臨時新增品項」的干擾，嚴格遵守「浴巾到抹布完成就亮燈」的規則
-
-                            // 只要規定的品項全完成，且最後簽名的那天等於儀表板的日期，就亮橘燈
+                            // 如果這張單據的規定品項全完成，且最後簽名的那天等於儀表板的日期，就亮橘燈
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
                                 let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
@@ -532,7 +527,7 @@
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
             
-            // 嚴格過濾無效的品項
+            // 嚴格過濾無效的品項 (完全排除 undefined)
             let displayItems = masterData
                 .filter(d => d.hotel === currentHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
                 .map(d => String(d.item).trim());
@@ -835,7 +830,7 @@
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
 
                 const firebaseConfig = {
                     apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4", authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
@@ -879,7 +874,7 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // ★ 縮小監控範圍：只往前一天 (-1) 到往後一天 (+1)，共 3 天即可
+                    // ★ 依您的需求，精準監控 往前一天 到 往後一天 共 3 天，不增加多餘負載
                     for(let i = -1; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -1033,41 +1028,6 @@
                         btn.innerText = originalText; 
                         btn.disabled = false; 
                     }
-                };
-
-                window.syncOldInventoryFromSheet = async function(event) {
-                    if (!isFirebaseLoaded) return;
-                    const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "⏳ 吸取中..."; btn.disabled = true;
-                    try {
-                        const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
-                        const data = await res.json();
-                        if (data.records && data.records.length > 0) {
-                            btn.innerHTML = "⏳ 寫入中...";
-                            const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
-                            const recordChunks = chunkArray(data.records, 450);
-                            for (let i = 0; i < recordChunks.length; i++) {
-                                const batch = writeBatch(db);
-                                recordChunks[i].forEach(r => {
-                                    let dateStr = String(r.date || "").replace(/\//g, '-').trim();
-                                    let hotelStr = String(r.hotel || "").trim();
-                                    let itemStr = String(r.item || "").trim();
-                                    if(!dateStr || !hotelStr || !itemStr) return;
-                                    const safeItem = itemStr.replace(/\//g, '-');
-                                    batch.set(doc(db, 'inventory_records', `${dateStr}_${hotelStr}_${safeItem}`.replace(/[\/\\?%*:|"<>]/g, '-')), {
-                                        date: dateStr, hotel: hotelStr, item: itemStr,
-                                        count: (r.count !== undefined && r.count !== null) ? String(r.count) : "", 
-                                        note: r.note || "", signature: r.signature || "",
-                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null) ? String(r.doubleCount) : "", 
-                                        doubleSignature: r.doubleSignature || "",
-                                        doubleSignDate: r.doubleSignDate || "", timestamp: new Date().toLocaleString()
-                                    }, { merge: true });
-                                });
-                                await batch.commit();
-                            }
-                            showMessage(`✅ 成功吸入舊紀錄！`, false);
-                        } else showMessage("沒有舊資料！");
-                    } catch (e) { showMessage("吸取失敗！"); } 
-                    finally { btn.innerHTML = originalText; btn.disabled = false; }
                 };
 
                 window.manualRefresh = function() {
