@@ -235,6 +235,10 @@
         window.invHistoryRecords = []; 
         
         let masterData = []; 
+        
+        // ★ 快取防呆機制：記錄上一次讀取的日期區間
+        let lastInvFetchRange = { start: "", end: "" };
+        let lastLogFetchRange = { start: "", end: "" };
 
         async function ensureMasterData() {
             if (masterData.length > 0) return;
@@ -296,7 +300,7 @@
         window.updateLogQty = updateLogQty; 
 
         // ===============================================
-        // ★ 自動穿透刪除：在藍色區刪除，也會把物流單據裡的品項砍掉
+        // ★ 自動穿透刪除 (修正版：直接操作本地陣列，不再重抓資料庫)
         // ===============================================
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation(); 
@@ -305,6 +309,7 @@
             if (!confirmDelete) return;
 
             try {
+                // 從雲端刪除
                 await deleteDoc(doc(db, collectionName, docId));
                 
                 // 如果是刪除藍色盤點區，順便把綠色物流區的對應品項也清掉
@@ -336,6 +341,19 @@
                             // 更新陣列，把該品項剔除
                             await setDoc(logDocRef, { items: newItems }, { merge: true });
                         }
+
+                        // ★ 同步更新本地端 logistics 陣列 (如果已經載入)
+                        if (logRecords.length > 0) {
+                            let localLogRecord = logRecords.find(r => r.id === logDocId);
+                            if (localLogRecord) {
+                                localLogRecord.items = localLogRecord.items.filter(i => i.itemName !== item);
+                                if (localLogRecord.items.length === 0) {
+                                    logRecords = logRecords.filter(r => r.id !== logDocId);
+                                }
+                                applyLogFilters();
+                            }
+                        }
+
                     } catch(delErr) {
                         console.warn("連動刪除物流單品項失敗", delErr);
                     }
@@ -343,12 +361,21 @@
 
                 showToast("🗑️ 紀錄已成功從雲端刪除！");
                 
+                // ★ 核心優化：直接過濾本地陣列，不再重新呼叫 loadInvData()
                 if (collectionName === 'inventory_records') {
-                    loadInvData();
+                    invRecords = invRecords.filter(r => r.docId !== docId);
+                    applyInvFilters(); 
                 } else if (collectionName === 'history_logs') {
-                    loadInvHistory();
+                    window.invHistoryRecords = window.invHistoryRecords.filter(r => r.docId !== docId);
+                    const tbody = document.getElementById('invHistoryBody');
+                    const btn = tbody.querySelector(`button[onclick*="${docId}"]`);
+                    if(btn) {
+                        const row = btn.closest('tr');
+                        if(row) row.remove();
+                    }
                 } else if (collectionName === 'logistics_records') {
-                    loadLogData();
+                    logRecords = logRecords.filter(r => r.id !== docId);
+                    applyLogFilters();
                 }
             } catch (error) {
                 alert("刪除失敗，請檢查網路連線：" + error.message);
@@ -356,7 +383,7 @@
         };
 
         // ===============================================
-        // ★ 自動穿透修改日期：盤點區改日期，物流區的品項跟著搬家！
+        // ★ 自動穿透修改日期 (修正版：直接操作本地陣列，不再重抓資料庫)
         // ===============================================
         window.changeInventoryDate = async function(docId, oldDate, newDate, hotel, item, inputEl) {
             if (!newDate || newDate === oldDate) {
@@ -380,7 +407,6 @@
                 
                 if (!oldDocSnap.exists()) {
                     alert("找不到舊單據資料，可能已被刪除。");
-                    loadInvData();
                     return;
                 }
 
@@ -454,12 +480,33 @@
                             });
                         }
                     }
+
+                    // ★ 核心優化：直接更新本地端陣列
+                    if (logRecords.length > 0) {
+                        const localOldLog = logRecords.find(r => r.id === oldLogDocId);
+                        if (localOldLog) {
+                            localOldLog.items = localOldLog.items.filter(i => i.itemName !== item);
+                            if (localOldLog.items.length === 0) {
+                                logRecords = logRecords.filter(r => r.id !== oldLogDocId);
+                            }
+                            applyLogFilters();
+                        }
+                    }
+
                 } catch (syncErr) {
                     console.warn("連動搬移物流單品項失敗", syncErr);
                 }
 
                 showToast("✅ 盤點日期已成功修改！");
-                loadInvData(); 
+                
+                // ★ 核心優化：直接更新本地端盤點陣列
+                const localRecord = invRecords.find(r => r.docId === docId);
+                if (localRecord) {
+                    localRecord.date = newDate;
+                    localRecord.docId = newDocId;
+                }
+                applyInvFilters(); 
+
             } catch (error) {
                 console.error("修改日期失敗:", error);
                 alert("修改失敗，請檢查網路連線：" + error.message);
@@ -502,7 +549,15 @@
                 await deleteDoc(oldDocRef);
 
                 showToast("✅ 單據日期已成功修改！");
-                loadLogData();
+                
+                // ★ 核心優化：直接更新本地端物流陣列
+                const localLogRecord = logRecords.find(r => r.id === docId);
+                if (localLogRecord) {
+                    localLogRecord.date = newDate;
+                    localLogRecord.id = newDocId;
+                }
+                applyLogFilters();
+
             } catch (error) {
                 console.error("修改日期失敗:", error);
                 alert("修改失敗，請檢查網路連線：" + error.message);
@@ -568,13 +623,11 @@
                 document.getElementById('sectionLogistics').style.display = 'none';
                 document.getElementById('tabInventory').className = 'excel-tab active-blue';
                 document.getElementById('tabLogistics').className = 'excel-tab';
-                // if (invRecords.length === 0) loadInvData(); // ★ 取消自動載入
             } else {
                 document.getElementById('sectionInventory').style.display = 'none';
                 document.getElementById('sectionLogistics').style.display = 'block';
                 document.getElementById('tabInventory').className = 'excel-tab';
                 document.getElementById('tabLogistics').className = 'excel-tab active-green';
-                // if (logRecords.length === 0) loadLogData(); // ★ 取消自動載入
             }
         }
 
@@ -595,6 +648,14 @@
         async function loadInvData() {
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
+
+            // ★ 快取防呆檢查：避免重複浪費讀取次數
+            if (lastInvFetchRange.start === startDate && lastInvFetchRange.end === endDate && invRecords.length > 0) {
+                showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
+                applyInvFilters();
+                return;
+            }
+
             const tbody = document.getElementById('invTableBody');
             const btn = document.getElementById('invLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
@@ -641,6 +702,10 @@
 
                 populateInvDropdowns();
                 applyInvFilters();
+                
+                // 成功載入後，更新快取區間紀錄
+                lastInvFetchRange = { start: startDate, end: endDate };
+
             } catch (error) {
                 tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
             } finally {
@@ -713,9 +778,6 @@
             }).join('');
         }
 
-        // ===============================================
-        // ★ 自動穿透更新：在藍色區修改數量，也會把物流單據裡的品項跟著改好
-        // ===============================================
         async function updateInvField(docId, field, newValue, inputEl, category, item, dateStr) {
             const record = invRecords.find(r => r.docId === docId);
             if (!record || record[field] === newValue.trim()) return; 
@@ -841,6 +903,14 @@
         async function loadLogData() {
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
+
+            // ★ 快取防呆檢查：避免重複浪費讀取次數
+            if (lastLogFetchRange.start === startDate && lastLogFetchRange.end === endDate && logRecords.length > 0) {
+                showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
+                applyLogFilters();
+                return;
+            }
+
             const tbody = document.getElementById('logTableBody');
             const btn = document.getElementById('logLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
@@ -925,6 +995,9 @@
 
                 populateLogDropdowns(); 
                 applyLogFilters();
+
+                // 成功載入後，更新快取區間紀錄
+                lastLogFetchRange = { start: startDate, end: endDate };
 
             } catch (error) {
                 tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
