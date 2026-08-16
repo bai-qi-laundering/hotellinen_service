@@ -840,7 +840,7 @@
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
                     try {
-                        // 改為：將黑框狀態直接寫入該飯店當天的主要檔案
+                        // ★改為：將黑框狀態直接寫入該飯店當天的主要檔案
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}`), {
                             date: dateStr, 
                             hotel: hotel,
@@ -856,7 +856,7 @@
                     buildHotelStructure();
                 }
 
-                // 監聽範圍為精準的 4 天 (-2 到 +1)
+                // ★監聽範圍為精準的 4 天 (-2 到 +1)
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
@@ -887,9 +887,19 @@
                             if(!userInputs[dDate][hotelName]) userInputs[dDate][hotelName] = {};
 
                             if (change.type === "removed") {
-                                delete userInputs[dDate]['_MANUAL_STATES_'][hotelName];
-                                delete userInputs[dDate][hotelName];
-                                dataChanged = true;
+                                if (r.item === '_MANUAL_BORDER_') {
+                                    userInputs[dDate]['_MANUAL_STATES_'][hotelName] = false;
+                                    dataChanged = true;
+                                } else if (r.item) {
+                                    // 舊版：獨立品項刪除
+                                    delete userInputs[dDate][hotelName][r.item];
+                                    dataChanged = true;
+                                } else {
+                                    // 新版：整包飯店刪除
+                                    delete userInputs[dDate]['_MANUAL_STATES_'][hotelName];
+                                    delete userInputs[dDate][hotelName];
+                                    dataChanged = true;
+                                }
                                 if (currentBaseHotel === hotelName && document.getElementById('datePicker').value === dDate) {
                                     if(window.updateBorderBtnState) window.updateBorderBtnState();
                                 }
@@ -904,6 +914,7 @@
                                     }
                                 }
                                 
+                                // ★讀取：新版架構 (包裹在 items 物件內)
                                 if (r.items) {
                                     for (let itemKey in r.items) {
                                         let itemData = r.items[itemKey];
@@ -924,6 +935,26 @@
                                         };
                                         dataChanged = true;
                                     }
+                                }
+
+                                // ★讀取：舊版架構 (單獨寫在根目錄的 item)，完美找回遺失的舊資料！
+                                if (r.item && r.item !== '_MANUAL_BORDER_') {
+                                    let local = userInputs[dDate][hotelName][r.item];
+                                    if (local && local.isSaving) return; // forEach中的continue用法
+
+                                    userInputs[dDate][hotelName][r.item] = { 
+                                        count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
+                                        note: r.note || "", 
+                                        hasSigned: false, 
+                                        isSubmitted: true, 
+                                        signature: r.signature || "", 
+                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
+                                        doubleSignature: r.doubleSignature || "", 
+                                        doubleHasSigned: false, 
+                                        doubleSignDate: r.doubleSignDate || "",
+                                        isSaving: false, saveError: false
+                                    };
+                                    dataChanged = true;
                                 }
                             }
                         });
@@ -976,6 +1007,7 @@
                             hotel: category,
                             [`items.${safeItem}`]: itemData
                         };
+                        // ★使用 DOT 語法深層寫入物件，這樣就不會覆蓋掉其他品項了，且只佔用1個檔案
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}`), updateData, { merge: true });
 
                         try {
