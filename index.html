@@ -988,7 +988,7 @@
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
-                    const safeItem = item.replace(/\//g, '-');
+                    const safeItemKey = window.getSafeId(item);
                     const itemData = { 
                         item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
@@ -1005,9 +1005,11 @@
                         const updateData = {
                             date: dateStr,
                             hotel: category,
-                            [`items.${safeItem}`]: itemData
+                            items: {
+                                [safeItemKey]: itemData
+                            }
                         };
-                        // ★使用 DOT 語法深層寫入物件，這樣就不會覆蓋掉其他品項了，且只佔用1個檔案
+                        // ★ 修復：setDoc 搭配 merge: true 必須傳遞完整的巢狀物件，系統才會正確合併進 items 包裹裡
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}`), updateData, { merge: true });
 
                         try {
