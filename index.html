@@ -234,7 +234,6 @@
             });
         }
 
-        // ★ 修改 1：精準保留 4 天 (最省效能的黃金比例)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -360,7 +359,6 @@
                     }
                     
                     if (canCheck && targetItems.length > 0) {
-                        // 尋找記憶體裡所有日期的單據
                         for (let docDate in userInputs) {
                             if (docDate === '_MANUAL_STATES_') continue;
                             let hData = userInputs[docDate][fullHotelName];
@@ -400,7 +398,6 @@
                                 }
                             }
 
-                            // ★ 判斷這張全簽完的單子，是否在你選的儀表板這天完成的
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
                                 let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
@@ -827,6 +824,9 @@
         let db;
         let isFirebaseLoaded = false;
         let currentSnapshotUnsubscribe = null; 
+        
+        // ★ 優化 1：新增全域變數，紀錄目前正在監聽的日期範圍字串
+        let currentListenDatesStr = ""; 
 
         async function initFirebaseAndSync() {
             try {
@@ -855,16 +855,23 @@
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
 
-                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
-                if (templateDoc.exists() && templateDoc.data().items) {
-                    masterData = templateDoc.data().items;
-                    buildHotelStructure();
+                // ★ 優化 2：攔截冗餘的 Master Template 讀取
+                if (!masterData || masterData.length === 0) {
+                    try {
+                        const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
+                        if (templateDoc.exists() && templateDoc.data().items) {
+                            masterData = templateDoc.data().items;
+                            buildHotelStructure();
+                            saveToLocal();
+                        }
+                    } catch (e) {
+                        console.warn("Master Template 讀取失敗", e);
+                    }
                 }
 
-                // ★ 修改 2：監聽範圍為精準的 4 天 (-2 到 +1)
+                // ★ 優化 3：監聽範圍為精準的 4 天，且避免重複掛載
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
-                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
                     
                     const parts = baseDateStr.split('-');
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -876,6 +883,14 @@
                         tmp.setDate(tmp.getDate() + i);
                         datesToListen.push(getLocalDateString(tmp));
                     }
+                    
+                    const newListenStr = datesToListen.join(',');
+                    if (currentListenDatesStr === newListenStr) {
+                        return; // 範圍沒變，不需重複掛載浪費流量跟讀取次數
+                    }
+                    currentListenDatesStr = newListenStr;
+
+                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
                     
                     const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
