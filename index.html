@@ -376,7 +376,8 @@
 
                             for (let item of targetItems) {
                                 let u = hData[item];
-                                if (!u || !u.doubleSignature) {
+                                // ★ 橘燈條件 1：浴巾到抹布「必須有複點簽名」且「數量不能為空 (填 0 也可以)」
+                                if (!u || !u.doubleSignature || u.doubleCount === undefined || u.doubleCount === null || u.doubleCount === "") {
                                     isAllSigned = false;
                                     break;
                                 }
@@ -387,24 +388,9 @@
                                 }
                             }
 
-                            if (isAllSigned && hasAnyTargetData) {
-                                // ★ 橘燈修復點 2：手動新增品項也要過濾異常值
-                                const customItems = Object.keys(hData).filter(item => 
-                                    !templateItems.includes(item) && item !== '_MANUAL_BORDER_' && item !== '_MANUAL_STATES_' && item !== 'undefined' && String(item).trim() !== ''
-                                );
-                                for (let item of customItems) {
-                                    let u = hData[item];
-                                    if (!u || !u.doubleSignature) {
-                                        isAllSigned = false;
-                                        break;
-                                    }
-                                    let signDate = u.doubleSignDate || (docDate + " 00:00:00");
-                                    if (signDate > latestSignDateStr) {
-                                        latestSignDateStr = signDate;
-                                    }
-                                }
-                            }
+                            // ★ 橘燈條件 2：移除對「臨時新增品項」的干擾，嚴格遵守「浴巾到抹布完成就亮燈」的規則
 
+                            // 只要規定的品項全完成，且最後簽名的那天等於儀表板的日期，就亮橘燈
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
                                 let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
@@ -893,7 +879,8 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    for(let i = -2; i <= 1; i++) {
+                    // ★ 縮小監控範圍：只往前一天 (-1) 到往後一天 (+1)，共 3 天即可
+                    for(let i = -1; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
                         datesToListen.push(getLocalDateString(tmp));
