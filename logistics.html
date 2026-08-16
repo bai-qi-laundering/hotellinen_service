@@ -175,13 +175,9 @@
             if (!dateStr) return false;
             let parts = dateStr.split('-');
             if (parts.length !== 3) return false;
-            // 設定該單據日期的 12:00:00 (注意 month 是 0-11，所以 -1)
             let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            // 加上 3 天 (例如 8/15 + 3 = 8/18)
             lockDate.setDate(lockDate.getDate() + 3);
-            
             let now = new Date();
-            // 如果現在時間大於或等於鎖定時間，回傳 true
             return now >= lockDate;
         }
 
@@ -202,14 +198,13 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            // ★ 終極殺手：無差別清理所有物流相關快取，確保沒有殘留的錯亂資料
+            // ★ 清理所有快取
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('logistics_cache_') || key === 'inventory_masterData') {
                     localStorage.removeItem(key);
                 }
             });
 
-            // 啟動時直接向雲端索取排序大腦
             try {
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
@@ -226,9 +221,18 @@
             const latestDate = getLocalDateString(new Date());
             document.getElementById('datePicker').value = latestDate;
             updateDateDisplay();
-
-            // 啟動資料載入 (無快取機制，直接去後台拿)
             fetchData(false);
+        }
+
+        // ★ 萬用欄位解析器：防呆所有飯店端可能的數量與名稱設定
+        function extractQty(obj) {
+            if (!obj) return "0";
+            if (obj.doubleCount !== undefined && obj.doubleCount !== null && obj.doubleCount !== "") return String(obj.doubleCount);
+            if (obj.count !== undefined && obj.count !== null && obj.count !== "") return String(obj.count);
+            if (obj.quantity !== undefined && obj.quantity !== null && obj.quantity !== "") return String(obj.quantity);
+            if (obj.qty !== undefined && obj.qty !== null && obj.qty !== "") return String(obj.qty);
+            if (obj.amount !== undefined && obj.amount !== null && obj.amount !== "") return String(obj.amount);
+            return "0";
         }
 
         async function fetchData(isBackground = false) {
@@ -249,22 +253,44 @@
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 
-                // 並行處理 (Promise.all) - 讓原本要等兩次的時間變成一次，提升載入速度！
                 const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
+                // ★ 讀取飯店端資料 (防呆版)
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    if (d.hotel && d.hotel.includes(currentHotel)) {
-                        let deptName = d.hotel.replace(currentHotel, "").trim();
-                        if (deptName === "") deptName = "房務"; 
-                        
-                        baseInventoryItems.push({
-                            hotelFull: d.hotel,
-                            deptName: deptName,
-                            itemName: d.item,
-                            originalQty: d.doubleCount || d.count || "0",
-                            auntNote: d.note || ""
-                        });
+                    const hotelStr = d.hotel || d.hotelKeyword || d.hotelName || "";
+                    
+                    if (hotelStr.includes(currentHotel)) {
+                        let deptName = hotelStr.replace(currentHotel, "").trim();
+                        if (deptName === "") deptName = "房務";
+
+                        // 支援飯店端用「陣列 items」包裹的情境
+                        if (Array.isArray(d.items)) {
+                            d.items.forEach(subItem => {
+                                let itemName = subItem.itemName || subItem.item || subItem.name;
+                                if (itemName) {
+                                    baseInventoryItems.push({
+                                        hotelFull: hotelStr,
+                                        deptName: deptName,
+                                        itemName: String(itemName).trim(),
+                                        originalQty: extractQty(subItem),
+                                        auntNote: subItem.note || subItem.auntNote || d.note || ""
+                                    });
+                                }
+                            });
+                        } else {
+                            // 支援舊版單一文件格式
+                            let itemName = d.item || d.itemName || d.name;
+                            if (itemName) {
+                                baseInventoryItems.push({
+                                    hotelFull: hotelStr,
+                                    deptName: deptName,
+                                    itemName: String(itemName).trim(),
+                                    originalQty: extractQty(d),
+                                    auntNote: d.note || ""
+                                });
+                            }
+                        }
                     }
                 });
 
@@ -274,6 +300,7 @@
                     savedLogistics[d.deptName] = d;
                 });
 
+                // 將最新飯店資料與已存的物流簽單資料進行配對
                 baseInventoryItems.forEach(item => {
                     let savedDept = savedLogistics[item.deptName] || 
                                     savedLogistics[item.hotelFull] || 
@@ -281,9 +308,9 @@
                     
                     if (!savedDept) {
                         savedDept = Object.values(savedLogistics).find(s => 
-                            s.deptName.includes(item.deptName) || 
-                            item.deptName.includes(s.deptName) ||
-                            item.hotelFull.includes(s.deptName)
+                            (s.deptName && s.deptName.includes(item.deptName)) || 
+                            (item.deptName && item.deptName.includes(s.deptName)) ||
+                            (item.hotelFull && item.hotelFull.includes(s.deptName))
                         );
                     }
 
@@ -299,7 +326,7 @@
                             let savedItem = savedDept.items.find(i => i.itemName === item.itemName);
                             if (savedItem) {
                                 if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") {
-                                    actualQty = savedItem.actualQty;
+                                    actualQty = String(savedItem.actualQty);
                                 }
                                 driverNote = savedItem.driverNote || "";
                             }
@@ -318,6 +345,7 @@
                     });
                 });
 
+                // 補上物流單有、但飯店端被刪除或改名的品項
                 for (let deptKey in savedLogistics) {
                     let savedDept = savedLogistics[deptKey];
                     if (savedDept.items) {
@@ -339,7 +367,6 @@
                     }
                 }
 
-                // 直接處理資料並渲染，不寫入 localStorage
                 processAndRenderData(rawData);
             } catch (err) {
                 console.error("Fetch Data Error:", err);
@@ -360,7 +387,7 @@
         function processAndRenderData(rawData) {
             let uniqueDataMap = {};
             rawData.forEach(item => {
-                let key = item.deptName + "_" + item.itemName;
+                let key = item.deptName.trim() + "_" + item.itemName.trim();
                 uniqueDataMap[key] = item; 
             });
             const cleanData = Object.values(uniqueDataMap);
@@ -372,6 +399,7 @@
 
             groupedData = {};
             cleanData.forEach(item => {
+                // 忽略雙方數字都是 0 的空項目
                 if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && 
                     (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) {
                     return; 
@@ -408,7 +436,8 @@
             groupedData[dept].items[idx].actualQty = val;
             const original = groupedData[dept].items[idx].originalQty;
             const statusSpan = document.getElementById(`status-${dept}-${idx}`);
-            if (String(val) === String(original)) {
+            // ★ 修改為精準數字對比，解決 "05" 跟 "5" 會誤判的問題
+            if (Number(val) === Number(original)) {
                 statusSpan.innerHTML = "✅ 相符"; 
                 statusSpan.className = "text-green-600 font-bold ml-3 text-base";
             } else {
@@ -477,7 +506,6 @@
 
             const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
 
-            // ★ 檢查這個畫面的單據日期是否已經「鎖定 (逾期)」
             let isSystemLocked = checkIsLocked(currentDate);
 
             for (let dept in groupedData) {
@@ -504,7 +532,6 @@
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
                 let isCompleted = hasClientSig && hasDriverSig;
 
-                // ★ 只要「已完成」或「系統鎖定」，就把輸入框和按鈕禁用
                 let inputDisabled = isCompleted || isSystemLocked;
 
                 let actionButton = "";
@@ -515,7 +542,6 @@
                         <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看簽名</button>
                     </div>`;
                 } else if (isSystemLocked) {
-                    // ★ 逾期的按鈕顯示狀態
                     actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-1">
                         <span>🔒 逾期系統已自動結單</span>
                         <span class="text-sm text-gray-400 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
@@ -535,7 +561,7 @@
                 });
 
                 let itemsHtml = groupedData[dept].items.map((item, idx) => {
-                    let isMatching = String(item.actualQty) === String(item.originalQty);
+                    let isMatching = Number(item.actualQty) === Number(item.originalQty);
                     let statusText = isMatching ? "✅ 相符" : "⚠️ 已修改";
                     let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";
                     
@@ -568,7 +594,6 @@
                     `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`
                 ).join('');
 
-                // ★ 系統沒有鎖定才可以臨時新增品項
                 let addItemHtml = "";
                 if (!inputDisabled) {
                     addItemHtml = `
