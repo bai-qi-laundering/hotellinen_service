@@ -528,7 +528,6 @@
             const parts = document.getElementById('datePicker').value.split('-');
             document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
             if(currentHotelName) { renderItems(true); window.updateBorderBtnState(); } 
-            if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('datePicker').value); // 確保監聽新日期
         }
 
         function renderItems(forceRebuild = false) {
@@ -669,6 +668,7 @@
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return; 
             
+            // ★ 修復：加入 !u.signature 的判斷。若已經有簽名（不管是重整來的還是怎樣），不該強迫重簽就能直接叫出計算機。
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
                 if (!u.hasSigned && !u.signature) return openSign(currentHotelName, item, 'aunt');
@@ -911,11 +911,12 @@
                                     }
                                 }
                                 
+                                // ★讀取：新版架構 (包裹在 items 物件內)
                                 if (r.items) {
                                     for (let itemKey in r.items) {
                                         let itemData = r.items[itemKey];
                                         let local = userInputs[dDate][hotelName][itemData.item];
-                                        if (local && local.isSaving) continue; 
+                                        if (local && local.isSaving) continue; // 正在存檔的防干擾跳過
 
                                         userInputs[dDate][hotelName][itemData.item] = { 
                                             count: (itemData.count !== undefined && itemData.count !== null && itemData.count !== "") ? String(itemData.count) : "", 
@@ -928,16 +929,18 @@
                                             doubleHasSigned: false, 
                                             doubleSignDate: itemData.doubleSignDate || "",
                                             isSaving: false, saveError: false,
-                                            isFromNewSchema: true 
+                                            isFromNewSchema: true // ★ 修復：加上記號，表示已經被新版資料寫入
                                         };
                                         dataChanged = true;
                                     }
                                 }
 
+                                // ★讀取：舊版架構 (單獨寫在根目錄的 item)，完美找回遺失的舊資料！
                                 if (r.item && r.item !== '_MANUAL_BORDER_') {
                                     let local = userInputs[dDate][hotelName][r.item];
-                                    if (local && local.isSaving) return; 
+                                    if (local && local.isSaving) return; // forEach中的continue用法
                                     
+                                    // ★ 修復：如果剛剛已經有新版(items)資料覆寫過這個品項，絕對不要再被純舊版的文件蓋掉變成舊數量！
                                     if (local && local.isFromNewSchema) return;
 
                                     userInputs[dDate][hotelName][r.item] = { 
@@ -971,14 +974,9 @@
                 window.homeDateChanged = function() {
                     originalHomeDateChanged();
                 }
-                
-                // 確保內頁切換日期時，即時監聽的範圍也會跟著變動
                 const originalDateChanged = window.dateChanged;
                 window.dateChanged = function() {
                     originalDateChanged();
-                    if (window.attachRealtimeListener) {
-                        window.attachRealtimeListener(document.getElementById('datePicker').value);
-                    }
                 }
 
                 window.firebaseSubmit = async function(category, item) {
@@ -992,30 +990,27 @@
                     renderItems(false); 
 
                     const safeItemKey = window.getSafeId(item);
-                    
+                    const itemData = { 
+                        item: item, 
+                        count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
+                        note: u.note || '', 
+                        doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
+                        doubleSignDate: u.doubleSignDate || '',
+                        timestamp: new Date().toLocaleString() 
+                    };
+
+                    if (u.signature && u.signature !== 'CACHED') itemData.signature = u.signature;
+                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') itemData.doubleSignature = u.doubleSignature;
+
                     try {
-                        const prefix = `items.${safeItemKey}`;
-                        
-                        // ★ 關鍵修復：這裡全面改用 Dot Notation (點記法)
-                        // 這樣 Firebase 就不會整組覆蓋掉 items，只會更新我們傳送的特定欄位
+                        // ★★★ 核心修復點 ★★★
                         const updateData = {
                             date: dateStr,
                             hotel: category,
-                            [`${prefix}.item`]: item,
-                            [`${prefix}.count`]: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '',
-                            [`${prefix}.note`]: u.note || '',
-                            [`${prefix}.doubleCount`]: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '',
-                            [`${prefix}.doubleSignDate`]: u.doubleSignDate || '',
-                            [`${prefix}.timestamp`]: new Date().toLocaleString()
+                            items: {
+                                [safeItemKey]: itemData
+                            }
                         };
-
-                        // 如果存在真實的簽名編碼，才放進去覆寫。如果是 CACHED，就不傳(保留雲端原有的)
-                        if (u.signature && u.signature !== 'CACHED') {
-                            updateData[`${prefix}.signature`] = u.signature;
-                        }
-                        if (u.doubleSignature && u.doubleSignature !== 'CACHED') {
-                            updateData[`${prefix}.doubleSignature`] = u.doubleSignature;
-                        }
 
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}`), updateData, { merge: true });
 
@@ -1023,10 +1018,10 @@
                             await addDoc(collection(db, 'history_logs'), {
                                 logDate: getLocalDateString(new Date()), timestamp: Date.now(),
                                 actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
-                                item: item, count: updateData[`${prefix}.count`], doubleCount: updateData[`${prefix}.doubleCount`],
-                                signature: updateData[`${prefix}.signature`] || 'CACHED_RETAINED', 
-                                doubleSignature: updateData[`${prefix}.doubleSignature`] || 'CACHED_RETAINED', 
-                                note: updateData[`${prefix}.note`]
+                                item: item, count: itemData.count, doubleCount: itemData.doubleCount,
+                                signature: itemData.signature || 'CACHED_RETAINED', 
+                                doubleSignature: itemData.doubleSignature || 'CACHED_RETAINED', 
+                                note: itemData.note
                             });
                         } catch (logErr) {}
 
