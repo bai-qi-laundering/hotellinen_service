@@ -140,7 +140,6 @@
         </div>
     </div>
 
-    <!-- 簽名板 Modal -->
     <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000]" onclick="if(event.target === this) closeSign()">
         <div class="bg-white p-4 rounded-3xl w-full max-w-sm" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-3">
@@ -155,7 +154,6 @@
         </div>
     </div>
 
-    <!-- 計算機鍵盤 Modal -->
     <div id="calcModal" class="fixed inset-x-0 bottom-0 transform translate-y-full bg-gray-100 shadow-[0_-5px_15px_rgba(0,0,0,0.2)] rounded-t-3xl z-[10001] max-w-md mx-auto">
         <div class="p-4">
             <div class="flex justify-between items-center mb-3">
@@ -668,7 +666,6 @@
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return; 
             
-            // ★ 修復：加入 !u.signature 的判斷。若已經有簽名（不管是重整來的還是怎樣），不該強迫重簽就能直接叫出計算機。
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
                 if (!u.hasSigned && !u.signature) return openSign(currentHotelName, item, 'aunt');
@@ -886,17 +883,9 @@
                             if(!userInputs[dDate][hotelName]) userInputs[dDate][hotelName] = {};
 
                             if (change.type === "removed") {
-                                if (r.item === '_MANUAL_BORDER_') {
-                                    userInputs[dDate]['_MANUAL_STATES_'][hotelName] = false;
-                                    dataChanged = true;
-                                } else if (r.item) {
-                                    delete userInputs[dDate][hotelName][r.item];
-                                    dataChanged = true;
-                                } else {
-                                    delete userInputs[dDate]['_MANUAL_STATES_'][hotelName];
-                                    delete userInputs[dDate][hotelName];
-                                    dataChanged = true;
-                                }
+                                delete userInputs[dDate]['_MANUAL_STATES_'][hotelName];
+                                delete userInputs[dDate][hotelName];
+                                dataChanged = true;
                                 if (currentBaseHotel === hotelName && document.getElementById('datePicker').value === dDate) {
                                     if(window.updateBorderBtnState) window.updateBorderBtnState();
                                 }
@@ -911,12 +900,13 @@
                                     }
                                 }
                                 
-                                // ★讀取：新版架構 (包裹在 items 物件內)
+                                // 🌟讀取相容區塊1：如果您之前有把資料意外存到 items 裡面，這段能把它救回畫面上
                                 if (r.items) {
                                     for (let itemKey in r.items) {
                                         let itemData = r.items[itemKey];
+                                        if (!itemData || !itemData.item) continue;
                                         let local = userInputs[dDate][hotelName][itemData.item];
-                                        if (local && local.isSaving) continue; // 正在存檔的防干擾跳過
+                                        if (local && local.isSaving) continue; 
 
                                         userInputs[dDate][hotelName][itemData.item] = { 
                                             count: (itemData.count !== undefined && itemData.count !== null && itemData.count !== "") ? String(itemData.count) : "", 
@@ -929,33 +919,37 @@
                                             doubleHasSigned: false, 
                                             doubleSignDate: itemData.doubleSignDate || "",
                                             isSaving: false, saveError: false,
-                                            isFromNewSchema: true // ★ 修復：加上記號，表示已經被新版資料寫入
+                                            isFromNewSchema: true // 打上標記，防止被覆蓋
                                         };
                                         dataChanged = true;
                                     }
                                 }
 
-                                // ★讀取：舊版架構 (單獨寫在根目錄的 item)，完美找回遺失的舊資料！
-                                if (r.item && r.item !== '_MANUAL_BORDER_') {
-                                    let local = userInputs[dDate][hotelName][r.item];
-                                    if (local && local.isSaving) return; // forEach中的continue用法
-                                    
-                                    // ★ 修復：如果剛剛已經有新版(items)資料覆寫過這個品項，絕對不要再被純舊版的文件蓋掉變成舊數量！
-                                    if (local && local.isFromNewSchema) return;
+                                // 🌟讀取相容區塊2：(重要修復) 完整讀取根目錄上每個品項，包含「方案A」正確寫入的資料
+                                for (let key in r) {
+                                    // 排除掉所有無關的欄位，剩下的才是品項名稱 (例如: '方巾', '床包')
+                                    if (key !== 'date' && key !== 'hotel' && key !== 'isBorder' && key !== 'items' && key !== 'timestamp' && key !== '_MANUAL_BORDER_') {
+                                        let itemData = r[key];
+                                        if (itemData && typeof itemData === 'object' && itemData.item) {
+                                            let local = userInputs[dDate][hotelName][itemData.item];
+                                            if (local && local.isSaving) continue; 
+                                            if (local && local.isFromNewSchema) continue; // 如果前面已經被 items 的資料覆蓋了，就跳過
 
-                                    userInputs[dDate][hotelName][r.item] = { 
-                                        count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
-                                        note: r.note || "", 
-                                        hasSigned: false, 
-                                        isSubmitted: true, 
-                                        signature: r.signature || "", 
-                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
-                                        doubleSignature: r.doubleSignature || "", 
-                                        doubleHasSigned: false, 
-                                        doubleSignDate: r.doubleSignDate || "",
-                                        isSaving: false, saveError: false
-                                    };
-                                    dataChanged = true;
+                                            userInputs[dDate][hotelName][itemData.item] = { 
+                                                count: (itemData.count !== undefined && itemData.count !== null && itemData.count !== "") ? String(itemData.count) : "", 
+                                                note: itemData.note || "", 
+                                                hasSigned: false, 
+                                                isSubmitted: true, 
+                                                signature: itemData.signature || "", 
+                                                doubleCount: (itemData.doubleCount !== undefined && itemData.doubleCount !== null && itemData.doubleCount !== "") ? String(itemData.doubleCount) : "", 
+                                                doubleSignature: itemData.doubleSignature || "", 
+                                                doubleHasSigned: false, 
+                                                doubleSignDate: itemData.doubleSignDate || "",
+                                                isSaving: false, saveError: false
+                                            };
+                                            dataChanged = true;
+                                        }
+                                    }
                                 }
                             }
                         });
@@ -989,7 +983,6 @@
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
-                    const safeItemKey = window.getSafeId(item);
                     const itemData = { 
                         item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
@@ -1003,13 +996,11 @@
                     if (u.doubleSignature && u.doubleSignature !== 'CACHED') itemData.doubleSignature = u.doubleSignature;
 
                     try {
-                        // ★★★ 核心修復點 ★★★ (已修正為安全的巢狀寫法，避免覆蓋與重整消失的問題)
+                        // ★★★ 核心修復點：回歸方案 A 的直接寫入，不使用 items 包裝 ★★★
                         const updateData = {
                             date: dateStr,
                             hotel: category,
-                            items: {
-                                [safeItemKey]: itemData
-                            }
+                            [item]: itemData  // 直接將中文品項名稱作為 Key
                         };
 
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}`), updateData, { merge: true });
