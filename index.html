@@ -1003,7 +1003,7 @@
                     if (u.doubleSignature && u.doubleSignature !== 'CACHED') itemData.doubleSignature = u.doubleSignature;
 
                     try {
-                        // ★★★ 核心修復點 ★★★
+                        // ★★★ 核心修復點 ★★★ (已修正為安全的巢狀寫法，避免覆蓋與重整消失的問題)
                         const updateData = {
                             date: dateStr,
                             hotel: category,
