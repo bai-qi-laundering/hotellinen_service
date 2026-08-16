@@ -234,7 +234,6 @@
             });
         }
 
-        // ★ 修改 1：精準保留 4 天 (最省效能的黃金比例)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -360,7 +359,6 @@
                     }
                     
                     if (canCheck && targetItems.length > 0) {
-                        // 尋找記憶體裡所有日期的單據
                         for (let docDate in userInputs) {
                             if (docDate === '_MANUAL_STATES_') continue;
                             let hData = userInputs[docDate][fullHotelName];
@@ -400,7 +398,6 @@
                                 }
                             }
 
-                            // ★ 判斷這張全簽完的單子，是否在你選的儀表板這天完成的
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
                                 let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
@@ -883,10 +880,28 @@
                         let dataChanged = false;
                         
                         snapshot.docChanges().forEach((change) => {
-                            if (change.type === "added" || change.type === "modified") {
-                                const r = change.doc.data();
-                                let dDate = String(r.date || "").replace(/\//g, '-').trim();
-                                
+                            const r = change.doc.data();
+                            let dDate = String(r.date || "").replace(/\//g, '-').trim();
+
+                            // ★ 新增：當上帝視角(後台)刪除紀錄時，同步抹除手機上的暫存
+                            if (change.type === "removed") {
+                                if (r.item === '_MANUAL_BORDER_') {
+                                    if(userInputs[dDate] && userInputs[dDate]['_MANUAL_STATES_']) {
+                                        userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = false;
+                                        dataChanged = true;
+                                        if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
+                                            if(window.updateBorderBtnState) window.updateBorderBtnState();
+                                        }
+                                    }
+                                } else {
+                                    if(userInputs[dDate] && userInputs[dDate][r.hotel] && userInputs[dDate][r.hotel][r.item]) {
+                                        delete userInputs[dDate][r.hotel][r.item]; // 徹底刪除該品項記憶
+                                        dataChanged = true;
+                                    }
+                                }
+                            } 
+                            // 原本的新增與修改邏輯
+                            else if (change.type === "added" || change.type === "modified") {
                                 if (r.item === '_MANUAL_BORDER_') {
                                     if(!userInputs[dDate]) userInputs[dDate] = {};
                                     if(!userInputs[dDate]['_MANUAL_STATES_']) userInputs[dDate]['_MANUAL_STATES_'] = {};
@@ -1053,8 +1068,12 @@
                     finally { btn.innerHTML = originalText; btn.disabled = false; }
                 };
 
+                // ★ 升級：深度清理暫存機制
                 window.manualRefresh = function() {
-                    location.reload();
+                    if (confirm("這將會清除手機上的頑固暫存，並重新從雲端下載最乾淨的資料。\n(若您在後台有刪除紀錄，請點擊確定以同步)\n\n確定要重載嗎？")) {
+                        localStorage.removeItem('inventory_userInputs'); // 殺掉舊記憶
+                        location.reload(); // 重新向雲端索取
+                    }
                 };
 
             } catch (error) {
