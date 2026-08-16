@@ -212,9 +212,17 @@
             return "id_" + Array.from(String(str || "")).map(c => c.charCodeAt(0).toString(16)).join('_');
         };
 
-        function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
+        // ★ 核心修復：高相容性日期轉換，避免舊設備 toISOString 崩潰
+        function getLocalDateString(dateObj) { 
+            if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
 
         function getLocalTimeString(dateObj) {
+            if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
             const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
             const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
@@ -237,7 +245,6 @@
                 let memoryInputs = {};  
                 let storageInputs = {}; 
                 
-                // 保留4天的資料即可，節省記憶體空間
                 for (let i = 0; i < Math.min(4, keys.length); i++) {
                     let d = keys[i];
                     memoryInputs[d] = userInputs[d];
@@ -320,7 +327,6 @@
             if (filtered.length > 0) {
                 let htmlContent = "";
                 
-                // 取得儀表板上的日期，並計算前一天的日期
                 const dashboardDateStr = document.getElementById('homeDatePicker').value;
                 const parts = dashboardDateStr.split('-');
                 const dbDate = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -344,7 +350,6 @@
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
                     
-                    // 過濾掉未知的 undefined 品項
                     let templateItems = masterData
                         .filter(d => d.hotel === fullHotelName && String(d.item) !== "undefined" && String(d.item).trim() !== "")
                         .map(d => d.item);
@@ -371,14 +376,11 @@
                         targetItems = [...templateItems]; canCheck = true;
                     }
                     
-                    // ★ 橘燈判定核心邏輯：不管這張單是哪天開的，只要它最後的簽名日在「今天或昨天」就亮燈！
+                    // ★ 亮燈判斷：嚴格只比對單據對應日，防範跨日干擾
                     if (canCheck && targetItems.length > 0) {
-                        // 掃描記憶體裡所有日期的單據
-                        for (let docDate in userInputs) {
-                            if (docDate === '_MANUAL_STATES_') continue;
-                            let hData = userInputs[docDate][fullHotelName];
-                            if (!hData) continue; 
-
+                        let hData = userInputs[targetDateStr] && userInputs[targetDateStr][fullHotelName];
+                        
+                        if (hData) {
                             let isAllSigned = true;
                             let latestSignDateStr = "";
                             let hasAnyTargetData = false;
@@ -386,7 +388,6 @@
                             for (let item of targetItems) {
                                 let u = hData[item];
                                 
-                                // 條件：浴巾到抹布這些指定品項，必須要有複點數量(包含0) 以及 複點簽名
                                 if (!u || u.doubleCount === undefined || u.doubleCount === null || String(u.doubleCount).trim() === "" || !u.doubleSignature) {
                                     isAllSigned = false;
                                     break;
@@ -394,7 +395,6 @@
                                 
                                 hasAnyTargetData = true;
                                 
-                                // ★ 絕對不能用單據日期 (docDate) 墊底！只抓真實的複點簽名時間
                                 if (u.doubleSignDate) {
                                     let signDateStr = String(u.doubleSignDate);
                                     if (signDateStr > latestSignDateStr) {
@@ -403,15 +403,10 @@
                                 }
                             }
 
-                            // 如果這單的浴巾到抹布全部都有數字、有簽名，且成功抓到最後一次簽名的時間
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr !== "") {
-                                // 取出 YYYY-MM-DD
                                 let completionDay = latestSignDateStr.split(' ')[0].replace(/\//g, '-'); 
-                                
-                                // 如果它完成的那天，剛好等於儀表板的日期，或是前一天，就亮燈！
                                 if (completionDay === dashboardDateStr || completionDay === dashboardDateMinusOneStr) {
                                     isOrange = true;
-                                    break; // 只要有一張單子符合條件，飯店就會亮橘燈
                                 }
                             }
                         }
@@ -548,7 +543,6 @@
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
             
-            // ★ 阻擋 undefined 幽靈品項顯示在畫面上
             let displayItems = masterData
                 .filter(d => d.hotel === currentHotelName && String(d.item) !== "undefined" && String(d.item).trim() !== "")
                 .map(d => d.item);
@@ -822,7 +816,6 @@
             const inputEl = document.getElementById('newItemInput'); const newItemName = inputEl.value.trim(); const dateStr = document.getElementById('datePicker').value;
             if (!newItemName) return showMessage("請輸入要新增的品項名稱喔！");
             
-            // 阻擋 undefined 寫入
             if (newItemName === "undefined") return showMessage("無效的品項名稱！");
             
             const inTemplate = masterData.some(d => d.hotel === currentHotelName && d.item === newItemName);
@@ -860,22 +853,28 @@
                 };
 
                 const app = initializeApp(firebaseConfig);
-                db = initializeFirestore(app, {
-                    localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-                });
+                
+                // ★ 核心修復：防止舊型手機/無痕模式/多分頁 IndexedDB 鎖死導致崩潰
+                try {
+                    db = initializeFirestore(app, {
+                        localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+                    });
+                } catch (cacheErr) {
+                    db = initializeFirestore(app, {});
+                }
+                
                 isFirebaseLoaded = true;
 
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
                     try {
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}_MANUAL_BORDER`), {
-                            date: dateStr, hotel: hotel, item: '_MANUAL_BORDER_',
-                            isBorder: isBorder, timestamp: new Date().toLocaleString()
+                            date: String(dateStr || ''), hotel: String(hotel || ''), item: '_MANUAL_BORDER_',
+                            isBorder: !!isBorder, timestamp: getLocalTimeString(new Date())
                         }, { merge: true });
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
 
-                // ★ 只有在沒有本地設定檔的時候才去讀取 Firebase，省流量
                 if (!masterData || masterData.length === 0) {
                     try {
                         const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
@@ -889,7 +888,6 @@
                     }
                 }
 
-                // ★ 只監控前一天跟後一天的資料，大幅降低讀取量，並加入重複讀取鎖
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     
@@ -897,7 +895,6 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // 只要監控前一天到後一天，共3天即可
                     for(let i = -1; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -977,8 +974,9 @@
                     originalDateChanged();
                 }
 
+                // ★ 核心修復：強制對所有欄位進行預先過濾，防止 undefined 觸發 Firestore 拒絕寫入
                 window.firebaseSubmit = async function(category, item) {
-                    if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
+                    if (!isFirebaseLoaded || !db) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
@@ -988,16 +986,18 @@
                     renderItems(false); 
 
                     const payload = { 
-                        date: dateStr, hotel: category, item: item, 
+                        date: String(dateStr || ''), 
+                        hotel: String(category || ''), 
+                        item: String(item || ''), 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
-                        note: u.note || '', 
+                        note: String(u.note || ''), 
                         doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
-                        doubleSignDate: u.doubleSignDate || '',
-                        timestamp: new Date().toLocaleString() 
+                        doubleSignDate: String(u.doubleSignDate || ''),
+                        timestamp: getLocalTimeString(new Date())
                     };
 
-                    if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
-                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
+                    if (u.signature && u.signature !== 'CACHED') payload.signature = String(u.signature);
+                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = String(u.doubleSignature);
 
                     try {
                         const safeItem = item.replace(/\//g, '-');
@@ -1005,9 +1005,14 @@
 
                         try {
                             await addDoc(collection(db, 'history_logs'), {
-                                logDate: getLocalDateString(new Date()), timestamp: Date.now(),
-                                actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
-                                item: item, count: payload.count, doubleCount: payload.doubleCount,
+                                logDate: getLocalDateString(new Date()), 
+                                timestamp: Date.now(),
+                                actionTime: getLocalTimeString(new Date()), 
+                                date: String(dateStr || ''), 
+                                hotel: String(category || ''),
+                                item: String(item || ''), 
+                                count: payload.count, 
+                                doubleCount: payload.doubleCount,
                                 signature: payload.signature || 'CACHED_RETAINED', 
                                 doubleSignature: payload.doubleSignature || 'CACHED_RETAINED', 
                                 note: payload.note
@@ -1019,8 +1024,9 @@
                         saveToLocal(); 
                         renderItems(false); 
                     } catch(e) {
+                        console.error("Firestore 寫入失敗詳情:", e);
                         handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);
-                        saveToLocal(); renderItems(false); showMessage("⚠️ 網路連線不穩！請點擊紅色按鈕重傳！");
+                        saveToLocal(); renderItems(false); showMessage("⚠️ 寫入失敗！請點擊紅色按鈕重傳！");
                     }
                 };
 
@@ -1058,7 +1064,7 @@
                 };
 
             } catch (error) {
-                console.error("Firebase 失敗", error);
+                console.error("Firebase 初始化嚴重失敗", error);
             }
         }
 
