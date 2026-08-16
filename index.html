@@ -41,17 +41,12 @@
                     <span id="syncIndicator" class="text-xs text-green-600 font-bold opacity-0 transition-opacity duration-500">●即時同步中</span>
                 </div>
                 
-                <div class="flex flex-col gap-2 w-1/2">
-                    <div class="flex gap-2">
-                        <button onclick="syncSettingsFromSheet(event)" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-purple-200 flex-1">
-                            ⚙️ 更新設定
-                        </button>
-                        <button onclick="manualRefresh()" class="bg-blue-100 text-blue-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-blue-200 flex-1">
-                            🔄 手動重載
-                        </button>
-                    </div>
-                    <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">
-                        📥 吸取舊盤點資料
+                <div class="flex gap-2 w-1/2">
+                    <button onclick="syncSettingsFromSheet(event)" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-purple-200 flex-1">
+                        ⚙️ 更新設定
+                    </button>
+                    <button onclick="manualRefresh()" class="bg-blue-100 text-blue-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-blue-200 flex-1">
+                        🔄 手動重載
                     </button>
                 </div>
             </div>
@@ -234,7 +229,6 @@
             });
         }
 
-        // ★ 修改 1：精準保留 4 天 (最省效能的黃金比例)
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
@@ -360,7 +354,6 @@
                     }
                     
                     if (canCheck && targetItems.length > 0) {
-                        // 尋找記憶體裡所有日期的單據
                         for (let docDate in userInputs) {
                             if (docDate === '_MANUAL_STATES_') continue;
                             let hData = userInputs[docDate][fullHotelName];
@@ -400,7 +393,6 @@
                                 }
                             }
 
-                            // ★ 判斷這張全簽完的單子，是否在你選的儀表板這天完成的
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
                                 let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
@@ -676,13 +668,14 @@
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return; 
             
+            // ★ 修復：加入 !u.signature 的判斷。若已經有簽名（不管是重整來的還是怎樣），不該強迫重簽就能直接叫出計算機。
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
-                if (!u.hasSigned) return openSign(currentHotelName, item, 'aunt');
+                if (!u.hasSigned && !u.signature) return openSign(currentHotelName, item, 'aunt');
                 openCalc(currentHotelName, item, 'aunt');
                 
             } else if (role === 'sup') {
-                if (!u.doubleHasSigned) return openSign(currentHotelName, item, 'sup');
+                if (!u.doubleHasSigned && !u.doubleSignature) return openSign(currentHotelName, item, 'sup');
                 openCalc(currentHotelName, item, 'sup');
             }
         }
@@ -848,9 +841,11 @@
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
                     try {
-                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}_MANUAL_BORDER`), {
-                            date: dateStr, hotel: hotel, item: '_MANUAL_BORDER_',
-                            isBorder: isBorder, timestamp: new Date().toLocaleString()
+                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}`), {
+                            date: dateStr, 
+                            hotel: hotel,
+                            isBorder: isBorder, 
+                            timestamp: new Date().toLocaleString()
                         }, { merge: true });
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
@@ -861,7 +856,6 @@
                     buildHotelStructure();
                 }
 
-                // ★ 修改 2：監聽範圍為精準的 4 天 (-2 到 +1)
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
@@ -870,7 +864,6 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // 最精準完美的黃金比例：往前兩天，往後一天，共包含儀表板自己是 4 天
                     for(let i = -2; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -883,43 +876,87 @@
                         let dataChanged = false;
                         
                         snapshot.docChanges().forEach((change) => {
-                            if (change.type === "added" || change.type === "modified") {
-                                const r = change.doc.data();
-                                let dDate = String(r.date || "").replace(/\//g, '-').trim();
-                                
+                            const r = change.doc.data();
+                            let dDate = String(r.date || "").replace(/\//g, '-').trim();
+                            let hotelName = r.hotel;
+                            if(!hotelName) return;
+
+                            if(!userInputs[dDate]) userInputs[dDate] = {};
+                            if(!userInputs[dDate]['_MANUAL_STATES_']) userInputs[dDate]['_MANUAL_STATES_'] = {};
+                            if(!userInputs[dDate][hotelName]) userInputs[dDate][hotelName] = {};
+
+                            if (change.type === "removed") {
                                 if (r.item === '_MANUAL_BORDER_') {
-                                    if(!userInputs[dDate]) userInputs[dDate] = {};
-                                    if(!userInputs[dDate]['_MANUAL_STATES_']) userInputs[dDate]['_MANUAL_STATES_'] = {};
-                                    
-                                    if (userInputs[dDate]['_MANUAL_STATES_'][r.hotel] !== r.isBorder) {
-                                        userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = r.isBorder;
+                                    userInputs[dDate]['_MANUAL_STATES_'][hotelName] = false;
+                                    dataChanged = true;
+                                } else if (r.item) {
+                                    delete userInputs[dDate][hotelName][r.item];
+                                    dataChanged = true;
+                                } else {
+                                    delete userInputs[dDate]['_MANUAL_STATES_'][hotelName];
+                                    delete userInputs[dDate][hotelName];
+                                    dataChanged = true;
+                                }
+                                if (currentBaseHotel === hotelName && document.getElementById('datePicker').value === dDate) {
+                                    if(window.updateBorderBtnState) window.updateBorderBtnState();
+                                }
+                            } else {
+                                if (r.isBorder !== undefined) {
+                                    if (userInputs[dDate]['_MANUAL_STATES_'][hotelName] !== r.isBorder) {
+                                        userInputs[dDate]['_MANUAL_STATES_'][hotelName] = r.isBorder;
                                         dataChanged = true;
-                                        if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
+                                        if (currentBaseHotel === hotelName && document.getElementById('datePicker').value === dDate) {
                                             if(window.updateBorderBtnState) window.updateBorderBtnState();
                                         }
                                     }
-                                    return; 
+                                }
+                                
+                                // ★讀取：新版架構 (包裹在 items 物件內)
+                                if (r.items) {
+                                    for (let itemKey in r.items) {
+                                        let itemData = r.items[itemKey];
+                                        let local = userInputs[dDate][hotelName][itemData.item];
+                                        if (local && local.isSaving) continue; // 正在存檔的防干擾跳過
+
+                                        userInputs[dDate][hotelName][itemData.item] = { 
+                                            count: (itemData.count !== undefined && itemData.count !== null && itemData.count !== "") ? String(itemData.count) : "", 
+                                            note: itemData.note || "", 
+                                            hasSigned: false, 
+                                            isSubmitted: true, 
+                                            signature: itemData.signature || "", 
+                                            doubleCount: (itemData.doubleCount !== undefined && itemData.doubleCount !== null && itemData.doubleCount !== "") ? String(itemData.doubleCount) : "", 
+                                            doubleSignature: itemData.doubleSignature || "", 
+                                            doubleHasSigned: false, 
+                                            doubleSignDate: itemData.doubleSignDate || "",
+                                            isSaving: false, saveError: false,
+                                            isFromNewSchema: true // ★ 修復：加上記號，表示已經被新版資料寫入
+                                        };
+                                        dataChanged = true;
+                                    }
                                 }
 
-                                if(!userInputs[dDate]) userInputs[dDate] = {};
-                                if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
-                                
-                                let local = userInputs[dDate][r.hotel][r.item];
-                                if (local && local.isSaving) return; 
-                                
-                                userInputs[dDate][r.hotel][r.item] = { 
-                                    count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
-                                    note: r.note || "", 
-                                    hasSigned: false, 
-                                    isSubmitted: true, 
-                                    signature: r.signature || "", 
-                                    doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
-                                    doubleSignature: r.doubleSignature || "", 
-                                    doubleHasSigned: false, 
-                                    doubleSignDate: r.doubleSignDate || "",
-                                    isSaving: false, saveError: false
-                                };
-                                dataChanged = true;
+                                // ★讀取：舊版架構 (單獨寫在根目錄的 item)，完美找回遺失的舊資料！
+                                if (r.item && r.item !== '_MANUAL_BORDER_') {
+                                    let local = userInputs[dDate][hotelName][r.item];
+                                    if (local && local.isSaving) return; // forEach中的continue用法
+                                    
+                                    // ★ 修復：如果剛剛已經有新版(items)資料覆寫過這個品項，絕對不要再被純舊版的文件蓋掉變成舊數量！
+                                    if (local && local.isFromNewSchema) return;
+
+                                    userInputs[dDate][hotelName][r.item] = { 
+                                        count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
+                                        note: r.note || "", 
+                                        hasSigned: false, 
+                                        isSubmitted: true, 
+                                        signature: r.signature || "", 
+                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null && r.doubleCount !== "") ? String(r.doubleCount) : "", 
+                                        doubleSignature: r.doubleSignature || "", 
+                                        doubleHasSigned: false, 
+                                        doubleSignDate: r.doubleSignDate || "",
+                                        isSaving: false, saveError: false
+                                    };
+                                    dataChanged = true;
+                                }
                             }
                         });
 
@@ -952,8 +989,9 @@
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
-                    const payload = { 
-                        date: dateStr, hotel: category, item: item, 
+                    const safeItemKey = window.getSafeId(item);
+                    const itemData = { 
+                        item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
                         note: u.note || '', 
                         doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
@@ -961,21 +999,29 @@
                         timestamp: new Date().toLocaleString() 
                     };
 
-                    if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
-                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
+                    if (u.signature && u.signature !== 'CACHED') itemData.signature = u.signature;
+                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') itemData.doubleSignature = u.doubleSignature;
 
                     try {
-                        const safeItem = item.replace(/\//g, '-');
-                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`), payload, { merge: true });
+                        // ★★★ 核心修復點 ★★★
+                        const updateData = {
+                            date: dateStr,
+                            hotel: category,
+                            items: {
+                                [safeItemKey]: itemData
+                            }
+                        };
+
+                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}`), updateData, { merge: true });
 
                         try {
                             await addDoc(collection(db, 'history_logs'), {
                                 logDate: getLocalDateString(new Date()), timestamp: Date.now(),
                                 actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
-                                item: item, count: payload.count, doubleCount: payload.doubleCount,
-                                signature: payload.signature || 'CACHED_RETAINED', 
-                                doubleSignature: payload.doubleSignature || 'CACHED_RETAINED', 
-                                note: payload.note
+                                item: item, count: itemData.count, doubleCount: itemData.doubleCount,
+                                signature: itemData.signature || 'CACHED_RETAINED', 
+                                doubleSignature: itemData.doubleSignature || 'CACHED_RETAINED', 
+                                note: itemData.note
                             });
                         } catch (logErr) {}
 
@@ -1018,43 +1064,11 @@
                     }
                 };
 
-                window.syncOldInventoryFromSheet = async function(event) {
-                    if (!isFirebaseLoaded) return;
-                    const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "⏳ 吸取中..."; btn.disabled = true;
-                    try {
-                        const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
-                        const data = await res.json();
-                        if (data.records && data.records.length > 0) {
-                            btn.innerHTML = "⏳ 寫入中...";
-                            const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
-                            const recordChunks = chunkArray(data.records, 450);
-                            for (let i = 0; i < recordChunks.length; i++) {
-                                const batch = writeBatch(db);
-                                recordChunks[i].forEach(r => {
-                                    let dateStr = String(r.date || "").replace(/\//g, '-').trim();
-                                    let hotelStr = String(r.hotel || "").trim();
-                                    let itemStr = String(r.item || "").trim();
-                                    if(!dateStr || !hotelStr || !itemStr) return;
-                                    const safeItem = itemStr.replace(/\//g, '-');
-                                    batch.set(doc(db, 'inventory_records', `${dateStr}_${hotelStr}_${safeItem}`.replace(/[\/\\?%*:|"<>]/g, '-')), {
-                                        date: dateStr, hotel: hotelStr, item: itemStr,
-                                        count: (r.count !== undefined && r.count !== null) ? String(r.count) : "", 
-                                        note: r.note || "", signature: r.signature || "",
-                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null) ? String(r.doubleCount) : "", 
-                                        doubleSignature: r.doubleSignature || "",
-                                        doubleSignDate: r.doubleSignDate || "", timestamp: new Date().toLocaleString()
-                                    }, { merge: true });
-                                });
-                                await batch.commit();
-                            }
-                            showMessage(`✅ 成功吸入舊紀錄！`, false);
-                        } else showMessage("沒有舊資料！");
-                    } catch (e) { showMessage("吸取失敗！"); } 
-                    finally { btn.innerHTML = originalText; btn.disabled = false; }
-                };
-
                 window.manualRefresh = function() {
-                    location.reload();
+                    if (confirm("這將會清除手機上的頑固暫存，並重新從雲端下載最乾淨的資料。\n(若您在後台有刪除紀錄，請點擊確定以同步)\n\n確定要重載嗎？")) {
+                        localStorage.removeItem('inventory_userInputs'); // 殺掉舊記憶
+                        location.reload(); // 重新向雲端索取
+                    }
                 };
 
             } catch (error) {
