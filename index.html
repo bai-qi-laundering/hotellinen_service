@@ -337,31 +337,37 @@
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
                     
-                    // 嚴格過濾無效品項 (包含 undefined)
                     let templateItems = masterData
                         .filter(d => d.hotel === fullHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
                         .map(d => String(d.item).trim());
                         
-                    let targetItems = []; let canCheck = false;
+                    let targetItems = []; 
+                    let canCheck = false;
                     
                     if (targetDept === "房務") {
-                        let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
-                        let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
+                        // 使用更安全的包夾算法
+                        let startIdx = templateItems.findIndex(i => i.includes("浴巾"));
+                        let endIdx = templateItems.findIndex(i => i.includes("抹布"));
                         
-                        if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
-                            targetItems = templateItems.slice(startIdx, endIdx + 1);
+                        if (startIdx !== -1 && endIdx !== -1) {
+                            let minIdx = Math.min(startIdx, endIdx);
+                            let maxIdx = Math.max(startIdx, endIdx);
+                            targetItems = templateItems.slice(minIdx, maxIdx + 1);
                         } else if (startIdx !== -1) {
                             targetItems = templateItems.slice(startIdx);
+                        } else if (endIdx !== -1) {
+                            targetItems = templateItems.slice(0, endIdx + 1);
                         } else {
                             targetItems = [...templateItems];
                         }
                         canCheck = true;
                     } else if (targetDept !== "") {
-                        targetItems = [...templateItems]; canCheck = true;
+                        targetItems = [...templateItems]; 
+                        canCheck = true;
                     }
                     
+                    // ★ 新版嚴格且防呆的橘燈判斷核心
                     if (canCheck && targetItems.length > 0) {
-                        // 尋找記憶體裡所有日期的單據 (不管單據是哪一天，只看最後簽名日)
                         for (let docDate in userInputs) {
                             if (docDate === '_MANUAL_STATES_') continue;
                             let hData = userInputs[docDate][fullHotelName];
@@ -373,21 +379,35 @@
 
                             for (let item of targetItems) {
                                 let u = hData[item];
-                                // ★ 橘燈嚴格條件：必須要有複點簽名，且數量不能為空（填 0 也可以，因為 "0" !== ""）
-                                if (!u || !u.doubleSignature || u.doubleCount === undefined || u.doubleCount === null || String(u.doubleCount).trim() === "") {
+                                
+                                // 檢查條件：一定要有複點數量(包含0也可)、一定要有複點簽名
+                                if (!u || u.doubleCount === undefined || u.doubleCount === null || String(u.doubleCount).trim() === "" || !u.doubleSignature) {
                                     isAllSigned = false;
                                     break;
                                 }
+                                
                                 hasAnyTargetData = true;
-                                let signDate = u.doubleSignDate || (docDate + " 00:00:00");
-                                if (signDate > latestSignDateStr) {
-                                    latestSignDateStr = signDate;
+                                
+                                // ★ 解決 iOS / iPad Safari 日期解析崩潰導致跨日判定失效的 Bug
+                                let signDateStr = docDate + " 00:00:00";
+                                if (u.doubleSignDate) {
+                                    let safeDateString = u.doubleSignDate.replace(/-/g, '/');
+                                    let parsedDate = new Date(safeDateString);
+                                    if (!isNaN(parsedDate.getTime())) {
+                                        signDateStr = getLocalTimeString(parsedDate);
+                                    } else {
+                                        signDateStr = u.doubleSignDate; // 兜底使用原始字串
+                                    }
+                                }
+                                
+                                if (signDateStr > latestSignDateStr) {
+                                    latestSignDateStr = signDateStr;
                                 }
                             }
 
-                            // 如果這張單據的規定品項全完成，且最後簽名的那天等於儀表板的日期，就亮橘燈
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
-                                let completionDay = latestSignDateStr.split(' ')[0]; 
+                                // 取出 YYYY-MM-DD
+                                let completionDay = latestSignDateStr.split(' ')[0].replace(/\//g, '-'); 
                                 if (completionDay === dashboardDateStr) {
                                     isOrange = true;
                                     break; 
@@ -527,7 +547,6 @@
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
             
-            // 嚴格過濾無效的品項 (完全排除 undefined)
             let displayItems = masterData
                 .filter(d => d.hotel === currentHotelName && d.item && String(d.item).trim() !== "" && String(d.item) !== "undefined")
                 .map(d => String(d.item).trim());
@@ -874,7 +893,7 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // ★ 依您的需求，精準監控 往前一天 到 往後一天 共 3 天，不增加多餘負載
+                    // 只需監測 -1 ~ +1 (共3天)，極大化省下讀取量
                     for(let i = -1; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
