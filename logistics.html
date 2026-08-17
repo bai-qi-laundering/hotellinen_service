@@ -167,7 +167,7 @@
 
         function dateChanged() { 
             updateDateDisplay(); 
-            fetchData(false); // 直接向雲端索取資料，無快取
+            fetchData(false); 
         }
 
         // ★ 核心邏輯：檢查該單據日期是否已超過「3天後的 12:00」
@@ -399,9 +399,8 @@
 
             groupedData = {};
             cleanData.forEach(item => {
-                // 忽略雙方數字都是 0 的空項目
-                if ((item.originalQty === "" || item.originalQty === "0" || item.originalQty === 0) && 
-                    (item.actualQty === "" || item.actualQty === "0" || item.actualQty === 0)) {
+                // ★ 更安全的零值檢查，避免字串 "05" 的影響
+                if (Number(item.originalQty || 0) === 0 && Number(item.actualQty || 0) === 0) {
                     return; 
                 }
 
@@ -432,17 +431,39 @@
             renderDepartments();
         }
 
-        function handleQtyChange(dept, idx, val) {
+        // ★ 修改此處：接收 inputEl 本身，以便即時消除 0 並改變框線顏色
+        function handleQtyChange(dept, idx, inputEl) {
+            let val = inputEl.value;
+            
+            // 自動消除開頭的 0，避免輸入 "05" 造成後續字串判斷異常與寫入錯誤
+            if (val.length > 1 && val.startsWith('0')) {
+                val = val.replace(/^0+/, '');
+                if (val === '') val = '0';
+                inputEl.value = val;
+            }
+
             groupedData[dept].items[idx].actualQty = val;
             const original = groupedData[dept].items[idx].originalQty;
             const statusSpan = document.getElementById(`status-${dept}-${idx}`);
-            // ★ 修改為精準數字對比，解決 "05" 跟 "5" 會誤判的問題
-            if (Number(val) === Number(original)) {
+            
+            // 抓取用來顯示紅框的外層容器
+            const container = inputEl.closest('.bg-blue-50');
+
+            // ★ 修改為精準數字對比，且與 UI 即時連動
+            if (Number(val || 0) === Number(original || 0)) {
                 statusSpan.innerHTML = "✅ 相符"; 
                 statusSpan.className = "text-green-600 font-bold ml-3 text-base";
+                if (container) {
+                    container.classList.remove('border-red-300');
+                    container.classList.add('border-transparent');
+                }
             } else {
                 statusSpan.innerHTML = "⚠️ 已修改"; 
                 statusSpan.className = "text-red-500 font-bold ml-3 text-base";
+                if (container) {
+                    container.classList.remove('border-transparent');
+                    container.classList.add('border-red-300');
+                }
             }
         }
 
@@ -561,7 +582,8 @@
                 });
 
                 let itemsHtml = groupedData[dept].items.map((item, idx) => {
-                    let isMatching = Number(item.actualQty) === Number(item.originalQty);
+                    // ★ 更安全的數量比較
+                    let isMatching = Number(item.actualQty || 0) === Number(item.originalQty || 0);
                     let statusText = isMatching ? "✅ 相符" : "⚠️ 已修改";
                     let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";
                     
@@ -580,7 +602,8 @@
                             <div class="flex justify-between items-center">
                                 <span class="font-bold text-blue-900">實收(請款)量：</span>
                                 <div class="flex items-center">
-                                    <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this.value)" value="${item.actualQty}" 
+                                    <!-- ★ 改傳 this 讓函式可以抓到元素本人 -->
+                                    <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this)" value="${item.actualQty}" 
                                            class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${inputDisabled ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
                                            ${inputDisabled ? 'disabled' : ''}>
                                     <span id="status-${dept}-${idx}" class="${statusClass}">${statusText}</span>
