@@ -278,8 +278,17 @@
             return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
         }
 
-        function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
+        function getLocalDateString(dateObj) { 
+            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; 
+        }
         
+        // ★ 新增：標準化時間格式字串 (解決 toLocaleString() 在不同設備上的錯亂)
+        function getLocalTimeString(dateObj) {
+            const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
+            const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
+
         const today = new Date();
         const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
         document.getElementById('invStartDate').value = getLocalDateString(firstDay);
@@ -476,7 +485,7 @@
                                 items: [movedItemData],
                                 clientSig: "",
                                 driverSig: "",
-                                timestamp: new Date().toLocaleString()
+                                timestamp: getLocalTimeString(new Date()) // ★ 修改為標準化時間
                             });
                         }
                     }
@@ -786,8 +795,8 @@
             const cleanVal = newValue.trim();
 
             try {
-                // 1. 更新盤點區 (藍色)
-                await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: new Date().toLocaleString() }, { merge: true });
+                // 1. 更新盤點區 (藍色) ★ 統一修改為標準時間格式
+                await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: getLocalTimeString(new Date()) }, { merge: true });
                 
                 // 2. 如果改的是「數量」或「備註」，自動穿透到物流區 (綠色)
                 if (field === 'doubleCount' || field === 'count' || field === 'note') {
@@ -827,14 +836,19 @@
                                     logItems[itemIndex].auntNote = cleanVal;
                                 }
                             } else {
-                                // 如果物流單裡還沒有這筆，就自動把它塞進去 (例如老闆在後台臨時加的品項)
-                                logItems.push({
-                                    itemName: item,
-                                    originalQty: String(finalQty),
-                                    actualQty: String(finalQty),
-                                    auntNote: field === 'note' ? cleanVal : (record.note || ""),
-                                    driverNote: "後台強制新增"
-                                });
+                                // ★ 加入這行判斷：如果品項名稱是空的、或是 undefined，就直接跳過不新增！
+                                if (!item || String(item).trim() === "" || String(item) === "undefined" || String(item) === "null") {
+                                    console.warn("略過無效品項同步:", item);
+                                } else {
+                                    // 如果物流單裡還沒有這筆，而且名稱合法，才自動把它塞進去
+                                    logItems.push({
+                                        itemName: item,
+                                        originalQty: String(finalQty),
+                                        actualQty: String(finalQty),
+                                        auntNote: field === 'note' ? cleanVal : (record.note || ""),
+                                        driverNote: "後台強制新增"
+                                    });
+                                }
                             }
                             await setDoc(logDocRef, { items: logItems }, { merge: true });
                         }
