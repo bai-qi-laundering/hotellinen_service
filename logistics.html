@@ -235,6 +235,15 @@
             return "0";
         }
 
+        // ★ 嚴格過濾無效品項名稱
+        function isValidItemName(name) {
+            if (!name) return false;
+            let cleanName = String(name).trim();
+            // 排除空字串以及任何文字型態的 undefined / null
+            if (cleanName === "" || cleanName.toLowerCase() === "undefined" || cleanName.toLowerCase() === "null") return false;
+            return true;
+        }
+
         async function fetchData(isBackground = false) {
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
@@ -268,7 +277,7 @@
                         if (Array.isArray(d.items)) {
                             d.items.forEach(subItem => {
                                 let itemName = subItem.itemName || subItem.item || subItem.name;
-                                if (itemName) {
+                                if (isValidItemName(itemName)) {
                                     baseInventoryItems.push({
                                         hotelFull: hotelStr,
                                         deptName: deptName,
@@ -281,7 +290,7 @@
                         } else {
                             // 支援舊版單一文件格式
                             let itemName = d.item || d.itemName || d.name;
-                            if (itemName) {
+                            if (isValidItemName(itemName)) {
                                 baseInventoryItems.push({
                                     hotelFull: hotelStr,
                                     deptName: deptName,
@@ -350,6 +359,9 @@
                     let savedDept = savedLogistics[deptKey];
                     if (savedDept.items) {
                         savedDept.items.forEach(savedItem => {
+                            // ★ 阻擋物流單裡面既有的 undefined 垃圾資料
+                            if (!isValidItemName(savedItem.itemName)) return;
+
                             let exists = rawData.some(r => r.deptName === savedDept.deptName && r.itemName === savedItem.itemName);
                             if (!exists) {
                                 rawData.push({
