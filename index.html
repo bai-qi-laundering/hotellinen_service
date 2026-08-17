@@ -51,13 +51,13 @@
                         </button>
                     </div>
                     <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">
-                        📥 吸取舊資料
+                        📥 吸取舊盤點資料
                     </button>
                 </div>
             </div>
             
             <div class="bg-white p-3 rounded-2xl shadow-sm mb-4 border border-gray-200 flex items-center justify-between">
-                <div class="font-bold text-gray-700 text-base">🚦 儀表板燈號：</div>
+                <div class="font-bold text-gray-700 text-base">🚦 儀表板燈號日期：</div>
                 <div class="relative w-36 bg-orange-50 rounded-lg h-10 flex items-center justify-center border border-orange-200">
                     <div id="homeDateDisplay" class="w-full text-center font-bold text-orange-900 pointer-events-none"></div>
                     <input type="date" id="homeDatePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="homeDateChanged()">
@@ -334,9 +334,10 @@
                     const safeId = window.getSafeId(c);
                     
                     const dashboardDateStr = document.getElementById('homeDatePicker').value;
+                    const targetDateStr = getTargetDateStr(c, dashboardDateStr);
                     
                     let isManualBlackBorder = false;
-                    if (userInputs[dashboardDateStr] && userInputs[dashboardDateStr]['_MANUAL_STATES_'] && userInputs[dashboardDateStr]['_MANUAL_STATES_'][c]) {
+                    if (userInputs[targetDateStr] && userInputs[targetDateStr]['_MANUAL_STATES_'] && userInputs[targetDateStr]['_MANUAL_STATES_'][c]) {
                         isManualBlackBorder = true;
                     }
 
@@ -344,41 +345,45 @@
                     let targetDept = depts.includes("房務") ? "房務" : (depts[0] || "");
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
-                    
                     let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
+                    let targetItems = []; let canCheck = false;
                     
-                    // 動態找出「浴巾」到「抹布」之間的所有品項
-                    let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
-                    let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
-                    let requiredItems = [];
-                    if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
-                        requiredItems = templateItems.slice(startIdx, endIdx + 1);
-                    } else if (startIdx !== -1) {
-                        requiredItems = templateItems.slice(startIdx);
-                    } else {
-                        requiredItems = [...templateItems];
+                    // 永遠只抓浴巾到抹布，不用管其他額外新增的品項
+                    if (targetDept === "房務" || targetDept !== "") {
+                        let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
+                        let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
+                        
+                        if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+                            targetItems = templateItems.slice(startIdx, endIdx + 1);
+                        } else if (startIdx !== -1) {
+                            targetItems = templateItems.slice(startIdx);
+                        } else {
+                            targetItems = [...templateItems];
+                        }
+                        canCheck = true;
                     }
 
-                    // 👉 核心邏輯：只看「前一天」和「今天」的單據！
+                    // 檢查「昨天」與「今天」的資料
                     const dashDateObj = new Date(dashboardDateStr.split('-')[0], dashboardDateStr.split('-')[1]-1, dashboardDateStr.split('-')[2]);
                     const prevDateObj = new Date(dashDateObj);
                     prevDateObj.setDate(prevDateObj.getDate() - 1);
                     const prevDayStr = getLocalDateString(prevDateObj);
 
-                    const targetDocs = [prevDayStr, dashboardDateStr]; // 陣列：昨天和今天
+                    const targetDocs = [prevDayStr, dashboardDateStr];
 
-                    if (requiredItems.length > 0) {
+                    if (canCheck && targetItems.length > 0) {
                         for (let docDate of targetDocs) {
                             let hData = userInputs[docDate] && userInputs[docDate][fullHotelName];
-                            if (!hData) continue;
+                            if (!hData) continue; 
 
                             let isAllSigned = true;
                             let latestSignDateStr = "";
                             let hasAnyTargetData = false;
 
-                            for (let item of requiredItems) {
+                            // 只檢查 targetItems（核心品項）
+                            for (let item of targetItems) {
                                 let u = hData[item];
-                                // 只要沒這個品項、沒簽名、或者數量是空的 (有0可以，但不能空)，就代表沒齊
+                                // 如果沒資料、沒簽名、或者數量為空(不管有沒有0)，代表核心品項沒做完
                                 if (!u || !u.doubleSignature || u.count === '' || u.doubleCount === '') {
                                     isAllSigned = false;
                                     break;
@@ -389,12 +394,12 @@
                                 }
                             }
 
+                            // 只要核心品項齊全了，就去抓最後完成日
                             if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
-                                let completionDay = latestSignDateStr.split(' ')[0];
-                                // 👉 如果最後一個簽名的日期，剛好等於儀表板的「今天」，就豪邁亮燈！
+                                let completionDay = latestSignDateStr.split(' ')[0]; 
                                 if (completionDay === dashboardDateStr) {
                                     isOrange = true;
-                                    break;
+                                    break; 
                                 }
                             }
                         }
@@ -927,6 +932,26 @@
                                 };
                                 dataChanged = true;
                             }
+                            // ★ 新增：當上帝視角(後台)刪除紀錄時，同步抹除手機上的暫存
+                            else if (change.type === "removed") {
+                                const r = change.doc.data();
+                                let dDate = String(r.date || "").replace(/\//g, '-').trim();
+
+                                if (r.item === '_MANUAL_BORDER_') {
+                                    if(userInputs[dDate] && userInputs[dDate]['_MANUAL_STATES_']) {
+                                        userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = false;
+                                        dataChanged = true;
+                                        if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
+                                            if(window.updateBorderBtnState) window.updateBorderBtnState();
+                                        }
+                                    }
+                                } else {
+                                    if(userInputs[dDate] && userInputs[dDate][r.hotel] && userInputs[dDate][r.hotel][r.item]) {
+                                        delete userInputs[dDate][r.hotel][r.item]; // 徹底刪除該品項記憶
+                                        dataChanged = true;
+                                    }
+                                }
+                            } 
                         });
 
                         if (dataChanged) {
