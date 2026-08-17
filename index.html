@@ -41,18 +41,23 @@
                     <span id="syncIndicator" class="text-xs text-green-600 font-bold opacity-0 transition-opacity duration-500">●即時同步中</span>
                 </div>
                 
-                <div class="flex gap-2">
-                    <button onclick="syncSettingsFromSheet(event)" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-purple-200">
-                        ⚙️ 更新設定
-                    </button>
-                    <button onclick="manualRefresh()" class="bg-blue-100 text-blue-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-blue-200">
-                        🔄 手動重載
+                <div class="flex flex-col gap-2 w-1/2">
+                    <div class="flex gap-2">
+                        <button onclick="syncSettingsFromSheet(event)" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-purple-200 flex-1">
+                            ⚙️ 更新設定
+                        </button>
+                        <button onclick="manualRefresh()" class="bg-blue-100 text-blue-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-blue-200 flex-1">
+                            🔄 手動重載
+                        </button>
+                    </div>
+                    <button onclick="syncOldInventoryFromSheet(event)" class="bg-yellow-100 text-yellow-800 px-3 py-2 rounded-xl font-bold text-sm shadow-sm active:bg-yellow-200 w-full text-center">
+                        📥 吸取舊資料
                     </button>
                 </div>
             </div>
             
             <div class="bg-white p-3 rounded-2xl shadow-sm mb-4 border border-gray-200 flex items-center justify-between">
-                <div class="font-bold text-gray-700 text-base">🚦 儀表板燈號日期：</div>
+                <div class="font-bold text-gray-700 text-base">🚦 儀表板燈號：</div>
                 <div class="relative w-36 bg-orange-50 rounded-lg h-10 flex items-center justify-center border border-orange-200">
                     <div id="homeDateDisplay" class="w-full text-center font-bold text-orange-900 pointer-events-none"></div>
                     <input type="date" id="homeDatePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="homeDateChanged()">
@@ -212,9 +217,8 @@
             return "id_" + Array.from(String(str || "")).map(c => c.charCodeAt(0).toString(16)).join('_');
         };
 
-        // ★ 核心修復：高相容性日期轉換，避免舊設備 toISOString 崩潰
+        // 安全的時間轉換，防止舊款手機報錯
         function getLocalDateString(dateObj) { 
-            if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
             const y = dateObj.getFullYear();
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getDate()).padStart(2, '0');
@@ -222,7 +226,6 @@
         }
 
         function getLocalTimeString(dateObj) {
-            if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
             const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
             const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
@@ -326,22 +329,14 @@
             
             if (filtered.length > 0) {
                 let htmlContent = "";
-                
-                const dashboardDateStr = document.getElementById('homeDatePicker').value;
-                const parts = dashboardDateStr.split('-');
-                const dbDate = new Date(parts[0], parts[1] - 1, parts[2]);
-                const prevDate = new Date(dbDate);
-                prevDate.setDate(prevDate.getDate() - 1);
-                const dashboardDateMinusOneStr = getLocalDateString(prevDate);
-
                 filtered.forEach(c => {
                     let isOrange = false;
                     const safeId = window.getSafeId(c);
                     
-                    const targetDateStr = getTargetDateStr(c, dashboardDateStr);
+                    const dashboardDateStr = document.getElementById('homeDatePicker').value;
                     
                     let isManualBlackBorder = false;
-                    if (userInputs[targetDateStr] && userInputs[targetDateStr]['_MANUAL_STATES_'] && userInputs[targetDateStr]['_MANUAL_STATES_'][c]) {
+                    if (userInputs[dashboardDateStr] && userInputs[dashboardDateStr]['_MANUAL_STATES_'] && userInputs[dashboardDateStr]['_MANUAL_STATES_'][c]) {
                         isManualBlackBorder = true;
                     }
 
@@ -350,63 +345,56 @@
                     let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
                     let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
                     
-                    let templateItems = masterData
-                        .filter(d => d.hotel === fullHotelName && String(d.item) !== "undefined" && String(d.item).trim() !== "")
-                        .map(d => d.item);
-
-                    let targetItems = []; let canCheck = false;
+                    let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
                     
-                    if (targetDept === "房務") {
-                        let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
-                        let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
-                        
-                        if (startIdx !== -1 && endIdx !== -1) {
-                            let minIdx = Math.min(startIdx, endIdx);
-                            let maxIdx = Math.max(startIdx, endIdx);
-                            targetItems = templateItems.slice(minIdx, maxIdx + 1);
-                        } else if (startIdx !== -1) {
-                            targetItems = templateItems.slice(startIdx);
-                        } else if (endIdx !== -1) {
-                            targetItems = templateItems.slice(0, endIdx + 1);
-                        } else {
-                            targetItems = [...templateItems];
-                        }
-                        canCheck = true;
-                    } else if (targetDept !== "") {
-                        targetItems = [...templateItems]; canCheck = true;
+                    // 動態找出「浴巾」到「抹布」之間的所有品項
+                    let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
+                    let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
+                    let requiredItems = [];
+                    if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+                        requiredItems = templateItems.slice(startIdx, endIdx + 1);
+                    } else if (startIdx !== -1) {
+                        requiredItems = templateItems.slice(startIdx);
+                    } else {
+                        requiredItems = [...templateItems];
                     }
-                    
-                    // ★ 亮燈判斷：嚴格只比對單據對應日，防範跨日干擾
-                    if (canCheck && targetItems.length > 0) {
-                        let hData = userInputs[targetDateStr] && userInputs[targetDateStr][fullHotelName];
-                        
-                        if (hData) {
+
+                    // 👉 核心邏輯：只看「前一天」和「今天」的單據！
+                    const dashDateObj = new Date(dashboardDateStr.split('-')[0], dashboardDateStr.split('-')[1]-1, dashboardDateStr.split('-')[2]);
+                    const prevDateObj = new Date(dashDateObj);
+                    prevDateObj.setDate(prevDateObj.getDate() - 1);
+                    const prevDayStr = getLocalDateString(prevDateObj);
+
+                    const targetDocs = [prevDayStr, dashboardDateStr]; // 陣列：昨天和今天
+
+                    if (requiredItems.length > 0) {
+                        for (let docDate of targetDocs) {
+                            let hData = userInputs[docDate] && userInputs[docDate][fullHotelName];
+                            if (!hData) continue;
+
                             let isAllSigned = true;
                             let latestSignDateStr = "";
                             let hasAnyTargetData = false;
 
-                            for (let item of targetItems) {
+                            for (let item of requiredItems) {
                                 let u = hData[item];
-                                
-                                if (!u || u.doubleCount === undefined || u.doubleCount === null || String(u.doubleCount).trim() === "" || !u.doubleSignature) {
+                                // 只要沒這個品項、沒簽名、或者數量是空的 (有0可以，但不能空)，就代表沒齊
+                                if (!u || !u.doubleSignature || u.count === '' || u.doubleCount === '') {
                                     isAllSigned = false;
                                     break;
                                 }
-                                
                                 hasAnyTargetData = true;
-                                
-                                if (u.doubleSignDate) {
-                                    let signDateStr = String(u.doubleSignDate);
-                                    if (signDateStr > latestSignDateStr) {
-                                        latestSignDateStr = signDateStr;
-                                    }
+                                if (u.doubleSignDate > latestSignDateStr) {
+                                    latestSignDateStr = u.doubleSignDate;
                                 }
                             }
 
-                            if (isAllSigned && hasAnyTargetData && latestSignDateStr !== "") {
-                                let completionDay = latestSignDateStr.split(' ')[0].replace(/\//g, '-'); 
-                                if (completionDay === dashboardDateStr || completionDay === dashboardDateMinusOneStr) {
+                            if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
+                                let completionDay = latestSignDateStr.split(' ')[0];
+                                // 👉 如果最後一個簽名的日期，剛好等於儀表板的「今天」，就豪邁亮燈！
+                                if (completionDay === dashboardDateStr) {
                                     isOrange = true;
+                                    break;
                                 }
                             }
                         }
@@ -543,13 +531,14 @@
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
             
+            // 阻擋 undefined 的幽靈品項
             let displayItems = masterData
-                .filter(d => d.hotel === currentHotelName && String(d.item) !== "undefined" && String(d.item).trim() !== "")
+                .filter(d => d.hotel === currentHotelName && String(d.item) !== 'undefined' && String(d.item).trim() !== '')
                 .map(d => d.item);
             
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             for (let itemName in todayInputs) { 
-                if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_' && itemName !== '_MANUAL_STATES_' && itemName !== 'undefined' && String(itemName).trim() !== "") {
+                if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_' && itemName !== '_MANUAL_STATES_' && String(itemName) !== 'undefined' && String(itemName).trim() !== '') {
                     displayItems.push(itemName); 
                 }
             }
@@ -579,7 +568,6 @@
                 
                 const hasSigned = u.hasSigned || false; 
                 const doubleHasSigned = u.doubleHasSigned || false;
-                const isSubmitted = u.isSubmitted || false; 
                 
                 const hasAuntSignature = !!u.signature;
                 const hasSupSignature = !!u.doubleSignature;
@@ -815,9 +803,6 @@
         function addNewItem() {
             const inputEl = document.getElementById('newItemInput'); const newItemName = inputEl.value.trim(); const dateStr = document.getElementById('datePicker').value;
             if (!newItemName) return showMessage("請輸入要新增的品項名稱喔！");
-            
-            if (newItemName === "undefined") return showMessage("無效的品項名稱！");
-            
             const inTemplate = masterData.some(d => d.hotel === currentHotelName && d.item === newItemName);
             const inToday = userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][newItemName];
             if (inTemplate || inToday) return showMessage("這個品項已經在當天的列表裡面囉！");
@@ -838,13 +823,12 @@
         let db;
         let isFirebaseLoaded = false;
         let currentSnapshotUnsubscribe = null; 
-        
         let currentListenDatesStr = ""; 
 
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
 
                 const firebaseConfig = {
                     apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4", authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
@@ -853,24 +837,17 @@
                 };
 
                 const app = initializeApp(firebaseConfig);
-                
-                // ★ 核心修復：防止舊型手機/無痕模式/多分頁 IndexedDB 鎖死導致崩潰
-                try {
-                    db = initializeFirestore(app, {
-                        localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-                    });
-                } catch (cacheErr) {
-                    db = initializeFirestore(app, {});
-                }
-                
+                db = initializeFirestore(app, {
+                    localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+                });
                 isFirebaseLoaded = true;
 
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
                     try {
                         await setDoc(doc(db, 'inventory_records', `${dateStr}_${hotel}_MANUAL_BORDER`), {
-                            date: String(dateStr || ''), hotel: String(hotel || ''), item: '_MANUAL_BORDER_',
-                            isBorder: !!isBorder, timestamp: getLocalTimeString(new Date())
+                            date: dateStr, hotel: hotel, item: '_MANUAL_BORDER_',
+                            isBorder: isBorder, timestamp: new Date().toLocaleString()
                         }, { merge: true });
                     } catch(e) { console.warn("標記同步失敗", e); }
                 };
@@ -883,9 +860,7 @@
                             buildHotelStructure();
                             saveToLocal();
                         }
-                    } catch (e) {
-                        console.warn("Master Template 讀取失敗", e);
-                    }
+                    } catch (e) { console.warn("Master Template 讀取失敗", e); }
                 }
 
                 window.attachRealtimeListener = function(baseDateStr) {
@@ -895,6 +870,7 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
+                    // 為了判定昨天的單，必須把昨天、今天、明天都拿進來監聽
                     for(let i = -1; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -902,9 +878,7 @@
                     }
                     
                     const newListenStr = datesToListen.join(',');
-                    if (currentListenDatesStr === newListenStr) {
-                        return; 
-                    }
+                    if (currentListenDatesStr === newListenStr) return; 
                     currentListenDatesStr = newListenStr;
 
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
@@ -966,17 +940,12 @@
                 window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
 
                 const originalHomeDateChanged = window.homeDateChanged;
-                window.homeDateChanged = function() {
-                    originalHomeDateChanged();
-                }
+                window.homeDateChanged = function() { originalHomeDateChanged(); }
                 const originalDateChanged = window.dateChanged;
-                window.dateChanged = function() {
-                    originalDateChanged();
-                }
+                window.dateChanged = function() { originalDateChanged(); }
 
-                // ★ 核心修復：強制對所有欄位進行預先過濾，防止 undefined 觸發 Firestore 拒絕寫入
                 window.firebaseSubmit = async function(category, item) {
-                    if (!isFirebaseLoaded || !db) return showMessage("連線中，請稍等一秒！");
+                    if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
@@ -985,19 +954,18 @@
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
                     renderItems(false); 
 
+                    // 防止傳送 undefined，強制轉為空字串
                     const payload = { 
-                        date: String(dateStr || ''), 
-                        hotel: String(category || ''), 
-                        item: String(item || ''), 
+                        date: dateStr, hotel: category, item: item, 
                         count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
-                        note: String(u.note || ''), 
+                        note: u.note || '', 
                         doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
-                        doubleSignDate: String(u.doubleSignDate || ''),
-                        timestamp: getLocalTimeString(new Date())
+                        doubleSignDate: u.doubleSignDate || '',
+                        timestamp: new Date().toLocaleString() 
                     };
 
-                    if (u.signature && u.signature !== 'CACHED') payload.signature = String(u.signature);
-                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = String(u.doubleSignature);
+                    if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
+                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
 
                     try {
                         const safeItem = item.replace(/\//g, '-');
@@ -1005,14 +973,9 @@
 
                         try {
                             await addDoc(collection(db, 'history_logs'), {
-                                logDate: getLocalDateString(new Date()), 
-                                timestamp: Date.now(),
-                                actionTime: getLocalTimeString(new Date()), 
-                                date: String(dateStr || ''), 
-                                hotel: String(category || ''),
-                                item: String(item || ''), 
-                                count: payload.count, 
-                                doubleCount: payload.doubleCount,
+                                logDate: getLocalDateString(new Date()), timestamp: Date.now(),
+                                actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
+                                item: item, count: payload.count, doubleCount: payload.doubleCount,
                                 signature: payload.signature || 'CACHED_RETAINED', 
                                 doubleSignature: payload.doubleSignature || 'CACHED_RETAINED', 
                                 note: payload.note
@@ -1024,47 +987,73 @@
                         saveToLocal(); 
                         renderItems(false); 
                     } catch(e) {
-                        console.error("Firestore 寫入失敗詳情:", e);
                         handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);
-                        saveToLocal(); renderItems(false); showMessage("⚠️ 寫入失敗！請點擊紅色按鈕重傳！");
+                        saveToLocal(); renderItems(false); showMessage("⚠️ 網路連線不穩！請點擊紅色按鈕重傳！");
                     }
                 };
 
                 window.syncSettingsFromSheet = async function(event) {
                     if (!isFirebaseLoaded) return showMessage("尚未連線到 Firebase，請稍後重試。");
-                    const btn = event.currentTarget; 
-                    const originalText = btn.innerText; 
-                    btn.innerText = "⏳ 下載中..."; 
-                    btn.disabled = true;
+                    const btn = event.currentTarget; const originalText = btn.innerText; btn.innerText = "⏳ 下載中..."; btn.disabled = true;
                     try {
                         const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
-                        if (!res.ok) {
-                             throw new Error(`伺服器回應錯誤 (狀態碼: ${res.status})。`);
-                        }
+                        if (!res.ok) throw new Error(`伺服器回應錯誤 (狀態碼: ${res.status})。`);
                         const data = await res.json();
                         if (data.template && data.template.length > 0) {
                             await setDoc(doc(db, 'inventory_config', 'master_template'), { items: data.template });
-                            showToast("✅ 設定同步完成！"); 
-                            setTimeout(()=>location.reload(), 1000);
-                        } else if (data.error) {
-                             showMessage(`Google Apps Script 錯誤: ${data.error}`);
-                        } else {
-                             showMessage("抓到的設定是空的！請檢查試算表是否沒有資料。");
-                        }
-                    } catch (e) { 
-                         showMessage(`同步失敗：\n${e.message}\n請檢查 API_URL 是否正確。`);
-                    } finally { 
-                        btn.innerText = originalText; 
-                        btn.disabled = false; 
+                            showToast("✅ 設定同步完成！"); setTimeout(()=>location.reload(), 1000);
+                        } else if (data.error) showMessage(`Google Apps Script 錯誤: ${data.error}`);
+                        else showMessage("抓到的設定是空的！請檢查試算表是否沒有資料。");
+                    } catch (e) { showMessage(`同步失敗：\n${e.message}\n請檢查 API_URL 是否正確。`); } 
+                    finally { btn.innerText = originalText; btn.disabled = false; }
+                };
+
+                window.syncOldInventoryFromSheet = async function(event) {
+                    if (!isFirebaseLoaded) return;
+                    const btn = event.currentTarget; const originalText = btn.innerHTML; btn.innerHTML = "⏳ 吸取中..."; btn.disabled = true;
+                    try {
+                        const res = await fetch(`${API_URL}?action=getInventoryData&t=${new Date().getTime()}`);
+                        const data = await res.json();
+                        if (data.records && data.records.length > 0) {
+                            btn.innerHTML = "⏳ 寫入中...";
+                            const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
+                            const recordChunks = chunkArray(data.records, 450);
+                            for (let i = 0; i < recordChunks.length; i++) {
+                                const batch = writeBatch(db);
+                                recordChunks[i].forEach(r => {
+                                    let dateStr = String(r.date || "").replace(/\//g, '-').trim();
+                                    let hotelStr = String(r.hotel || "").trim();
+                                    let itemStr = String(r.item || "").trim();
+                                    if(!dateStr || !hotelStr || !itemStr) return;
+                                    const safeItem = itemStr.replace(/\//g, '-');
+                                    batch.set(doc(db, 'inventory_records', `${dateStr}_${hotelStr}_${safeItem}`.replace(/[\/\\?%*:|"<>]/g, '-')), {
+                                        date: dateStr, hotel: hotelStr, item: itemStr,
+                                        count: (r.count !== undefined && r.count !== null) ? String(r.count) : "", 
+                                        note: r.note || "", signature: r.signature || "",
+                                        doubleCount: (r.doubleCount !== undefined && r.doubleCount !== null) ? String(r.doubleCount) : "", 
+                                        doubleSignature: r.doubleSignature || "",
+                                        doubleSignDate: r.doubleSignDate || "", timestamp: new Date().toLocaleString()
+                                    }, { merge: true });
+                                });
+                                await batch.commit();
+                            }
+                            showMessage(`✅ 成功吸入舊紀錄！\n注意：如果後台改了單據日期，舊日期的單據會被留在Firebase，您需要手動忽略它。`, false);
+                        } else showMessage("沒有舊資料！");
+                    } catch (e) { showMessage("吸取失敗！"); } 
+                    finally { btn.innerHTML = originalText; btn.disabled = false; }
+                };
+
+                // 強化版：直接清空快取再重整，保證後台改什麼就抓什麼
+                window.manualRefresh = function() {
+                    if (confirm("這會清除手機的暫存並重新載入最新資料，確定要執行嗎？\n(能解決後台改日期但網頁沒同步的問題)")) {
+                        localStorage.removeItem('inventory_masterData');
+                        localStorage.removeItem('inventory_userInputs');
+                        location.reload();
                     }
                 };
 
-                window.manualRefresh = function() {
-                    location.reload();
-                };
-
             } catch (error) {
-                console.error("Firebase 初始化嚴重失敗", error);
+                console.error("Firebase 失敗", error);
             }
         }
 
