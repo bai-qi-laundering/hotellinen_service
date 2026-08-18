@@ -1,1081 +1,1074 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>百麒物流 - 財務多維結帳系統</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-    <style>
-        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding-bottom: 80px; }
-        .app-container { max-w-[1400px]; margin: 0 auto; padding: 20px; }
-        
-        .bank-table { width: 100%; border-collapse: collapse; background: white; text-align: left; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .bank-table th { background-color: #3b5bdb; color: white; padding: 14px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; white-space: nowrap; z-index: 10; }
-        .bank-table td { padding: 10px 16px; border-bottom: 1px solid #f1f3f5; font-size: 14px; color: #343a40; }
-        .bank-table tr:hover:not(.dept-header):not(.subtotal-row):not(.total-row) { background-color: #edf2ff; }
-        
-        .dept-header { background-color: #e0e7ff; }
-        .subtotal-row { background-color: #f8f9fa; border-bottom: 3px solid #dee2e6; }
-        .total-row { background-color: #eff6ff; }
-        
-        .price-display { font-weight: bold; color: #1e3a8a; }
-        .price-missing { color: #dc2626; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百麒物流 - 財務多維結帳系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding-bottom: 80px; }
+        .app-container { max-w-[1400px]; margin: 0 auto; padding: 20px; }
+        
+        .bank-table { width: 100%; border-collapse: collapse; background: white; text-align: left; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .bank-table th { background-color: #3b5bdb; color: white; padding: 14px 16px; font-weight: 500; font-size: 15px; position: sticky; top: 0; white-space: nowrap; z-index: 10; }
+        .bank-table td { padding: 10px 16px; border-bottom: 1px solid #f1f3f5; font-size: 14px; color: #343a40; }
+        .bank-table tr:hover:not(.dept-header):not(.subtotal-row):not(.total-row) { background-color: #edf2ff; }
+        
+        .dept-header { background-color: #e0e7ff; }
+        .subtotal-row { background-color: #f8f9fa; border-bottom: 3px solid #dee2e6; }
+        .total-row { background-color: #eff6ff; }
+        
+        .price-display { font-weight: bold; color: #1e3a8a; }
+        .price-missing { color: #dc2626; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 
-        .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
-        .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
-        .excel-tab.active { background-color: white; color: #d97706; border-top: 3px solid #d97706; font-weight: 900; }
-        .excel-tab:hover:not(.active) { background-color: #f8f9fa; }
+        .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
+        .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+        .excel-tab.active { background-color: white; color: #d97706; border-top: 3px solid #d97706; font-weight: 900; }
+        .excel-tab:hover:not(.active) { background-color: #f8f9fa; }
 
-        .print-only { display: none; }
+        .print-only { display: none; }
 
-        @media print {
-            body { background: white; padding: 0; margin: 0; }
-            .no-print { display: none !important; }
-            .print-only { display: block !important; width: 100%; color: #000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-            @page { size: A4 portrait; margin: 12mm; }
-            .page-break { page-break-before: always; }
-            
-            .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 20px; }
-            .invoice-title { font-size: 28px; font-weight: 900; color: #1e3a8a; letter-spacing: 2px; }
-            .invoice-meta { text-align: right; font-size: 12px; color: #4b5563; line-height: 1.6; }
-            .info-boxes { display: flex; gap: 20px; margin-bottom: 20px; }
-            .info-box { flex: 1; border: 1px solid #94a3b8; border-radius: 4px; overflow: hidden; }
-            .info-box-title { background-color: #8b7355; color: white; padding: 6px 12px; font-weight: bold; font-size: 14px; }
-            .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-            .info-table td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
-            .info-table td:first-child { width: 100px; font-weight: bold; background-color: #f8fafc; border-right: 1px solid #e2e8f0; }
-            
-            .main-content { display: flex; gap: 20px; align-items: flex-start; }
-            .main-left { flex: 7; }
-            .main-right { flex: 3; display: flex; flex-col; gap: 20px; }
-            .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; border: 1px solid #94a3b8; }
-            .data-table th { background-color: #1e3a8a; color: white; padding: 8px; text-align: center; border: 1px solid #94a3b8; }
-            .data-table td { padding: 8px; border: 1px solid #cbd5e1; text-align: center; }
-            .data-table tr.total-row { background-color: #f1f5f9; font-weight: bold; }
-            
-            .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
-            .detail-table th { background-color: #1e3a8a; color: white; padding: 8px; text-align: center; border: 1px solid #cbd5e1; }
-            .detail-table td { padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; }
-            .detail-table td.date-col { font-weight: bold; background-color: #f8fafc; }
-            
-            .summary-box { border: 1px solid #94a3b8; border-radius: 4px; overflow: hidden; margin-bottom: 20px; width: 100%; }
-            .summary-box-title { background-color: #1e3a8a; color: white; padding: 8px; font-weight: bold; font-size: 14px; text-align: center; }
-            .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-            .summary-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
-            .summary-table td:last-child { text-align: right; font-weight: bold; font-family: monospace; font-size: 15px; }
-            
-            .tax-box { background-color: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 15px; margin-bottom: 20px; }
-            .tax-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
-            .tax-total { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 2px solid #cbd5e1; font-size: 18px; font-weight: 900; color: #b45309; }
-            .footer-notes { font-size: 11px; color: #4b5563; line-height: 1.5; margin-top: 30px; }
-            .signature-area { display: flex; justify-content: space-between; margin-top: 40px; }
-            .sign-box { width: 45%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; }
-            .sign-title { font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 30px; font-size: 13px; }
-        }
-        
-        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-    </style>
+        @media print {
+            body { background: white; padding: 0; margin: 0; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; width: 100%; color: #000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+            @page { size: A4 portrait; margin: 12mm; }
+            .page-break { page-break-before: always; }
+            
+            .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 20px; }
+            .invoice-title { font-size: 28px; font-weight: 900; color: #1e3a8a; letter-spacing: 2px; }
+            .invoice-meta { text-align: right; font-size: 12px; color: #4b5563; line-height: 1.6; }
+            .info-boxes { display: flex; gap: 20px; margin-bottom: 20px; }
+            .info-box { flex: 1; border: 1px solid #94a3b8; border-radius: 4px; overflow: hidden; }
+            .info-box-title { background-color: #8b7355; color: white; padding: 6px 12px; font-weight: bold; font-size: 14px; }
+            .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .info-table td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
+            .info-table td:first-child { width: 100px; font-weight: bold; background-color: #f8fafc; border-right: 1px solid #e2e8f0; }
+            
+            .main-content { display: flex; gap: 20px; align-items: flex-start; }
+            .main-left { flex: 7; }
+            .main-right { flex: 3; display: flex; flex-col; gap: 20px; }
+            .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; border: 1px solid #94a3b8; }
+            .data-table th { background-color: #1e3a8a; color: white; padding: 8px; text-align: center; border: 1px solid #94a3b8; }
+            .data-table td { padding: 8px; border: 1px solid #cbd5e1; text-align: center; }
+            .data-table tr.total-row { background-color: #f1f5f9; font-weight: bold; }
+            
+            .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
+            .detail-table th { background-color: #1e3a8a; color: white; padding: 8px; text-align: center; border: 1px solid #cbd5e1; }
+            .detail-table td { padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; }
+            .detail-table td.date-col { font-weight: bold; background-color: #f8fafc; }
+            
+            .summary-box { border: 1px solid #94a3b8; border-radius: 4px; overflow: hidden; margin-bottom: 20px; width: 100%; }
+            .summary-box-title { background-color: #1e3a8a; color: white; padding: 8px; font-weight: bold; font-size: 14px; text-align: center; }
+            .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .summary-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+            .summary-table td:last-child { text-align: right; font-weight: bold; font-family: monospace; font-size: 15px; }
+            
+            .tax-box { background-color: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 15px; margin-bottom: 20px; }
+            .tax-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+            .tax-total { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 2px solid #cbd5e1; font-size: 18px; font-weight: 900; color: #b45309; }
+            .footer-notes { font-size: 11px; color: #4b5563; line-height: 1.5; margin-top: 30px; }
+            .signature-area { display: flex; justify-content: space-between; margin-top: 40px; }
+            .sign-box { width: 45%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; }
+            .sign-title { font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 30px; font-size: 13px; }
+        }
+        
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+    </style>
 </head>
 <body>
 
-    <div class="app-container no-print">
-        
-        <div class="flex justify-between items-center mb-4 border-b border-gray-300 pb-4">
-            <h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
-                百麒物流 <span class="text-amber-700">💼</span> 多維財務結帳大腦
-            </h1>
-            <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
-        </div>
-
-        <!-- ★ 系統分頁切換 -->
-        <div class="flex gap-4 border-b border-gray-300 mb-6">
-            <button id="tabBtnFinance" onclick="switchSysTab('finance')" class="pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition">💰 財務對帳單 (對外請款)</button>
-            <button id="tabBtnDriver" onclick="switchSysTab('driver')" class="pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition">🚗 司機業績結算 (內部抽成)</button>
-        </div>
-
-        <!-- 共用區塊：日期選擇 -->
-        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 w-full max-w-2xl">
-            <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">📅 結帳區間設定 (全系統共用)</h3>
-            <div class="flex gap-4">
-                <div class="flex items-center gap-3 flex-1">
-                    <span class="text-gray-600 font-bold">起始：</span>
-                    <input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
-                </div>
-                <div class="flex items-center gap-3 flex-1">
-                    <span class="text-gray-600 font-bold">結束：</span>
-                    <input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
-                </div>
-            </div>
-        </div>
-
-        <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
-            <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
-        </div>
-
-        <!-- ==================== 【系統 1：財務對帳單】 ==================== -->
-        <div id="sysFinance" class="block">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div class="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-100">
-                    <h3 class="font-bold text-orange-800 mb-4 border-b border-orange-200 pb-2">1. 快速載入群組名單：</h3>
-                    <div class="flex flex-col gap-3">
-                        <button onclick="quickSelectGroup('25th')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                            <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
-                        </button>
-                        <button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                            <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 月底結帳飯店
-                        </button>
-                        <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
-                            <span>☐</span> 清空所有勾選
-                        </button>
-                    </div>
-                </div>
-
-                <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
-                    <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">2. 關鍵字過濾 (自訂選單)：</h3>
-                    <div class="flex flex-col gap-3 flex-1">
-                        <input type="text" id="keywordFilter" onkeyup="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
-                        <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
-                            <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
-                <div class="flex justify-between items-center border-b pb-3 mb-4">
-                    <h3 class="font-bold text-gray-800">✅ 請確認下方要結算的飯店清單 <span class="text-xs text-gray-400 font-normal">(僅顯示期間內有實收紀錄者)</span>：</h3>
-                    <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-700 hover:bg-blue-800 text-white font-bold px-8 py-2 rounded-full shadow transition-colors disabled:opacity-50">
-                        開始結算預覽
-                    </button>
-                </div>
-                <div id="hotelCheckboxes" class="flex flex-wrap gap-x-6 gap-y-3 max-h-48 overflow-y-auto custom-scroll p-2">
-                    <div class="text-gray-400 font-bold w-full text-center py-4">正在載入區間內的飯店清單...</div>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
-                <div class="p-4 bg-gray-50 flex justify-between items-center border-b border-gray-200 rounded-t-xl">
-                    <div class="flex items-center gap-4">
-                        <h3 class="font-black text-gray-800 text-lg">內部核對總表 <span class="text-sm text-gray-500 font-medium ml-2">各部門分段明細檢視</span></h3>
-                        <span class="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold shadow-sm">💡 現在您可以直接在表格內修改並記憶單價了！</span>
-                    </div>
-                    <button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2 rounded-lg shadow-sm flex items-center gap-2">
-                        產生客戶對帳單
-                    </button>
-                </div>
-                <div class="overflow-x-auto max-h-[600px] custom-scroll relative">
-                    <table class="bank-table">
-                        <thead>
-                            <tr>
-                                <th class="w-32 text-center">出貨日期</th>
-                                <th class="w-48">品項名稱</th>
-                                <th class="w-24 text-center">數量 (實收)</th>
-                                <th class="w-28 text-center">單價 (可修改)</th>
-                                <th class="w-32 text-right pr-6">小計金額</th>
-                            </tr>
-                        </thead>
-                        <tbody id="internalTableBody">
-                            <tr><td colspan="5" class="py-16 text-center text-gray-400 font-bold">請先勾選飯店後，點擊「開始結算預覽」</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- ==================== 【系統 2：司機業績計算】 ==================== -->
-        <div id="sysDriver" class="hidden">
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
-                <div class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
-                    <div>
-                        <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
-                        <p class="text-sm text-gray-500 font-bold mt-1">系統將根據試算表的「路線設定表」與「司機排班表」，自動配對該區間內的出貨明細。</p>
-                    </div>
-                    <button onclick="calculateDriverPerformance()" id="calcDriverBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 py-3 rounded-full shadow-lg transition-transform hover:scale-105">
-                        ▶ 開始計算業績
-                    </button>
-                </div>
-                
-                <!-- 司機業績總覽卡片區 -->
-                <div id="driverCardsContainer" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-                    <div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請點擊上方「開始計算業績」</div>
-                </div>
-
-                <!-- 孤兒單據警告區 (找不到負責人) -->
-                <div id="unassignedBox" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-5 mb-6 shadow-sm">
-                    <h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未歸屬業績 (無對應排班)</h4>
-                    <p class="text-sm text-red-600 font-bold mb-3">以下日期的出貨紀錄，在試算表【司機排班表】中找不到負責該路線的司機，因此未計入任何人的業績中。請至試算表補上排班並重新計算。</p>
-                    <div class="flex justify-between items-end">
-                        <div id="unassignedAmount" class="text-3xl font-black text-red-800">$0</div>
-                        <button onclick="showDriverDetails('unassigned')" class="text-sm bg-white text-red-600 border border-red-300 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 font-bold transition">查看未歸屬明細</button>
-                    </div>
-                </div>
-
-                <!-- 點擊卡片後展開的明細表 -->
-                <div id="driverDetailSection" class="hidden mt-8 border-t-2 pt-6 border-indigo-100">
-                    <h4 id="driverDetailTitle" class="text-2xl font-black text-indigo-900 mb-4">明細清單</h4>
-                    <div class="overflow-x-auto max-h-[500px] custom-scroll relative border border-gray-200 rounded-lg">
-                        <table class="bank-table">
-                            <thead>
-                                <tr>
-                                    <th style="background-color: #4f46e5;" class="w-32 text-center">出貨日期</th>
-                                    <th style="background-color: #4f46e5;" class="w-40">飯店名稱</th>
-                                    <th style="background-color: #4f46e5;" class="w-32">判定路線</th>
-                                    <th style="background-color: #4f46e5;" class="w-40">品項名稱</th>
-                                    <th style="background-color: #4f46e5;" class="w-24 text-center">實收數量</th>
-                                    <th style="background-color: #4f46e5;" class="w-24 text-center">單價(未稅)</th>
-                                    <th style="background-color: #4f46e5;" class="w-32 text-right pr-6">金額小計</th>
-                                </tr>
-                            </thead>
-                            <tbody id="driverDetailBody">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- 產生對帳單彈出視窗 -->
-    <div id="invoiceModal" class="fixed inset-0 bg-black/60 z-[2000] hidden items-center justify-center no-print">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden transform transition-all">
-            <div class="bg-amber-600 p-4 text-white font-black text-xl flex justify-between items-center">
-                <span>📑 產出正式客戶對帳單</span>
-                <button onclick="closeInvoiceModal()" class="hover:bg-amber-700 p-1 rounded">✖</button>
-            </div>
-            <div class="p-6">
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-bold mb-2">1. 選擇請款母公司 (需於試算表【客戶資料表】建檔)</label>
-                    <select id="invoiceTargetCompany" onchange="loadClientProfile()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
-                        <option value="">-- 請先載入預覽帳目 --</option>
-                    </select>
-                </div>
-                
-                <div class="bg-gray-100 border border-gray-200 rounded-lg p-4 mb-4">
-                    <div class="flex justify-between items-end mb-3 border-b border-gray-300 pb-2">
-                        <h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，不可在此修改)</h4>
-                        <span class="text-xs text-red-500 font-bold">如需修改請至試算表【客戶資料表】</span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4 text-sm">
-                        <div><label class="font-bold text-gray-500 text-xs">發票抬頭名稱</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div><label class="font-bold text-gray-500 text-xs">統一編號</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div><label class="font-bold text-gray-500 text-xs">聯絡電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div class="col-span-2"><label class="font-bold text-gray-500 text-xs">出貨/聯絡地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                        <div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-                    </div>
-                </div>
-                <div class="flex justify-end gap-3 mt-6">
-                    <button onclick="closeInvoiceModal()" class="px-5 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">取消</button>
-                    <button onclick="generateOfficialInvoice()" class="px-5 py-2 bg-amber-600 text-white font-bold rounded-lg shadow hover:bg-amber-700 flex items-center gap-2 transition">
-                        產生對帳單
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 列印區 -->
-    <div id="printArea" class="print-only"></div>
-
-    <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
-        <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
-        <button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載 Excel</button>
-        <button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
-    </div>
-
-    <!-- 底部導覽列 -->
-    <div class="excel-bottom-bar no-print">
-        <a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
-        <a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
-        <a href="finance.html" class="excel-tab active">💰 財務對帳單</a>
-    </div>
-
-    <script type="module">
-        // ==========================================
-        // ★ 核心設定區：請貼上您的 Google Apps Script 網址
-        // ==========================================
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec"; 
-        
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
-            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
-            projectId: "hotel-inventory-3a1ad",
-            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
-            messagingSenderId: "363844184412",
-            appId: "1:363844184412:web:66cdd6425d53bde75f3999"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-        });
-
-        // 財務共用變數
-        let rawLogisticsData = []; 
-        let uniqueCompanies = new Set();
-        let sheetPrices = {}; 
-        let sheetClients = {}; 
-        
-        // 司機業績專用變數
-        let sheetRoutes = {}; 
-        let sheetSchedules = {}; 
-        let currentDriverStats = {};
-        let currentUnassignedStats = {};
-        
-        let customPrices = {}; 
-
-        const group25th = ["癮室", "承億", "文旅"]; 
-        const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
-
-        function standardizeDate(dStr) {
-            if(!dStr) return "";
-            
-            if (dStr.includes('T') && dStr.includes('Z')) {
-                let d = new Date(dStr);
-                if (!isNaN(d.getTime())) {
-                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                }
-            }
-            
-            if (dStr.includes('T')) {
-                dStr = dStr.split('T')[0];
-            }
-            
-            let parts = dStr.split(/[-/]/);
-            if(parts.length >= 3) {
-                return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].substring(0,2).padStart(2, '0')}`;
-            }
-            return String(dStr).trim();
-        }
-
-        function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
-        const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        document.getElementById('startDate').value = getLocalDateString(firstDay);
-        document.getElementById('endDate').value = getLocalDateString(today);
-
-        // 綁定全域函數
-        window.switchSysTab = function(tab) {
-            if (tab === 'finance') {
-                document.getElementById('sysFinance').classList.remove('hidden');
-                document.getElementById('sysDriver').classList.add('hidden');
-                document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition";
-                document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition";
-            } else {
-                document.getElementById('sysFinance').classList.add('hidden');
-                document.getElementById('sysDriver').classList.remove('hidden');
-                document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-amber-600 transition";
-                document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-black text-xl border-b-4 border-indigo-600 text-indigo-700 transition";
-            }
-        }
-        
-        window.fetchInitialHotels = fetchInitialHotels;
-        window.loadFinanceData = loadFinanceData;
-        window.openInvoiceModal = openInvoiceModal;
-        window.closeInvoiceModal = () => document.getElementById('invoiceModal').classList.replace('flex', 'hidden');
-        window.loadClientProfile = loadClientProfile;
-        window.generateOfficialInvoice = generateOfficialInvoice;
-        window.closePreview = () => { 
-            document.getElementById('printControls').classList.replace('flex', 'hidden'); 
-            document.getElementById('printArea').innerHTML = '';
-            document.querySelector('.app-container').classList.remove('hidden');
-            document.querySelector('.excel-bottom-bar').classList.remove('hidden');
-            document.body.style.background = '#f3f4f6';
-        };
-        window.exportToExcel = exportToExcel;
-        window.filterCheckboxes = filterCheckboxes;
-        window.selectAllVisible = selectAllVisible;
-        window.quickSelectGroup = quickSelectGroup;
-        
-        window.calculateDriverPerformance = calculateDriverPerformance;
-        window.showDriverDetails = showDriverDetails;
-
-        // ★ 更新單價：強制綁定完整的飯店+部門名稱 (例如: 承億 回洗_床單)
-        window.updateCustomPrice = async function(hotelName, item, newVal, inputEl) {
-            let key = `${hotelName}_${item}`;
-            
-            if (newVal.trim() === "") {
-                delete customPrices[key];
-            } else {
-                customPrices[key] = Number(newVal);
-            }
-
-            inputEl.style.opacity = '0.5';
-
-            try {
-                await setDoc(doc(db, 'inventory_config', 'custom_prices'), {
-                    prices: customPrices
-                }, { merge: true });
-                
-                showToast("✅ 單價已儲存！");
-                
-                if (!document.getElementById('sysFinance').classList.contains('hidden')) {
-                    loadFinanceData();
-                } else {
-                    calculateDriverPerformance();
-                }
-            } catch (err) {
-                console.error(err);
-                alert("儲存價格失敗，請檢查網路連線！");
-            } finally {
-                inputEl.style.opacity = '1';
-            }
-        }
-
-        async function syncMasterDataFromSheet() {
-            if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
-                document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
-                document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
-                return;
-            }
-            try {
-                document.getElementById('syncStatus').innerText = "🔄 正在同步試算表資料...";
-                document.getElementById('syncStatus').className = "text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full animate-pulse shadow-sm";
-                
-                const res = await fetch(`${GAS_API_URL}?action=getFinanceMasterData`);
-                const json = await res.json();
-                
-                if(json.success) {
-                    sheetPrices = {};
-                    if(json.prices) {
-                        json.prices.forEach((row, index) => {
-                            if(index === 0) return; 
-                            let hotelKeyword = String(row[0]).trim();
-                            let item = String(row[2]).trim();
-                            let price = Number(row[3]) || 0;
-                            if(hotelKeyword && item) sheetPrices[`${hotelKeyword}_${item}`] = price;
-                        });
-                    }
-
-                    sheetClients = {};
-                    if(json.clients) {
-                        json.clients.forEach((row, index) => {
-                            if(index === 0) return;
-                            let companyName = String(row[0]).trim();
-                            if(companyName) {
-                                sheetClients[companyName] = {
-                                    name: companyName, taxId: String(row[1] || ""), contact: String(row[2] || ""),
-                                    phone: String(row[3] || ""), address: String(row[4] || ""), terms: String(row[5] || "月結 30 天"), method: String(row[6] || "銀行匯款 / 支票")
-                                };
-                            }
-                        });
-                    }
-
-                    sheetRoutes = {};
-                    if(json.routes) {
-                        json.routes.forEach((row, idx) => {
-                            if (idx === 0) return;
-                            let routeName = row[0] ? String(row[0]).replace(/[\r\n\t]/g, '').trim() : "";
-                            let rawKeywords = row[1] ? String(row[1]) : "";
-                            let keywords = rawKeywords.split(/[,，、]/).map(k => k.replace(/[\r\n\t]/g, '').trim()).filter(k => k);
-                            
-                            if (routeName && keywords.length > 0) {
-                                sheetRoutes[routeName] = keywords;
-                            }
-                        });
-                    }
-
-                    sheetSchedules = {};
-                    if(json.schedules) {
-                        json.schedules.forEach((row, idx) => {
-                            if (idx === 0) return;
-                            let rawDate = row[0] ? String(row[0]) : "";
-                            let dateStr = standardizeDate(rawDate);
-                            let driverName = row[1] ? String(row[1]).replace(/[\r\n\t]/g, '').trim() : "";
-                            let routeName = row[2] ? String(row[2]).replace(/[\r\n\t]/g, '').trim() : "";
-                            
-                            if (dateStr && driverName && routeName) {
-                                if (!sheetSchedules[dateStr]) sheetSchedules[dateStr] = {};
-                                sheetSchedules[dateStr][routeName] = driverName;
-                            }
-                        });
-                    }
-                    
-                    try {
-                        const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
-                        if (priceDoc.exists() && priceDoc.data().prices) {
-                            customPrices = priceDoc.data().prices;
-                        }
-                    } catch(err) {
-                        console.warn("載入自訂價格失敗", err);
-                    }
-
-                    document.getElementById('syncStatus').innerText = "✅ 試算表設定同步完成";
-                    document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
-                } else {
-                    throw new Error(json.error);
-                }
-<comment-tag id="1">            } catch(e) {
-                console.warn("同步大腦失敗", e);
-                document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
-                document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
-            }</comment-tag id="1" text="建議在此處加入更詳細的錯誤提示 (alert)，這樣當同步失敗時，你可以立刻看到是網路問題、CORS 權限問題，還是 JSON 解析問題。
-
-修改範例：
-} catch(e) {
-    console.warn('同步大腦失敗', e);
-    document.getElementById('syncStatus').innerText = '❌ 試算表同步失敗 (點我看原因)';
-    document.getElementById('syncStatus').className = 'text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm cursor-pointer';
-    document.getElementById('syncStatus').onclick = () => alert('同步試算表失敗！\n錯誤訊息：' + e.message + '\n\n常見原因：\n1. Apps Script 權限未設為「所有人」\n2. 試算表代碼有錯誤 (請檢查 GAS)\n3. 網址錯誤或未重新部署');
-}" type="suggestion">
-        }
-
-        // ★ 核心變更：完全精準比對 (不自動繼承)
-        // 必須是 "飯店名稱(含部門)_品項" 才會讀取到價格，找不到就是沒有報價
-        function getPrice(hotelName, item) {
-            let exactKey = `${hotelName}_${item}`;
-            
-            // 1. 找網頁自訂價
-            if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") {
-                return Number(customPrices[exactKey]);
-            }
-            
-            // 2. 找試算表報價
-            if (sheetPrices[exactKey] !== undefined) {
-                return sheetPrices[exactKey];
-            }
-            
-            // 找不到就回傳 null，表示沒有報價
-            return null; 
-        }
-
-        function showToast(msg = "資料已自動儲存更新！") {
-            document.getElementById('toastMsg').innerText = msg;
-            const toast = document.getElementById('toast');
-            toast.classList.remove('opacity-0', 'translate-y-[-20px]');
-            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            syncMasterDataFromSheet();
-        });
-
-        // ==========================================
-        // 🚀 【系統 1】財務：預覽、勾選與列印功能
-        // ==========================================
-        async function fetchInitialHotels() {
-            const container = document.getElementById('hotelCheckboxes');
-            container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
-            try {
-                const startDate = document.getElementById('startDate').value;
-                const endDate = document.getElementById('endDate').value;
-                
-                let startParts = startDate.split('-'); let endParts = endDate.split('-');
-                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-
-                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
-
-                let uniqueDocs = new Map();
-                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-
-                let hotels = new Set();
-                uniqueCompanies.clear();
-                
-                uniqueDocs.forEach(docSnap => {
-                    let d = docSnap.data();
-                    let dDate = standardizeDate(d.date);
-                    if (dDate >= startDate && dDate <= endDate) {
-                        let h = d.hotelKeyword;
-                        if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
-                        hotels.add(h);
-                        uniqueCompanies.add(d.hotelKeyword); 
-                    }
-                });
-                
-                container.innerHTML = Array.from(hotels).sort().map(h => `
-                    <label class="cb-label flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition">
-                        <input type="checkbox" value="${h}" class="hotel-cb rounded text-blue-600 w-4 h-4">
-                        <span class="text-sm font-bold text-gray-700">${h}</span>
-                    </label>
-                `).join('');
-
-                const compSelect = document.getElementById('invoiceTargetCompany');
-                compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` + 
-                    Array.from(uniqueCompanies).sort().map(c => `<option value="${c}">${c} (含旗下全部分支)</option>`).join('');
-
-            } catch (e) { container.innerHTML = `<div class="text-red-500">載入失敗</div>`; }
-        }
-
-        function filterCheckboxes() {
-            const kw = document.getElementById('keywordFilter').value.toLowerCase();
-            const labels = document.querySelectorAll('.cb-label');
-            labels.forEach(lbl => {
-                const val = lbl.querySelector('input').value.toLowerCase();
-                lbl.style.display = val.includes(kw) ? 'flex' : 'none';
-            });
-        }
-
-        function selectAllVisible() {
-            const labels = document.querySelectorAll('.cb-label');
-            labels.forEach(lbl => { if (lbl.style.display !== 'none') lbl.querySelector('input').checked = true; });
-        }
-
-        function quickSelectGroup(type) {
-            const checkboxes = document.querySelectorAll('.hotel-cb');
-            if (type === 'clear') { checkboxes.forEach(cb => cb.checked = false); return; }
-            checkboxes.forEach(cb => cb.checked = false); 
-            const keywords = type === '25th' ? group25th : groupEndOfMonth;
-            checkboxes.forEach(cb => { if (keywords.some(kw => cb.value.includes(kw))) cb.checked = true; });
-        }
-
-        async function loadFinanceData() {
-            const startDate = document.getElementById('startDate').value;
-            const endDate = document.getElementById('endDate').value;
-            const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
-            
-            const tbody = document.getElementById('internalTableBody');
-            const btn = document.getElementById('loadBtn');
-            btn.innerHTML = `計算中...`; btn.disabled = true;
-            
-            await syncMasterDataFromSheet();
-
-            tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在從物流資料庫抓取實點數量...</td></tr>`;
-            
-            try {
-                let startParts = startDate.split('-'); let endParts = endDate.split('-');
-                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
-
-                let uniqueDocs = new Map();
-                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-
-                rawLogisticsData = [];
-
-                uniqueDocs.forEach(docSnap => {
-                    const d = docSnap.data();
-                    let dDate = standardizeDate(d.date);
-                    
-                    if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword;
-                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
-                        
-                        if (selectedHotels.includes(hotelName)) {
-                            (d.items || []).forEach(item => {
-                                let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
-                                if (actual > 0) {
-                                    rawLogisticsData.push({
-                                        parentCompany: d.hotelKeyword, hotel: hotelName,
-                                        date: dDate, item: item.itemName, qty: actual
-                                    });
-                                }
-                            });
-                        }
-                    }
-                });
-
-                if(rawLogisticsData.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-gray-400">勾選區間內無出貨紀錄</td></tr>`;
-                    return;
-                }
-
-                let deptsData = {};
-                rawLogisticsData.forEach(r => {
-                    if(!deptsData[r.hotel]) deptsData[r.hotel] = [];
-                    deptsData[r.hotel].push(r);
-                });
-
-                let html = ""; let grandTotal = 0;
-                const sortedDepts = Object.keys(deptsData).sort();
-                
-                sortedDepts.forEach(deptName => {
-                    let records = deptsData[deptName];
-                    records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
-
-                    html += `<tr class="dept-header"><td colspan="5" class="font-black text-blue-900 text-base py-2 pl-4 border-y-2 border-blue-200">🏨 ${deptName}</td></tr>`;
-
-                    let lastDate = ""; let deptSubtotal = 0;
-                    records.forEach(r => {
-                        // ★ 完全精準比對：傳入包含部門的 r.hotel
-                        let price = getPrice(r.hotel, r.item); 
-                        let priceVal = price !== null ? price : "";
-                        
-                        let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.hotel}', '${r.item}', this.value, this)">`;
-                        
-                        let subtotalDisplay = "";
-                        if (price === null || price === "") {
-                            subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
-                        } else {
-                            let subtotal = r.qty * price;
-                            deptSubtotal += subtotal; grandTotal += subtotal;
-                            subtotalDisplay = `$${subtotal.toLocaleString()}`;
-                        }
-
-                        let dateDisplay = (r.date !== lastDate) ? r.date : "";
-                        lastDate = r.date;
-
-                        html += `<tr><td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td><td class="font-bold text-gray-800">${r.item}</td><td class="text-center font-black">${r.qty}</td><td class="text-center price-display">${priceDisplay}</td><td class="text-right pr-6 font-bold text-blue-800">${subtotalDisplay}</td></tr>`;
-                    });
-
-                    html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg">$${deptSubtotal.toLocaleString()}</td></tr>`;
-                });
-
-                let taxAmount = Math.round(grandTotal * 0.05); let finalAmount = grandTotal + taxAmount;
-                html += `
-                    <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (老闆查業績用)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2">$${grandTotal.toLocaleString()}</td></tr>
-                    <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2">$${taxAmount.toLocaleString()}</td></tr>
-                    <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6">$${finalAmount.toLocaleString()}</td></tr>
-                `;
-
-                tbody.innerHTML = html;
-            } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
-            } finally {
-                btn.innerHTML = `開始結算預覽`; btn.disabled = false;
-            }
-        }
-
-        function openInvoiceModal() {
-            if(rawLogisticsData.length === 0) { alert("請先載入預覽帳目！"); return; }
-            document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
-        }
-
-        function loadClientProfile() {
-            const comp = document.getElementById('invoiceTargetCompany').value;
-            if(!comp) {
-                document.getElementById('ciName').value = ""; document.getElementById('ciTaxId').value = "";
-                document.getElementById('ciContact').value = ""; document.getElementById('ciPhone').value = "";
-                document.getElementById('ciAddress').value = ""; return;
-            }
-            
-            const p = sheetClients[comp] || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
-            document.getElementById('ciName').value = p.name; document.getElementById('ciTaxId').value = p.taxId;
-            document.getElementById('ciContact').value = p.contact; document.getElementById('ciPhone').value = p.phone;
-            document.getElementById('ciAddress').value = p.address; document.getElementById('ciTerms').value = p.terms;
-            document.getElementById('ciMethod').value = p.method;
-            
-            if(p.taxId === "無資料") alert(`⚠️ 注意：試算表【客戶資料表】中找不到「${comp}」的資料，請盡速建檔。`);
-        }
-
-        function generateOfficialInvoice() {
-            const comp = document.getElementById('invoiceTargetCompany').value;
-            if(!comp) { alert("請選擇請款母公司！"); return; }
-
-            const profile = {
-                name: document.getElementById('ciName').value, taxId: document.getElementById('ciTaxId').value,
-                contact: document.getElementById('ciContact').value, phone: document.getElementById('ciPhone').value,
-                address: document.getElementById('ciAddress').value, terms: document.getElementById('ciTerms').value,
-                method: document.getElementById('ciMethod').value
-            };
-
-            let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
-            if(invoiceData.length === 0) { alert("此區間內該公司無任何出貨明細！"); return; }
-
-            const yymm = document.getElementById('endDate').value.replace(/-/g, '').substring(2, 6);
-            const invoiceNo = `BQ${yymm}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`;
-            const printDate = getLocalDateString(new Date());
-            const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
-
-            let deptsData = {}; let itemSummary = {}; let grandTotal = 0;
-
-            invoiceData.forEach(r => {
-                let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                // ★ 完全精準比對
-                let price = getPrice(r.hotel, r.item) || 0; 
-                let amt = r.qty * price; grandTotal += amt;
-                deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
-                if(!itemSummary[r.item]) itemSummary[r.item] = 0;
-                itemSummary[r.item] += r.qty;
-            });
-
-            let html = `
-                <div class="invoice-header">
-                    <div><div class="invoice-title">百麒物流企業行</div><div style="color:#64748b; font-size:12px; margin-top:4px;">Bai-Qi Logistics Co., Ltd.</div></div>
-                    <div class="invoice-meta"><div style="font-size: 20px; font-weight:900; color:#1e3a8a; margin-bottom:8px;">客 戶 對 帳 單<br><span style="font-size:10px; color:#94a3b8; letter-spacing:1px;">ACCOUNT STATEMENT</span></div>對帳單編號：${invoiceNo}<br>製表日期：${printDate}<br>頁碼：1 / ${Object.keys(deptsData).length + 1}</div>
-                </div>
-                <div class="info-boxes">
-                    <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tr><td>客戶名稱</td><td>${profile.name}</td></tr><tr><td>統一編號</td><td>${profile.taxId}</td></tr><tr><td>聯絡人</td><td>${profile.contact}</td></tr><tr><td>聯絡電話</td><td>${profile.phone}</td></tr><tr><td>出貨地址</td><td>${profile.address}</td></tr></table></div>
-                    <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tr><td>對帳期間</td><td>${period}</td></tr><tr><td>幣別</td><td>新台幣 (NTD)</td></tr><tr><td>付款條件</td><td>${profile.terms}</td></tr><tr><td>付款方式</td><td>${profile.method}</td></tr><tr><td>備註</td><td>如有疑義，請於收到對帳單後 7 日內與本公司聯繫。</td></tr></table></div>
-                </div>
-                <div class="main-content">
-                    <div class="main-left">
-                        <table class="data-table"><thead><tr><th style="width:100px;">項次</th><th>部門名稱</th><th style="text-align:right; width:150px;">結算總計 (未稅)</th></tr></thead><tbody>
-            `;
-            
-            let idx = 1;
-            for (let [deptName, records] of Object.entries(deptsData)) {
-                let deptSum = records.reduce((sum, r) => sum + r.amt, 0);
-                html += `<tr><td style="text-align:center;">${idx++}</td><td style="font-weight:bold;">${deptName} 洗滌費結算</td><td style="text-align:right; font-weight:bold;">${deptSum.toLocaleString()}</td></tr>`;
-            }
-
-            let tax = Math.round(grandTotal * 0.05); let totalWithTax = grandTotal + tax;
-            html += `
-                        </tbody></table>
-                        <div class="footer-notes">備註事項：<br>1. 本對帳單僅供雙方核對交易紀錄，實際金額以本公司稅務憑證為準。<br>2. 逾期未提出異議者，視同確認本對帳單內容無誤。</div>
-                        <div class="signature-area">
-                            <div class="sign-box"><div class="sign-title">客戶確認 (請簽章)</div><div style="height:60px;"></div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>確認人：</span><span>日期：  /  /  </span></div></div>
-                            <div class="sign-box"><div class="sign-title">百麒物流 公司確認</div><div style="height:60px; font-weight:bold; color:#1e3a8a; text-align:center;">百麒物流 結算部</div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>經辦人：</span><span>日期：${printDate.replace(/-/g,'/')}</span></div></div>
-                        </div>
-                    </div>
-                    <div class="main-right">
-                        <div class="summary-box"><div class="summary-box-title">品項總數量統計</div><table class="summary-table">
-            `;
-            for (let [itemName, totalQty] of Object.entries(itemSummary)) { html += `<tr><td>${itemName}</td><td>${totalQty.toLocaleString()}</td></tr>`; }
-            html += `
-                        </table></div>
-                        <div class="tax-box">
-                            <div style="font-weight:bold; color:#1e3a8a; border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-bottom:12px;">結算總計</div>
-                            <div class="tax-row"><span>未稅金額</span><span>${grandTotal.toLocaleString()}</span></div>
-                            <div class="tax-row"><span>稅金 (5%)</span><span>${tax.toLocaleString()}</span></div>
-                            <div class="tax-total"><span>含稅金額</span><span>$${totalWithTax.toLocaleString()}</span></div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            let pageNum = 2;
-            for (let [deptName, records] of Object.entries(deptsData)) {
-                records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
-
-                html += `<div class="page-break"></div>
-                    <div class="invoice-header" style="border-bottom: 1px solid #94a3b8;">
-                        <div><div class="invoice-title" style="font-size:18px;">【附件】交易明細清單</div><div style="font-weight:bold; margin-top:8px;">客戶：${profile.name} ｜ 部門：<span style="color:#b45309;">${deptName}</span></div></div>
-                        <div class="invoice-meta">對帳單編號：${invoiceNo}<br>頁碼：${pageNum++} / ${Object.keys(deptsData).length + 1}</div>
-                    </div>
-                    <table class="detail-table"><thead><tr><th style="width:120px;">日期</th><th>品項名稱</th><th style="width:80px;">數量 (飯店實點)</th><th style="width:80px;">單價</th><th style="width:100px; text-align:right; padding-right:15px;">金額</th></tr></thead><tbody>
-                `;
-                let lastDate = ""; let deptSum = 0;
-                records.forEach(r => {
-                    let dateDisplay = (r.date !== lastDate) ? r.date : ""; 
-                    lastDate = r.date; deptSum += r.amt;
-                    html += `<tr><td class="${dateDisplay ? 'date-col' : ''}">${dateDisplay}</td><td style="text-align:left; padding-left:15px; font-weight:bold;">${r.item}</td><td>${r.qty}</td><td>${r.price}</td><td style="text-align:right; padding-right:15px;">${r.amt.toLocaleString()}</td></tr>`;
-                });
-                html += `<tr class="total-row"><td colspan="4" style="text-align:right; padding-right:15px; font-size:14px;">${deptName} 結算小計：</td><td style="text-align:right; padding-right:15px; font-size:15px; color:#1e3a8a;">${deptSum.toLocaleString()}</td></tr></tbody></table>`;
-            }
-
-            document.getElementById('printArea').innerHTML = html;
-            closeInvoiceModal();
-            document.querySelector('.app-container').classList.add('hidden');
-            document.querySelector('.excel-bottom-bar').classList.add('hidden');
-            document.body.style.background = 'white';
-            document.getElementById('printControls').classList.replace('hidden', 'flex');
-        }
-
-        function exportToExcel() {
-            const comp = document.getElementById('invoiceTargetCompany').value;
-            let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
-            let deptsData = {}; let grandTotal = 0;
-            invoiceData.forEach(r => {
-                let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                // ★ 完全精準比對
-                let price = getPrice(r.hotel, r.item) || 0;
-                let amt = r.qty * price; grandTotal += amt;
-                deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
-            });
-            let wb = XLSX.utils.book_new();
-            
-            let ws1_data = [ ["百麒物流 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
-            for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
-            ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", grandTotal]); ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
-
-            for (let [deptName, records] of Object.entries(deptsData)) {
-                let ws_data = [ [`【${deptName}】交易明細`], ["日期", "品項名稱", "數量(飯店實點)", "單價", "金額"] ];
-                records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
-                let lastDate = ""; let sum = 0;
-                records.forEach(r => { 
-                    let dDisplay = (r.date !== lastDate) ? r.date : ""; 
-                    lastDate = r.date; sum += r.amt; 
-                    ws_data.push([dDisplay, r.item, r.qty, r.price, r.amt]); 
-                });
-                ws_data.push([]); ws_data.push(["", "", "", "部門小計", sum]);
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws_data), deptName.substring(0, 31)); 
-            }
-            XLSX.writeFile(wb, `百麒對帳單_${comp}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
-        }
-
-        // ==========================================
-        // 🚀 【系統 2】司機業績：自動配對路線與計算抽成
-        // ==========================================
-        async function calculateDriverPerformance() {
-            const startDate = document.getElementById('startDate').value;
-            const endDate = document.getElementById('endDate').value;
-            const btn = document.getElementById('calcDriverBtn');
-            
-            btn.innerHTML = `計算中...`; btn.disabled = true;
-
-            await syncMasterDataFromSheet();
-
-            try {
-                let startParts = startDate.split('-'); let endParts = endDate.split('-');
-                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
-
-                let uniqueDocs = new Map();
-                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-
-                currentDriverStats = {};
-                currentUnassignedStats = { totalAmt: 0, details: [] };
-
-                uniqueDocs.forEach(docSnap => {
-                    const d = docSnap.data();
-                    let dDate = standardizeDate(d.date);
-                    if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword;
-                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
-                        
-                        let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
-
-                        // 1. 判定路線 (Keyword Matching)
-                        let assignedRoute = "未分類路線";
-                        for (let [routeName, keywords] of Object.entries(sheetRoutes)) {
-                            if (keywords.some(kw => {
-                                let cleanKw = kw.replace(/\s+/g, '').toLowerCase();
-                                return cleanKw && cleanHotelName.includes(cleanKw);
-                            })) {
-                                assignedRoute = routeName; break;
-                            }
-                        }
-
-                        // 2. 判定當天該路線的司機
-                        let driverName = null;
-                        if (sheetSchedules[dDate] && sheetSchedules[dDate][assignedRoute]) {
-                            driverName = sheetSchedules[dDate][assignedRoute];
-                        }
-
-                        // 3. 計算金額
-                        (d.items || []).forEach(item => {
-                            let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
-                            if (actual > 0) {
-                                // ★ 完全精準比對
-                                let price = getPrice(hotelName, item.itemName) || 0;
-                                let amt = actual * price;
-                                
-                                let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt, route: assignedRoute };
-
-                                if (driverName) {
-                                    if (!currentDriverStats[driverName]) currentDriverStats[driverName] = { totalAmt: 0, details: [] };
-                                    currentDriverStats[driverName].totalAmt += amt;
-                                    currentDriverStats[driverName].details.push(detailObj);
-                                } else {
-                                    currentUnassignedStats.totalAmt += amt;
-                                    currentUnassignedStats.details.push(detailObj);
-                                }
-                            }
-                        });
-                    }
-                });
-
-                renderDriverCards();
-
-            } catch (e) {
-                console.error(e);
-                alert("計算失敗: " + e.message);
-            } finally {
-                btn.innerHTML = `▶ 開始計算業績`; btn.disabled = false;
-            }
-        }
-
-        function renderDriverCards() {
-            const container = document.getElementById('driverCardsContainer');
-            const unassignedBox = document.getElementById('unassignedBox');
-            const unassignedAmt = document.getElementById('unassignedAmount');
-            
-            let html = "";
-            for (let [driverName, data] of Object.entries(currentDriverStats)) {
-                let bonus = Math.round(data.totalAmt * 0.029); // 2.9% 抽成
-                html += `
-                    <div class="bg-white border-2 border-indigo-200 rounded-xl p-5 shadow-sm hover:shadow-md transition transform hover:-translate-y-1">
-                        <h4 class="text-xl font-black text-indigo-900 mb-3 border-b-2 border-indigo-100 pb-2">🧑‍✈️ ${driverName}</h4>
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="text-gray-500 font-bold text-sm">配送總額(未稅)</span>
-                            <span class="text-gray-800 font-black text-lg">$${data.totalAmt.toLocaleString()}</span>
-                        </div>
-                        <div class="flex justify-between items-center mb-5 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
-                            <span class="text-indigo-600 font-black text-sm">業績獎金 (2.9%)</span>
-                            <span class="text-2xl font-black text-indigo-700">$${bonus.toLocaleString()}</span>
-                        </div>
-                        <button onclick="showDriverDetails('${driverName}')" class="w-full bg-white text-indigo-600 font-bold py-2 rounded-lg border border-indigo-300 hover:bg-indigo-50 shadow-sm transition">📄 查看配送明細</button>
-                    </div>
-                `;
-            }
-
-            if (html === "") {
-                html = `<div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">區間內沒有計算到任何司機的業績</div>`;
-            }
-
-            container.innerHTML = html;
-
-            if (currentUnassignedStats.details.length > 0) {
-                unassignedBox.classList.remove('hidden');
-                unassignedAmt.innerText = `$${currentUnassignedStats.totalAmt.toLocaleString()}`;
-            } else {
-                unassignedBox.classList.add('hidden');
-            }
-
-            document.getElementById('driverDetailSection').classList.add('hidden');
-        }
-
-        function showDriverDetails(target) {
-            const section = document.getElementById('driverDetailSection');
-            const title = document.getElementById('driverDetailTitle');
-            const tbody = document.getElementById('driverDetailBody');
-            
-            section.classList.remove('hidden');
-            
-            let details = [];
-            if (target === 'unassigned') {
-                title.innerHTML = `⚠️ <span class="text-red-700">未歸屬業績 明細清單</span>`;
-                details = currentUnassignedStats.details;
-            } else {
-                title.innerHTML = `🧑‍✈️ <span class="text-indigo-900">${target} 的配送明細清單</span>`;
-                details = currentDriverStats[target].details;
-            }
-
-            details.sort((a,b) => {
-                if(a.date !== b.date) return a.date < b.date ? -1 : 1;
-                return a.hotel < b.hotel ? -1 : 1;
-            });
-
-            let html = "";
-            let grandTotal = 0;
-            details.forEach(r => {
-                grandTotal += r.amt;
-                let pDisplay = r.price === 0 ? '<span class="text-red-500 font-bold text-xs bg-red-100 px-1 rounded border border-red-200">缺報價</span>' : `$${r.price}`;
-                html += `
-                    <tr class="hover:bg-indigo-50">
-                        <td class="text-center font-mono text-gray-600">${r.date}</td>
-                        <td class="font-bold text-gray-800">${r.hotel}</td>
-                        <td class="text-indigo-600 font-bold">${r.route}</td>
-                        <td class="text-gray-700 font-bold">${r.item}</td>
-                        <td class="text-center font-black">${r.qty}</td>
-                        <td class="text-center">${pDisplay}</td>
-                        <td class="text-right pr-6 font-bold text-indigo-900">$${r.amt.toLocaleString()}</td>
-                    </tr>
-                `;
-            });
-
-            html += `
-                <tr class="bg-indigo-100 border-t-4 border-indigo-400">
-                    <td colspan="6" class="text-right font-black text-indigo-900 py-4 text-lg">明細總計 (未稅)：</td>
-                    <td class="text-right pr-6 font-black text-indigo-900 text-2xl py-4">$${grandTotal.toLocaleString()}</td>
-                </tr>
-            `;
-
-            tbody.innerHTML = html;
-            section.scrollIntoView({ behavior: 'smooth' });
-        }
-
-        setTimeout(fetchInitialHotels, 500);
-    </script>
+    <div class="app-container no-print">
+        
+        <div class="flex justify-between items-center mb-4 border-b border-gray-300 pb-4">
+            <h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
+                百麒物流 <span class="text-amber-700">💼</span> 多維財務結帳大腦
+            </h1>
+            <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
+        </div>
+
+        <!-- ★ 系統分頁切換 -->
+        <div class="flex gap-4 border-b border-gray-300 mb-6">
+            <button id="tabBtnFinance" onclick="switchSysTab('finance')" class="pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition">💰 財務對帳單 (對外請款)</button>
+            <button id="tabBtnDriver" onclick="switchSysTab('driver')" class="pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition">🚗 司機業績結算 (內部抽成)</button>
+        </div>
+
+        <!-- 共用區塊：日期選擇 -->
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 w-full max-w-2xl">
+            <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">📅 結帳區間設定 (全系統共用)</h3>
+            <div class="flex gap-4">
+                <div class="flex items-center gap-3 flex-1">
+                    <span class="text-gray-600 font-bold">起始：</span>
+                    <input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+                </div>
+                <div class="flex items-center gap-3 flex-1">
+                    <span class="text-gray-600 font-bold">結束：</span>
+                    <input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+                </div>
+            </div>
+        </div>
+
+        <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
+            <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
+        </div>
+
+        <!-- ==================== 【系統 1：財務對帳單】 ==================== -->
+        <div id="sysFinance" class="block">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div class="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-100">
+                    <h3 class="font-bold text-orange-800 mb-4 border-b border-orange-200 pb-2">1. 快速載入群組名單：</h3>
+                    <div class="flex flex-col gap-3">
+                        <button onclick="quickSelectGroup('25th')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
+                            <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
+                        </button>
+                        <button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
+                            <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 月底結帳飯店
+                        </button>
+                        <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
+                            <span>☐</span> 清空所有勾選
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
+                    <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">2. 關鍵字過濾 (自訂選單)：</h3>
+                    <div class="flex flex-col gap-3 flex-1">
+                        <input type="text" id="keywordFilter" onkeyup="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
+                        <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
+                            <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 class="font-bold text-gray-800">✅ 請確認下方要結算的飯店清單 <span class="text-xs text-gray-400 font-normal">(僅顯示期間內有實收紀錄者)</span>：</h3>
+                    <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-700 hover:bg-blue-800 text-white font-bold px-8 py-2 rounded-full shadow transition-colors disabled:opacity-50">
+                        開始結算預覽
+                    </button>
+                </div>
+                <div id="hotelCheckboxes" class="flex flex-wrap gap-x-6 gap-y-3 max-h-48 overflow-y-auto custom-scroll p-2">
+                    <div class="text-gray-400 font-bold w-full text-center py-4">正在載入區間內的飯店清單...</div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
+                <div class="p-4 bg-gray-50 flex justify-between items-center border-b border-gray-200 rounded-t-xl">
+                    <div class="flex items-center gap-4">
+                        <h3 class="font-black text-gray-800 text-lg">內部核對總表 <span class="text-sm text-gray-500 font-medium ml-2">各部門分段明細檢視</span></h3>
+                        <span class="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold shadow-sm">💡 現在您可以直接在表格內修改並記憶單價了！</span>
+                    </div>
+                    <button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2 rounded-lg shadow-sm flex items-center gap-2">
+                        產生客戶對帳單
+                    </button>
+                </div>
+                <div class="overflow-x-auto max-h-[600px] custom-scroll relative">
+                    <table class="bank-table">
+                        <thead>
+                            <tr>
+                                <th class="w-32 text-center">出貨日期</th>
+                                <th class="w-48">品項名稱</th>
+                                <th class="w-24 text-center">數量 (實收)</th>
+                                <th class="w-28 text-center">單價 (可修改)</th>
+                                <th class="w-32 text-right pr-6">小計金額</th>
+                            </tr>
+                        </thead>
+                        <tbody id="internalTableBody">
+                            <tr><td colspan="5" class="py-16 text-center text-gray-400 font-bold">請先勾選飯店後，點擊「開始結算預覽」</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 【系統 2：司機業績計算】 ==================== -->
+        <div id="sysDriver" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
+                <div class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
+                    <div>
+                        <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
+                        <p class="text-sm text-gray-500 font-bold mt-1">系統將根據試算表的「路線設定表」與「司機排班表」，自動配對該區間內的出貨明細。</p>
+                    </div>
+                    <button onclick="calculateDriverPerformance()" id="calcDriverBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 py-3 rounded-full shadow-lg transition-transform hover:scale-105">
+                        ▶ 開始計算業績
+                    </button>
+                </div>
+                
+                <!-- 司機業績總覽卡片區 -->
+                <div id="driverCardsContainer" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+                    <div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請點擊上方「開始計算業績」</div>
+                </div>
+
+                <!-- 孤兒單據警告區 (找不到負責人) -->
+                <div id="unassignedBox" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-5 mb-6 shadow-sm">
+                    <h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未歸屬業績 (無對應排班)</h4>
+                    <p class="text-sm text-red-600 font-bold mb-3">以下日期的出貨紀錄，在試算表【司機排班表】中找不到負責該路線的司機，因此未計入任何人的業績中。請至試算表補上排班並重新計算。</p>
+                    <div class="flex justify-between items-end">
+                        <div id="unassignedAmount" class="text-3xl font-black text-red-800">$0</div>
+                        <button onclick="showDriverDetails('unassigned')" class="text-sm bg-white text-red-600 border border-red-300 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 font-bold transition">查看未歸屬明細</button>
+                    </div>
+                </div>
+
+                <!-- 點擊卡片後展開的明細表 -->
+                <div id="driverDetailSection" class="hidden mt-8 border-t-2 pt-6 border-indigo-100">
+                    <h4 id="driverDetailTitle" class="text-2xl font-black text-indigo-900 mb-4">明細清單</h4>
+                    <div class="overflow-x-auto max-h-[500px] custom-scroll relative border border-gray-200 rounded-lg">
+                        <table class="bank-table">
+                            <thead>
+                                <tr>
+                                    <th style="background-color: #4f46e5;" class="w-32 text-center">出貨日期</th>
+                                    <th style="background-color: #4f46e5;" class="w-40">飯店名稱</th>
+                                    <th style="background-color: #4f46e5;" class="w-32">判定路線</th>
+                                    <th style="background-color: #4f46e5;" class="w-40">品項名稱</th>
+                                    <th style="background-color: #4f46e5;" class="w-24 text-center">實收數量</th>
+                                    <th style="background-color: #4f46e5;" class="w-24 text-center">單價(未稅)</th>
+                                    <th style="background-color: #4f46e5;" class="w-32 text-right pr-6">金額小計</th>
+                                </tr>
+                            </thead>
+                            <tbody id="driverDetailBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 產生對帳單彈出視窗 -->
+    <div id="invoiceModal" class="fixed inset-0 bg-black/60 z-[2000] hidden items-center justify-center no-print">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden transform transition-all">
+            <div class="bg-amber-600 p-4 text-white font-black text-xl flex justify-between items-center">
+                <span>📑 產出正式客戶對帳單</span>
+                <button onclick="closeInvoiceModal()" class="hover:bg-amber-700 p-1 rounded">✖</button>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-bold mb-2">1. 選擇請款母公司 (需於試算表【客戶資料表】建檔)</label>
+                    <select id="invoiceTargetCompany" onchange="loadClientProfile()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
+                        <option value="">-- 請先載入預覽帳目 --</option>
+                    </select>
+                </div>
+                
+                <div class="bg-gray-100 border border-gray-200 rounded-lg p-4 mb-4">
+                    <div class="flex justify-between items-end mb-3 border-b border-gray-300 pb-2">
+                        <h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，不可在此修改)</h4>
+                        <span class="text-xs text-red-500 font-bold">如需修改請至試算表【客戶資料表】</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><label class="font-bold text-gray-500 text-xs">發票抬頭名稱</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div><label class="font-bold text-gray-500 text-xs">統一編號</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div><label class="font-bold text-gray-500 text-xs">聯絡電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div class="col-span-2"><label class="font-bold text-gray-500 text-xs">出貨/聯絡地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                        <div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button onclick="closeInvoiceModal()" class="px-5 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">取消</button>
+                    <button onclick="generateOfficialInvoice()" class="px-5 py-2 bg-amber-600 text-white font-bold rounded-lg shadow hover:bg-amber-700 flex items-center gap-2 transition">
+                        產生對帳單
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列印區 -->
+    <div id="printArea" class="print-only"></div>
+
+    <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
+        <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
+        <button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載 Excel</button>
+        <button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
+    </div>
+
+    <!-- 底部導覽列 -->
+    <div class="excel-bottom-bar no-print">
+        <a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
+        <a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
+        <a href="finance.html" class="excel-tab active">💰 財務對帳單</a>
+    </div>
+
+    <script type="module">
+        // ==========================================
+        // ★ 核心設定區：請貼上您的 Google Apps Script 網址
+        // ==========================================
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec"; 
+        
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
+            authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
+            projectId: "hotel-inventory-3a1ad",
+            storageBucket: "hotel-inventory-3a1ad.firebasestorage.app",
+            messagingSenderId: "363844184412",
+            appId: "1:363844184412:web:66cdd6425d53bde75f3999"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = initializeFirestore(app, {
+            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+        });
+
+        // 財務共用變數
+        let rawLogisticsData = []; 
+        let uniqueCompanies = new Set();
+        let sheetPrices = {}; 
+        let sheetClients = {}; 
+        
+        // 司機業績專用變數
+        let sheetRoutes = {}; 
+        let sheetSchedules = {}; 
+        let currentDriverStats = {};
+        let currentUnassignedStats = {};
+        
+        let customPrices = {}; 
+
+        const group25th = ["癮室", "承億", "文旅"]; 
+        const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
+
+        function standardizeDate(dStr) {
+            if(!dStr) return "";
+            
+            if (dStr.includes('T') && dStr.includes('Z')) {
+                let d = new Date(dStr);
+                if (!isNaN(d.getTime())) {
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                }
+            }
+            
+            if (dStr.includes('T')) {
+                dStr = dStr.split('T')[0];
+            }
+            
+            let parts = dStr.split(/[-/]/);
+            if(parts.length >= 3) {
+                return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].substring(0,2).padStart(2, '0')}`;
+            }
+            return String(dStr).trim();
+        }
+
+        function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        document.getElementById('startDate').value = getLocalDateString(firstDay);
+        document.getElementById('endDate').value = getLocalDateString(today);
+
+        // 綁定全域函數
+        window.switchSysTab = function(tab) {
+            if (tab === 'finance') {
+                document.getElementById('sysFinance').classList.remove('hidden');
+                document.getElementById('sysDriver').classList.add('hidden');
+                document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition";
+                document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition";
+            } else {
+                document.getElementById('sysFinance').classList.add('hidden');
+                document.getElementById('sysDriver').classList.remove('hidden');
+                document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-amber-600 transition";
+                document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-black text-xl border-b-4 border-indigo-600 text-indigo-700 transition";
+            }
+        }
+        
+        window.fetchInitialHotels = fetchInitialHotels;
+        window.loadFinanceData = loadFinanceData;
+        window.openInvoiceModal = openInvoiceModal;
+        window.closeInvoiceModal = () => document.getElementById('invoiceModal').classList.replace('flex', 'hidden');
+        window.loadClientProfile = loadClientProfile;
+        window.generateOfficialInvoice = generateOfficialInvoice;
+        window.closePreview = () => { 
+            document.getElementById('printControls').classList.replace('flex', 'hidden'); 
+            document.getElementById('printArea').innerHTML = '';
+            document.querySelector('.app-container').classList.remove('hidden');
+            document.querySelector('.excel-bottom-bar').classList.remove('hidden');
+            document.body.style.background = '#f3f4f6';
+        };
+        window.exportToExcel = exportToExcel;
+        window.filterCheckboxes = filterCheckboxes;
+        window.selectAllVisible = selectAllVisible;
+        window.quickSelectGroup = quickSelectGroup;
+        
+        window.calculateDriverPerformance = calculateDriverPerformance;
+        window.showDriverDetails = showDriverDetails;
+
+        // ★ 更新單價：強制綁定完整的飯店+部門名稱 (例如: 承億 回洗_床單)
+        window.updateCustomPrice = async function(hotelName, item, newVal, inputEl) {
+            let key = `${hotelName}_${item}`;
+            
+            if (newVal.trim() === "") {
+                delete customPrices[key];
+            } else {
+                customPrices[key] = Number(newVal);
+            }
+
+            inputEl.style.opacity = '0.5';
+
+            try {
+                await setDoc(doc(db, 'inventory_config', 'custom_prices'), {
+                    prices: customPrices
+                }, { merge: true });
+                
+                showToast("✅ 單價已儲存！");
+                
+                if (!document.getElementById('sysFinance').classList.contains('hidden')) {
+                    loadFinanceData();
+                } else {
+                    calculateDriverPerformance();
+                }
+            } catch (err) {
+                console.error(err);
+                alert("儲存價格失敗，請檢查網路連線！");
+            } finally {
+                inputEl.style.opacity = '1';
+            }
+        }
+
+        async function syncMasterDataFromSheet() {
+            if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
+                document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
+                document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+                return;
+            }
+            try {
+                document.getElementById('syncStatus').innerText = "🔄 正在同步試算表資料...";
+                document.getElementById('syncStatus').className = "text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full animate-pulse shadow-sm";
+                
+                const res = await fetch(`${GAS_API_URL}?action=getFinanceMasterData`);
+                const json = await res.json();
+                
+                if(json.success) {
+                    sheetPrices = {};
+                    if(json.prices) {
+                        json.prices.forEach((row, index) => {
+                            if(index === 0) return; 
+                            let hotelKeyword = String(row[0]).trim();
+                            let item = String(row[2]).trim();
+                            let price = Number(row[3]) || 0;
+                            if(hotelKeyword && item) sheetPrices[`${hotelKeyword}_${item}`] = price;
+                        });
+                    }
+
+                    sheetClients = {};
+                    if(json.clients) {
+                        json.clients.forEach((row, index) => {
+                            if(index === 0) return;
+                            let companyName = String(row[0]).trim();
+                            if(companyName) {
+                                sheetClients[companyName] = {
+                                    name: companyName, taxId: String(row[1] || ""), contact: String(row[2] || ""),
+                                    phone: String(row[3] || ""), address: String(row[4] || ""), terms: String(row[5] || "月結 30 天"), method: String(row[6] || "銀行匯款 / 支票")
+                                };
+                            }
+                        });
+                    }
+
+                    sheetRoutes = {};
+                    if(json.routes) {
+                        json.routes.forEach((row, idx) => {
+                            if (idx === 0) return;
+                            let routeName = row[0] ? String(row[0]).replace(/[\r\n\t]/g, '').trim() : "";
+                            let rawKeywords = row[1] ? String(row[1]) : "";
+                            let keywords = rawKeywords.split(/[,，、]/).map(k => k.replace(/[\r\n\t]/g, '').trim()).filter(k => k);
+                            
+                            if (routeName && keywords.length > 0) {
+                                sheetRoutes[routeName] = keywords;
+                            }
+                        });
+                    }
+
+                    sheetSchedules = {};
+                    if(json.schedules) {
+                        json.schedules.forEach((row, idx) => {
+                            if (idx === 0) return;
+                            let rawDate = row[0] ? String(row[0]) : "";
+                            let dateStr = standardizeDate(rawDate);
+                            let driverName = row[1] ? String(row[1]).replace(/[\r\n\t]/g, '').trim() : "";
+                            let routeName = row[2] ? String(row[2]).replace(/[\r\n\t]/g, '').trim() : "";
+                            
+                            if (dateStr && driverName && routeName) {
+                                if (!sheetSchedules[dateStr]) sheetSchedules[dateStr] = {};
+                                sheetSchedules[dateStr][routeName] = driverName;
+                            }
+                        });
+                    }
+                    
+                    try {
+                        const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
+                        if (priceDoc.exists() && priceDoc.data().prices) {
+                            customPrices = priceDoc.data().prices;
+                        }
+                    } catch(err) {
+                        console.warn("載入自訂價格失敗", err);
+                    }
+
+                    document.getElementById('syncStatus').innerText = "✅ 試算表設定同步完成";
+                    document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
+                } else {
+                    throw new Error(json.error);
+                }
+            } catch(e) {
+                console.warn("同步大腦失敗", e);
+                document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
+                document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+            }
+        }
+
+        // ★ 核心變更：完全精準比對 (不自動繼承)
+        // 必須是 "飯店名稱(含部門)_品項" 才會讀取到價格，找不到就是沒有報價
+        function getPrice(hotelName, item) {
+            let exactKey = `${hotelName}_${item}`;
+            
+            // 1. 找網頁自訂價
+            if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") {
+                return Number(customPrices[exactKey]);
+            }
+            
+            // 2. 找試算表報價
+            if (sheetPrices[exactKey] !== undefined) {
+                return sheetPrices[exactKey];
+            }
+            
+            // 找不到就回傳 null，表示沒有報價
+            return null; 
+        }
+
+        function showToast(msg = "資料已自動儲存更新！") {
+            document.getElementById('toastMsg').innerText = msg;
+            const toast = document.getElementById('toast');
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]');
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            syncMasterDataFromSheet();
+        });
+
+        // ==========================================
+        // 🚀 【系統 1】財務：預覽、勾選與列印功能
+        // ==========================================
+        async function fetchInitialHotels() {
+            const container = document.getElementById('hotelCheckboxes');
+            container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
+            try {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                let startParts = startDate.split('-'); let endParts = endDate.split('-');
+                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+
+                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+
+                let uniqueDocs = new Map();
+                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+
+                let hotels = new Set();
+                uniqueCompanies.clear();
+                
+                uniqueDocs.forEach(docSnap => {
+                    let d = docSnap.data();
+                    let dDate = standardizeDate(d.date);
+                    if (dDate >= startDate && dDate <= endDate) {
+                        let h = d.hotelKeyword;
+                        if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
+                        hotels.add(h);
+                        uniqueCompanies.add(d.hotelKeyword); 
+                    }
+                });
+                
+                container.innerHTML = Array.from(hotels).sort().map(h => `
+                    <label class="cb-label flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition">
+                        <input type="checkbox" value="${h}" class="hotel-cb rounded text-blue-600 w-4 h-4">
+                        <span class="text-sm font-bold text-gray-700">${h}</span>
+                    </label>
+                `).join('');
+
+                const compSelect = document.getElementById('invoiceTargetCompany');
+                compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` + 
+                    Array.from(uniqueCompanies).sort().map(c => `<option value="${c}">${c} (含旗下全部分支)</option>`).join('');
+
+            } catch (e) { container.innerHTML = `<div class="text-red-500">載入失敗</div>`; }
+        }
+
+        function filterCheckboxes() {
+            const kw = document.getElementById('keywordFilter').value.toLowerCase();
+            const labels = document.querySelectorAll('.cb-label');
+            labels.forEach(lbl => {
+                const val = lbl.querySelector('input').value.toLowerCase();
+                lbl.style.display = val.includes(kw) ? 'flex' : 'none';
+            });
+        }
+
+        function selectAllVisible() {
+            const labels = document.querySelectorAll('.cb-label');
+            labels.forEach(lbl => { if (lbl.style.display !== 'none') lbl.querySelector('input').checked = true; });
+        }
+
+        function quickSelectGroup(type) {
+            const checkboxes = document.querySelectorAll('.hotel-cb');
+            if (type === 'clear') { checkboxes.forEach(cb => cb.checked = false); return; }
+            checkboxes.forEach(cb => cb.checked = false); 
+            const keywords = type === '25th' ? group25th : groupEndOfMonth;
+            checkboxes.forEach(cb => { if (keywords.some(kw => cb.value.includes(kw))) cb.checked = true; });
+        }
+
+        async function loadFinanceData() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
+            
+            const tbody = document.getElementById('internalTableBody');
+            const btn = document.getElementById('loadBtn');
+            btn.innerHTML = `計算中...`; btn.disabled = true;
+            
+            await syncMasterDataFromSheet();
+
+            tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在從物流資料庫抓取實點數量...</td></tr>`;
+            
+            try {
+                let startParts = startDate.split('-'); let endParts = endDate.split('-');
+                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+
+                let uniqueDocs = new Map();
+                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+
+                rawLogisticsData = [];
+
+                uniqueDocs.forEach(docSnap => {
+                    const d = docSnap.data();
+                    let dDate = standardizeDate(d.date);
+                    
+                    if (dDate >= startDate && dDate <= endDate) {
+                        let hotelName = d.hotelKeyword;
+                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+                        
+                        if (selectedHotels.includes(hotelName)) {
+                            (d.items || []).forEach(item => {
+                                let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
+                                if (actual > 0) {
+                                    rawLogisticsData.push({
+                                        parentCompany: d.hotelKeyword, hotel: hotelName,
+                                        date: dDate, item: item.itemName, qty: actual
+                                    });
+                                }
+                            });
+                        }
+                    }
+                });
+
+                if(rawLogisticsData.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-gray-400">勾選區間內無出貨紀錄</td></tr>`;
+                    return;
+                }
+
+                let deptsData = {};
+                rawLogisticsData.forEach(r => {
+                    if(!deptsData[r.hotel]) deptsData[r.hotel] = [];
+                    deptsData[r.hotel].push(r);
+                });
+
+                let html = ""; let grandTotal = 0;
+                const sortedDepts = Object.keys(deptsData).sort();
+                
+                sortedDepts.forEach(deptName => {
+                    let records = deptsData[deptName];
+                    records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
+
+                    html += `<tr class="dept-header"><td colspan="5" class="font-black text-blue-900 text-base py-2 pl-4 border-y-2 border-blue-200">🏨 ${deptName}</td></tr>`;
+
+                    let lastDate = ""; let deptSubtotal = 0;
+                    records.forEach(r => {
+                        // ★ 完全精準比對：傳入包含部門的 r.hotel
+                        let price = getPrice(r.hotel, r.item); 
+                        let priceVal = price !== null ? price : "";
+                        
+                        let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.hotel}', '${r.item}', this.value, this)">`;
+                        
+                        let subtotalDisplay = "";
+                        if (price === null || price === "") {
+                            subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
+                        } else {
+                            let subtotal = r.qty * price;
+                            deptSubtotal += subtotal; grandTotal += subtotal;
+                            subtotalDisplay = `$${subtotal.toLocaleString()}`;
+                        }
+
+                        let dateDisplay = (r.date !== lastDate) ? r.date : "";
+                        lastDate = r.date;
+
+                        html += `<tr><td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td><td class="font-bold text-gray-800">${r.item}</td><td class="text-center font-black">${r.qty}</td><td class="text-center price-display">${priceDisplay}</td><td class="text-right pr-6 font-bold text-blue-800">${subtotalDisplay}</td></tr>`;
+                    });
+
+                    html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg">$${deptSubtotal.toLocaleString()}</td></tr>`;
+                });
+
+                let taxAmount = Math.round(grandTotal * 0.05); let finalAmount = grandTotal + taxAmount;
+                html += `
+                    <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (老闆查業績用)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2">$${grandTotal.toLocaleString()}</td></tr>
+                    <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2">$${taxAmount.toLocaleString()}</td></tr>
+                    <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6">$${finalAmount.toLocaleString()}</td></tr>
+                `;
+
+                tbody.innerHTML = html;
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
+            } finally {
+                btn.innerHTML = `開始結算預覽`; btn.disabled = false;
+            }
+        }
+
+        function openInvoiceModal() {
+            if(rawLogisticsData.length === 0) { alert("請先載入預覽帳目！"); return; }
+            document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
+        }
+
+        function loadClientProfile() {
+            const comp = document.getElementById('invoiceTargetCompany').value;
+            if(!comp) {
+                document.getElementById('ciName').value = ""; document.getElementById('ciTaxId').value = "";
+                document.getElementById('ciContact').value = ""; document.getElementById('ciPhone').value = "";
+                document.getElementById('ciAddress').value = ""; return;
+            }
+            
+            const p = sheetClients[comp] || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
+            document.getElementById('ciName').value = p.name; document.getElementById('ciTaxId').value = p.taxId;
+            document.getElementById('ciContact').value = p.contact; document.getElementById('ciPhone').value = p.phone;
+            document.getElementById('ciAddress').value = p.address; document.getElementById('ciTerms').value = p.terms;
+            document.getElementById('ciMethod').value = p.method;
+            
+            if(p.taxId === "無資料") alert(`⚠️ 注意：試算表【客戶資料表】中找不到「${comp}」的資料，請盡速建檔。`);
+        }
+
+        function generateOfficialInvoice() {
+            const comp = document.getElementById('invoiceTargetCompany').value;
+            if(!comp) { alert("請選擇請款母公司！"); return; }
+
+            const profile = {
+                name: document.getElementById('ciName').value, taxId: document.getElementById('ciTaxId').value,
+                contact: document.getElementById('ciContact').value, phone: document.getElementById('ciPhone').value,
+                address: document.getElementById('ciAddress').value, terms: document.getElementById('ciTerms').value,
+                method: document.getElementById('ciMethod').value
+            };
+
+            let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
+            if(invoiceData.length === 0) { alert("此區間內該公司無任何出貨明細！"); return; }
+
+            const yymm = document.getElementById('endDate').value.replace(/-/g, '').substring(2, 6);
+            const invoiceNo = `BQ${yymm}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`;
+            const printDate = getLocalDateString(new Date());
+            const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
+
+            let deptsData = {}; let itemSummary = {}; let grandTotal = 0;
+
+            invoiceData.forEach(r => {
+                let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
+                // ★ 完全精準比對
+                let price = getPrice(r.hotel, r.item) || 0; 
+                let amt = r.qty * price; grandTotal += amt;
+                deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
+                if(!itemSummary[r.item]) itemSummary[r.item] = 0;
+                itemSummary[r.item] += r.qty;
+            });
+
+            let html = `
+                <div class="invoice-header">
+                    <div><div class="invoice-title">百麒物流企業行</div><div style="color:#64748b; font-size:12px; margin-top:4px;">Bai-Qi Logistics Co., Ltd.</div></div>
+                    <div class="invoice-meta"><div style="font-size: 20px; font-weight:900; color:#1e3a8a; margin-bottom:8px;">客 戶 對 帳 單<br><span style="font-size:10px; color:#94a3b8; letter-spacing:1px;">ACCOUNT STATEMENT</span></div>對帳單編號：${invoiceNo}<br>製表日期：${printDate}<br>頁碼：1 / ${Object.keys(deptsData).length + 1}</div>
+                </div>
+                <div class="info-boxes">
+                    <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tr><td>客戶名稱</td><td>${profile.name}</td></tr><tr><td>統一編號</td><td>${profile.taxId}</td></tr><tr><td>聯絡人</td><td>${profile.contact}</td></tr><tr><td>聯絡電話</td><td>${profile.phone}</td></tr><tr><td>出貨地址</td><td>${profile.address}</td></tr></table></div>
+                    <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tr><td>對帳期間</td><td>${period}</td></tr><tr><td>幣別</td><td>新台幣 (NTD)</td></tr><tr><td>付款條件</td><td>${profile.terms}</td></tr><tr><td>付款方式</td><td>${profile.method}</td></tr><tr><td>備註</td><td>如有疑義，請於收到對帳單後 7 日內與本公司聯繫。</td></tr></table></div>
+                </div>
+                <div class="main-content">
+                    <div class="main-left">
+                        <table class="data-table"><thead><tr><th style="width:100px;">項次</th><th>部門名稱</th><th style="text-align:right; width:150px;">結算總計 (未稅)</th></tr></thead><tbody>
+            `;
+            
+            let idx = 1;
+            for (let [deptName, records] of Object.entries(deptsData)) {
+                let deptSum = records.reduce((sum, r) => sum + r.amt, 0);
+                html += `<tr><td style="text-align:center;">${idx++}</td><td style="font-weight:bold;">${deptName} 洗滌費結算</td><td style="text-align:right; font-weight:bold;">${deptSum.toLocaleString()}</td></tr>`;
+            }
+
+            let tax = Math.round(grandTotal * 0.05); let totalWithTax = grandTotal + tax;
+            html += `
+                        </tbody></table>
+                        <div class="footer-notes">備註事項：<br>1. 本對帳單僅供雙方核對交易紀錄，實際金額以本公司稅務憑證為準。<br>2. 逾期未提出異議者，視同確認本對帳單內容無誤。</div>
+                        <div class="signature-area">
+                            <div class="sign-box"><div class="sign-title">客戶確認 (請簽章)</div><div style="height:60px;"></div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>確認人：</span><span>日期：  /  /  </span></div></div>
+                            <div class="sign-box"><div class="sign-title">百麒物流 公司確認</div><div style="height:60px; font-weight:bold; color:#1e3a8a; text-align:center;">百麒物流 結算部</div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>經辦人：</span><span>日期：${printDate.replace(/-/g,'/')}</span></div></div>
+                        </div>
+                    </div>
+                    <div class="main-right">
+                        <div class="summary-box"><div class="summary-box-title">品項總數量統計</div><table class="summary-table">
+            `;
+            for (let [itemName, totalQty] of Object.entries(itemSummary)) { html += `<tr><td>${itemName}</td><td>${totalQty.toLocaleString()}</td></tr>`; }
+            html += `
+                        </table></div>
+                        <div class="tax-box">
+                            <div style="font-weight:bold; color:#1e3a8a; border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-bottom:12px;">結算總計</div>
+                            <div class="tax-row"><span>未稅金額</span><span>${grandTotal.toLocaleString()}</span></div>
+                            <div class="tax-row"><span>稅金 (5%)</span><span>${tax.toLocaleString()}</span></div>
+                            <div class="tax-total"><span>含稅金額</span><span>$${totalWithTax.toLocaleString()}</span></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            let pageNum = 2;
+            for (let [deptName, records] of Object.entries(deptsData)) {
+                records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
+
+                html += `<div class="page-break"></div>
+                    <div class="invoice-header" style="border-bottom: 1px solid #94a3b8;">
+                        <div><div class="invoice-title" style="font-size:18px;">【附件】交易明細清單</div><div style="font-weight:bold; margin-top:8px;">客戶：${profile.name} ｜ 部門：<span style="color:#b45309;">${deptName}</span></div></div>
+                        <div class="invoice-meta">對帳單編號：${invoiceNo}<br>頁碼：${pageNum++} / ${Object.keys(deptsData).length + 1}</div>
+                    </div>
+                    <table class="detail-table"><thead><tr><th style="width:120px;">日期</th><th>品項名稱</th><th style="width:80px;">數量 (飯店實點)</th><th style="width:80px;">單價</th><th style="width:100px; text-align:right; padding-right:15px;">金額</th></tr></thead><tbody>
+                `;
+                let lastDate = ""; let deptSum = 0;
+                records.forEach(r => {
+                    let dateDisplay = (r.date !== lastDate) ? r.date : ""; 
+                    lastDate = r.date; deptSum += r.amt;
+                    html += `<tr><td class="${dateDisplay ? 'date-col' : ''}">${dateDisplay}</td><td style="text-align:left; padding-left:15px; font-weight:bold;">${r.item}</td><td>${r.qty}</td><td>${r.price}</td><td style="text-align:right; padding-right:15px;">${r.amt.toLocaleString()}</td></tr>`;
+                });
+                html += `<tr class="total-row"><td colspan="4" style="text-align:right; padding-right:15px; font-size:14px;">${deptName} 結算小計：</td><td style="text-align:right; padding-right:15px; font-size:15px; color:#1e3a8a;">${deptSum.toLocaleString()}</td></tr></tbody></table>`;
+            }
+
+            document.getElementById('printArea').innerHTML = html;
+            closeInvoiceModal();
+            document.querySelector('.app-container').classList.add('hidden');
+            document.querySelector('.excel-bottom-bar').classList.add('hidden');
+            document.body.style.background = 'white';
+            document.getElementById('printControls').classList.replace('hidden', 'flex');
+        }
+
+        function exportToExcel() {
+            const comp = document.getElementById('invoiceTargetCompany').value;
+            let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
+            let deptsData = {}; let grandTotal = 0;
+            invoiceData.forEach(r => {
+                let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
+                // ★ 完全精準比對
+                let price = getPrice(r.hotel, r.item) || 0;
+                let amt = r.qty * price; grandTotal += amt;
+                deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
+            });
+            let wb = XLSX.utils.book_new();
+            
+            let ws1_data = [ ["百麒物流 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
+            for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
+            ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", grandTotal]); ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
+
+            for (let [deptName, records] of Object.entries(deptsData)) {
+                let ws_data = [ [`【${deptName}】交易明細`], ["日期", "品項名稱", "數量(飯店實點)", "單價", "金額"] ];
+                records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.item < b.item ? -1 : 1; });
+                let lastDate = ""; let sum = 0;
+                records.forEach(r => { 
+                    let dDisplay = (r.date !== lastDate) ? r.date : ""; 
+                    lastDate = r.date; sum += r.amt; 
+                    ws_data.push([dDisplay, r.item, r.qty, r.price, r.amt]); 
+                });
+                ws_data.push([]); ws_data.push(["", "", "", "部門小計", sum]);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws_data), deptName.substring(0, 31)); 
+            }
+            XLSX.writeFile(wb, `百麒對帳單_${comp}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+        }
+
+        // ==========================================
+        // 🚀 【系統 2】司機業績：自動配對路線與計算抽成
+        // ==========================================
+        async function calculateDriverPerformance() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const btn = document.getElementById('calcDriverBtn');
+            
+            btn.innerHTML = `計算中...`; btn.disabled = true;
+
+            await syncMasterDataFromSheet();
+
+            try {
+                let startParts = startDate.split('-'); let endParts = endDate.split('-');
+                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+
+                let uniqueDocs = new Map();
+                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+
+                currentDriverStats = {};
+                currentUnassignedStats = { totalAmt: 0, details: [] };
+
+                uniqueDocs.forEach(docSnap => {
+                    const d = docSnap.data();
+                    let dDate = standardizeDate(d.date);
+                    if (dDate >= startDate && dDate <= endDate) {
+                        let hotelName = d.hotelKeyword;
+                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+                        
+                        let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
+
+                        // 1. 判定路線 (Keyword Matching)
+                        let assignedRoute = "未分類路線";
+                        for (let [routeName, keywords] of Object.entries(sheetRoutes)) {
+                            if (keywords.some(kw => {
+                                let cleanKw = kw.replace(/\s+/g, '').toLowerCase();
+                                return cleanKw && cleanHotelName.includes(cleanKw);
+                            })) {
+                                assignedRoute = routeName; break;
+                            }
+                        }
+
+                        // 2. 判定當天該路線的司機
+                        let driverName = null;
+                        if (sheetSchedules[dDate] && sheetSchedules[dDate][assignedRoute]) {
+                            driverName = sheetSchedules[dDate][assignedRoute];
+                        }
+
+                        // 3. 計算金額
+                        (d.items || []).forEach(item => {
+                            let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
+                            if (actual > 0) {
+                                // ★ 完全精準比對
+                                let price = getPrice(hotelName, item.itemName) || 0;
+                                let amt = actual * price;
+                                
+                                let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt, route: assignedRoute };
+
+                                if (driverName) {
+                                    if (!currentDriverStats[driverName]) currentDriverStats[driverName] = { totalAmt: 0, details: [] };
+                                    currentDriverStats[driverName].totalAmt += amt;
+                                    currentDriverStats[driverName].details.push(detailObj);
+                                } else {
+                                    currentUnassignedStats.totalAmt += amt;
+                                    currentUnassignedStats.details.push(detailObj);
+                                }
+                            }
+                        });
+                    }
+                });
+
+                renderDriverCards();
+
+            } catch (e) {
+                console.error(e);
+                alert("計算失敗: " + e.message);
+            } finally {
+                btn.innerHTML = `▶ 開始計算業績`; btn.disabled = false;
+            }
+        }
+
+        function renderDriverCards() {
+            const container = document.getElementById('driverCardsContainer');
+            const unassignedBox = document.getElementById('unassignedBox');
+            const unassignedAmt = document.getElementById('unassignedAmount');
+            
+            let html = "";
+            for (let [driverName, data] of Object.entries(currentDriverStats)) {
+                let bonus = Math.round(data.totalAmt * 0.029); // 2.9% 抽成
+                html += `
+                    <div class="bg-white border-2 border-indigo-200 rounded-xl p-5 shadow-sm hover:shadow-md transition transform hover:-translate-y-1">
+                        <h4 class="text-xl font-black text-indigo-900 mb-3 border-b-2 border-indigo-100 pb-2">🧑‍✈️ ${driverName}</h4>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-gray-500 font-bold text-sm">配送總額(未稅)</span>
+                            <span class="text-gray-800 font-black text-lg">$${data.totalAmt.toLocaleString()}</span>
+                        </div>
+                        <div class="flex justify-between items-center mb-5 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
+                            <span class="text-indigo-600 font-black text-sm">業績獎金 (2.9%)</span>
+                            <span class="text-2xl font-black text-indigo-700">$${bonus.toLocaleString()}</span>
+                        </div>
+                        <button onclick="showDriverDetails('${driverName}')" class="w-full bg-white text-indigo-600 font-bold py-2 rounded-lg border border-indigo-300 hover:bg-indigo-50 shadow-sm transition">📄 查看配送明細</button>
+                    </div>
+                `;
+            }
+
+            if (html === "") {
+                html = `<div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">區間內沒有計算到任何司機的業績</div>`;
+            }
+
+            container.innerHTML = html;
+
+            if (currentUnassignedStats.details.length > 0) {
+                unassignedBox.classList.remove('hidden');
+                unassignedAmt.innerText = `$${currentUnassignedStats.totalAmt.toLocaleString()}`;
+            } else {
+                unassignedBox.classList.add('hidden');
+            }
+
+            document.getElementById('driverDetailSection').classList.add('hidden');
+        }
+
+        function showDriverDetails(target) {
+            const section = document.getElementById('driverDetailSection');
+            const title = document.getElementById('driverDetailTitle');
+            const tbody = document.getElementById('driverDetailBody');
+            
+            section.classList.remove('hidden');
+            
+            let details = [];
+            if (target === 'unassigned') {
+                title.innerHTML = `⚠️ <span class="text-red-700">未歸屬業績 明細清單</span>`;
+                details = currentUnassignedStats.details;
+            } else {
+                title.innerHTML = `🧑‍✈️ <span class="text-indigo-900">${target} 的配送明細清單</span>`;
+                details = currentDriverStats[target].details;
+            }
+
+            details.sort((a,b) => {
+                if(a.date !== b.date) return a.date < b.date ? -1 : 1;
+                return a.hotel < b.hotel ? -1 : 1;
+            });
+
+            let html = "";
+            let grandTotal = 0;
+            details.forEach(r => {
+                grandTotal += r.amt;
+                let pDisplay = r.price === 0 ? '<span class="text-red-500 font-bold text-xs bg-red-100 px-1 rounded border border-red-200">缺報價</span>' : `$${r.price}`;
+                html += `
+                    <tr class="hover:bg-indigo-50">
+                        <td class="text-center font-mono text-gray-600">${r.date}</td>
+                        <td class="font-bold text-gray-800">${r.hotel}</td>
+                        <td class="text-indigo-600 font-bold">${r.route}</td>
+                        <td class="text-gray-700 font-bold">${r.item}</td>
+                        <td class="text-center font-black">${r.qty}</td>
+                        <td class="text-center">${pDisplay}</td>
+                        <td class="text-right pr-6 font-bold text-indigo-900">$${r.amt.toLocaleString()}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                <tr class="bg-indigo-100 border-t-4 border-indigo-400">
+                    <td colspan="6" class="text-right font-black text-indigo-900 py-4 text-lg">明細總計 (未稅)：</td>
+                    <td class="text-right pr-6 font-black text-indigo-900 text-2xl py-4">$${grandTotal.toLocaleString()}</td>
+                </tr>
+            `;
+
+            tbody.innerHTML = html;
+            section.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        setTimeout(fetchInitialHotels, 500);
+    </script>
 </body>
 </html>
+```eof
