@@ -58,7 +58,19 @@
         <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
     </div>
 
-    <!-- ★ 全域簽名預覽浮窗 -->
+    <!-- 系統客製化提示框 (取代原有的 alert / confirm) -->
+    <div id="customModal" class="hidden fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-100">
+            <h3 id="modalTitle" class="text-xl font-black text-gray-800 mb-4 border-b pb-2">提示</h3>
+            <div id="modalBody" class="mb-6 text-gray-700 font-bold leading-relaxed whitespace-pre-line text-sm"></div>
+            <div class="flex justify-end gap-3 mt-4">
+                <button id="modalCancel" class="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-sm hover:bg-gray-300 transition-colors hidden">取消</button>
+                <button id="modalOk" class="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 transition-colors">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全域簽名預覽浮窗 -->
     <div id="globalSigPreview" class="hidden fixed z-[9999] bg-white border-2 border-blue-400 shadow-2xl rounded-lg p-2 transition-opacity duration-100">
         <img id="globalSigImg" src="" class="max-w-[250px] max-h-[150px] bg-white">
         <div class="text-center text-xs text-gray-400 mt-1 font-bold">點擊空白處關閉</div>
@@ -240,6 +252,58 @@
         let lastInvFetchRange = { start: "", end: "" };
         let lastLogFetchRange = { start: "", end: "" };
 
+        // ===============================================
+        // ★ 系統自訂安全提示框 (符合安全原則取代 alert/confirm)
+        // ===============================================
+        window.customAlert = function(msg) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').innerHTML = '💡 系統提示';
+                document.getElementById('modalBody').innerHTML = msg;
+                const btnCancel = document.getElementById('modalCancel');
+                const btnOk = document.getElementById('modalOk');
+                modal.classList.remove('hidden');
+                btnCancel.classList.add('hidden'); // alert 不需要取消按鈕
+
+                btnOk.onclick = () => { modal.classList.add('hidden'); resolve(); };
+            });
+        };
+
+        window.customConfirm = function(msg) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').innerHTML = '⚠️ 系統確認';
+                document.getElementById('modalBody').innerHTML = msg;
+                const btnCancel = document.getElementById('modalCancel');
+                const btnOk = document.getElementById('modalOk');
+                modal.classList.remove('hidden');
+                btnCancel.classList.remove('hidden');
+
+                btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(false); };
+                btnOk.onclick = () => { modal.classList.add('hidden'); resolve(true); };
+            });
+        };
+
+        window.customPrompt = function(msg, defaultVal) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').innerHTML = '✏️ 系統輸入';
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="mb-3">${msg.replace(/\n/g, '<br>')}</div>
+                    <input type="text" id="promptInput" class="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-blue-500 font-bold" value="${defaultVal}">
+                `;
+                const btnCancel = document.getElementById('modalCancel');
+                const btnOk = document.getElementById('modalOk');
+                modal.classList.remove('hidden');
+                btnCancel.classList.remove('hidden');
+                
+                setTimeout(() => document.getElementById('promptInput').focus(), 100);
+
+                btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(null); };
+                btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('promptInput').value); };
+            });
+        };
+
         async function ensureMasterData() {
             if (masterData.length > 0) return;
             try {
@@ -282,7 +346,6 @@
             return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; 
         }
         
-        // ★ 新增：標準化時間格式字串 (解決 toLocaleString() 在不同設備上的錯亂)
         function getLocalTimeString(dateObj) {
             const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
             const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
@@ -308,20 +371,15 @@
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
 
-        // ===============================================
-        // ★ 自動穿透刪除 (修正版：直接操作本地陣列，不再重抓資料庫)
-        // ===============================================
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation(); 
             
-            const confirmDelete = confirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！\n(若 Google 試算表中已有備份，請務必記得手動前往試算表刪除該行)`);
+            const confirmDelete = await customConfirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！\n(若 Google 試算表中已有備份，請務必記得手動前往試算表刪除該行)`);
             if (!confirmDelete) return;
 
             try {
-                // 從雲端刪除
                 await deleteDoc(doc(db, collectionName, docId));
                 
-                // 如果是刪除藍色盤點區，順便把綠色物流區的對應品項也清掉
                 if (collectionName === 'inventory_records' && category && item && dateStr) {
                     try {
                         let hotelKeyword = category;
@@ -347,11 +405,9 @@
                             let logItems = logData.items || [];
                             let newItems = logItems.filter(i => i.itemName !== item);
                             
-                            // 更新陣列，把該品項剔除
                             await setDoc(logDocRef, { items: newItems }, { merge: true });
                         }
 
-                        // ★ 同步更新本地端 logistics 陣列 (如果已經載入)
                         if (logRecords.length > 0) {
                             let localLogRecord = logRecords.find(r => r.id === logDocId);
                             if (localLogRecord) {
@@ -370,7 +426,6 @@
 
                 showToast("🗑️ 紀錄已成功從雲端刪除！");
                 
-                // ★ 核心優化：直接過濾本地陣列，不再重新呼叫 loadInvData()
                 if (collectionName === 'inventory_records') {
                     invRecords = invRecords.filter(r => r.docId !== docId);
                     applyInvFilters(); 
@@ -387,20 +442,17 @@
                     applyLogFilters();
                 }
             } catch (error) {
-                alert("刪除失敗，請檢查網路連線：" + error.message);
+                await customAlert("刪除失敗，請檢查網路連線：" + error.message);
             }
         };
 
-        // ===============================================
-        // ★ 自動穿透修改日期 (修正版：直接操作本地陣列，不再重抓資料庫)
-        // ===============================================
         window.changeInventoryDate = async function(docId, oldDate, newDate, hotel, item, inputEl) {
             if (!newDate || newDate === oldDate) {
                 inputEl.value = oldDate; 
                 return;
             }
 
-            const confirmChange = confirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
+            const confirmChange = await customConfirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
             if (!confirmChange) {
                 inputEl.value = oldDate; 
                 return;
@@ -410,27 +462,22 @@
                 showToast("⏳ 正在搬移單據...");
                 inputEl.style.opacity = '0.5';
 
-                // 1. 取得舊資料
                 const oldDocRef = doc(db, 'inventory_records', docId);
                 const oldDocSnap = await getDoc(oldDocRef);
                 
                 if (!oldDocSnap.exists()) {
-                    alert("找不到舊單據資料，可能已被刪除。");
+                    await customAlert("找不到舊單據資料，可能已被刪除。");
                     return;
                 }
 
                 let data = oldDocSnap.data();
                 data.date = newDate; 
                 
-                // 2. 寫入新文件
                 const safeItem = item.replace(/\//g, '-');
                 const newDocId = `${newDate}_${hotel}_${safeItem}`;
                 await setDoc(doc(db, 'inventory_records', newDocId), data);
-
-                // 3. 刪除舊文件
                 await deleteDoc(oldDocRef);
 
-                // 4. 連動處理：把物流區的舊紀錄拔除，塞到新日期的物流紀錄裡
                 try {
                     let hotelKeyword = hotel;
                     let deptName = "房務";
@@ -446,7 +493,6 @@
                         deptName = targetCat.deptName || "房務";
                     }
 
-                    // 拔除舊物流單裡的該品項
                     const oldLogDocId = `${oldDate}_${hotelKeyword}_${deptName}`;
                     const oldLogDocRef = doc(db, 'logistics_records', oldLogDocId);
                     const oldLogSnap = await getDoc(oldLogDocRef);
@@ -461,7 +507,6 @@
                         await setDoc(oldLogDocRef, { items: newItems }, { merge: true });
                     }
 
-                    // 塞入新物流單裡
                     if (movedItemData) {
                         const newLogDocId = `${newDate}_${hotelKeyword}_${deptName}`;
                         const newLogDocRef = doc(db, 'logistics_records', newLogDocId);
@@ -485,12 +530,11 @@
                                 items: [movedItemData],
                                 clientSig: "",
                                 driverSig: "",
-                                timestamp: getLocalTimeString(new Date()) // ★ 修改為標準化時間
+                                timestamp: getLocalTimeString(new Date())
                             });
                         }
                     }
 
-                    // ★ 核心優化：直接更新本地端陣列
                     if (logRecords.length > 0) {
                         const localOldLog = logRecords.find(r => r.id === oldLogDocId);
                         if (localOldLog) {
@@ -501,14 +545,12 @@
                             applyLogFilters();
                         }
                     }
-
                 } catch (syncErr) {
                     console.warn("連動搬移物流單品項失敗", syncErr);
                 }
 
                 showToast("✅ 盤點日期已成功修改！");
                 
-                // ★ 核心優化：直接更新本地端盤點陣列
                 const localRecord = invRecords.find(r => r.docId === docId);
                 if (localRecord) {
                     localRecord.date = newDate;
@@ -518,7 +560,7 @@
 
             } catch (error) {
                 console.error("修改日期失敗:", error);
-                alert("修改失敗，請檢查網路連線：" + error.message);
+                await customAlert("修改失敗，請檢查網路連線：" + error.message);
                 inputEl.style.opacity = '1';
                 inputEl.value = oldDate;
             }
@@ -527,16 +569,16 @@
         window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
             if(e) e.stopPropagation();
 
-            const newDate = prompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
+            const newDate = await customPrompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
             
             if (!newDate || newDate.trim() === "" || newDate === oldDate) return;
             
             if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-                alert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
+                await customAlert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
                 return;
             }
 
-            const confirmChange = confirm(`⚠️ 確定要將此單據日期從 ${oldDate} 改為 ${newDate} 嗎？`);
+            const confirmChange = await customConfirm(`⚠️ 確定要將此單據日期從 ${oldDate} 改為 ${newDate} 嗎？`);
             if (!confirmChange) return;
 
             try {
@@ -546,7 +588,7 @@
                 const oldDocSnap = await getDoc(oldDocRef);
                 
                 if (!oldDocSnap.exists()) {
-                    alert("找不到舊單據資料，可能已被刪除。");
+                    await customAlert("找不到舊單據資料，可能已被刪除。");
                     return;
                 }
 
@@ -559,7 +601,6 @@
 
                 showToast("✅ 單據日期已成功修改！");
                 
-                // ★ 核心優化：直接更新本地端物流陣列
                 const localLogRecord = logRecords.find(r => r.id === docId);
                 if (localLogRecord) {
                     localLogRecord.date = newDate;
@@ -569,7 +610,7 @@
 
             } catch (error) {
                 console.error("修改日期失敗:", error);
-                alert("修改失敗，請檢查網路連線：" + error.message);
+                await customAlert("修改失敗，請檢查網路連線：" + error.message);
             }
         };
 
@@ -658,7 +699,6 @@
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
 
-            // ★ 快取防呆檢查：避免重複浪費讀取次數
             if (lastInvFetchRange.start === startDate && lastInvFetchRange.end === endDate && invRecords.length > 0) {
                 showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
                 applyInvFilters();
@@ -712,7 +752,6 @@
                 populateInvDropdowns();
                 applyInvFilters();
                 
-                // 成功載入後，更新快取區間紀錄
                 lastInvFetchRange = { start: startDate, end: endDate };
 
             } catch (error) {
@@ -762,7 +801,6 @@
                 return `
                     <tr class="main-row">
                         <td class="text-center">
-                            <!-- ★ 解鎖：可以直接在這裡改盤點單的日期！ -->
                             <input type="date" value="${r.date || ''}" class="clean-input font-mono cursor-pointer" onchange="changeInventoryDate('${r.docId}', '${r.date}', this.value, '${r.hotel}', '${r.item}', this)" title="點擊修改盤點日期">
                         </td>
                         <td class="font-bold text-gray-800">${r.hotel}</td>
@@ -795,10 +833,10 @@
             const cleanVal = newValue.trim();
 
             try {
-                // 1. 更新盤點區 (藍色) ★ 統一修改為標準時間格式
+                // 1. 更新盤點區 (藍色)
                 await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: getLocalTimeString(new Date()) }, { merge: true });
                 
-                // 2. 如果改的是「數量」或「備註」，自動穿透到物流區 (綠色)
+                // 2. 自動穿透到物流區 (綠色)
                 if (field === 'doubleCount' || field === 'count' || field === 'note') {
                     try {
                         let hotelKeyword = category;
@@ -824,23 +862,21 @@
                             let logItems = logData.items || [];
                             let itemIndex = logItems.findIndex(i => i.itemName === item);
                             
-                            // 無論是改 doubleCount 還是 count，只要更新，就強制把實收數量 (actualQty) 蓋過去
                             let finalQty = field === 'doubleCount' ? cleanVal : (record.doubleCount !== "" ? record.doubleCount : cleanVal);
 
                             if (itemIndex > -1) {
                                 if (field === 'doubleCount' || field === 'count') {
+                                    // ★ 致命錯誤修復：絕對不可以強制覆蓋實收數量 (actualQty)！
                                     logItems[itemIndex].originalQty = String(finalQty);
-                                    logItems[itemIndex].actualQty = String(finalQty); // 強制覆蓋實收數量
+                                    // REMOVED: logItems[itemIndex].actualQty = String(finalQty); 
                                 }
                                 if (field === 'note') {
                                     logItems[itemIndex].auntNote = cleanVal;
                                 }
                             } else {
-                                // ★ 加入這行判斷：如果品項名稱是空的、或是 undefined，就直接跳過不新增！
                                 if (!item || String(item).trim() === "" || String(item) === "undefined" || String(item) === "null") {
                                     console.warn("略過無效品項同步:", item);
                                 } else {
-                                    // 如果物流單裡還沒有這筆，而且名稱合法，才自動把它塞進去
                                     logItems.push({
                                         itemName: item,
                                         originalQty: String(finalQty),
@@ -862,7 +898,7 @@
                 showToast("✅ 資料已同步至物流與財務系統！");
             } catch (e) {
                 inputEl.style.color = 'red'; 
-                alert("更新失敗！");
+                await customAlert("更新失敗！");
             }
         }
 
@@ -871,7 +907,7 @@
             const tbody = document.getElementById('invHistoryBody');
             const btn = document.getElementById('invHistoryBtn');
             
-            if (!targetDate) { alert("請先選擇查詢日期！"); return; }
+            if (!targetDate) { await customAlert("請先選擇查詢日期！"); return; }
             
             btn.innerHTML = `查詢中...`; btn.disabled = true;
             tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
@@ -918,7 +954,6 @@
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
 
-            // ★ 快取防呆檢查：避免重複浪費讀取次數
             if (lastLogFetchRange.start === startDate && lastLogFetchRange.end === endDate && logRecords.length > 0) {
                 showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
                 applyLogFilters();
@@ -928,7 +963,7 @@
             const tbody = document.getElementById('logTableBody');
             const btn = document.getElementById('logLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流簽收資料庫...</td></tr>`;
+            tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流與盤點資料庫...</td></tr>`;
             
             try {
                 await ensureMasterData(); 
@@ -938,11 +973,29 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
+                // 1. 抓取物流資料庫
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                // 2. ★ 抓取盤點資料庫 (真實對照組)
+                const qInvStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qInvUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+
+                const [snapStandard, snapUnpad, snapInvStandard, snapInvUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qInvStandard), getDocs(qInvUnpad)]);
                 
+                // ★ 建立真實盤點數量的對照表
+                let invMap = {};
+                const processInv = (docSnap) => {
+                    let d = docSnap.data();
+                    let dDate = standardizeDate(d.date);
+                    let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
+                    let cleanHotel = (d.hotel || "").replace(/\s+/g, '');
+                    let cleanItem = (d.item || "").trim();
+                    invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
+                };
+                snapInvStandard.forEach(processInv);
+                snapInvUnpad.forEach(processInv);
+
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
@@ -962,22 +1015,26 @@
 
                         (d.items || []).forEach(item => {
                             let orig = item.originalQty || "0";
-                            let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : orig;
+                            let cleanHotelName = hotelName.replace(/\s+/g, '');
+                            let cleanItemName = (item.itemName || "").trim();
                             
-                            // ★ 修復重點：臨時新增的品項如果只輸入 0，那才會被隱藏
-                            if (orig === "0" && actual === "0") return; 
+                            // ★ 修復重點：強迫去盤點表抓取「真實」盤點量
+                            let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
+                            if (trueOrig === undefined) trueOrig = orig; // 容錯機制：盤點表沒有的，才採信物流舊資料
+
+                            let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : trueOrig;
                             
-                            if (String(actual) !== String(orig)) hasIssue = true; 
+                            if (trueOrig === "0" && actual === "0") return; 
+                            if (String(actual) !== String(trueOrig)) hasIssue = true; 
                             
                             validItems.push({
                                 itemName: item.itemName,
-                                bqQty: orig,
+                                bqQty: trueOrig, // 👈 在這裡強行換成真實的盤點數量
                                 actualQty: actual
                             });
                         });
 
                         if (validItems.length > 0) {
-                            
                             validItems.sort((a, b) => {
                                 let indexA = getItemSortIndex(hotelName, a.itemName);
                                 let indexB = getItemSortIndex(hotelName, b.itemName);
@@ -1010,7 +1067,6 @@
                 populateLogDropdowns(); 
                 applyLogFilters();
 
-                // 成功載入後，更新快取區間紀錄
                 lastLogFetchRange = { start: startDate, end: endDate };
 
             } catch (error) {
@@ -1115,7 +1171,7 @@
                 }
             } catch (err) {
                 console.error("更新物流數量失敗:", err);
-                alert("更新失敗，請檢查網路！");
+                await customAlert("更新失敗，請檢查網路！");
             } finally {
                 inputElement.style.opacity = '1';
             }
@@ -1211,7 +1267,6 @@
         }
 
         switchMainTab('inventory');
-
     </script>
 </body>
 </html>
