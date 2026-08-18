@@ -48,7 +48,7 @@
             
             .main-content { display: flex; gap: 20px; align-items: flex-start; }
             .main-left { flex: 7; }
-            .main-right { flex: 3; display: flex; flex-col; gap: 20px; }
+            .main-right { flex: 3; display: flex; flex-direction: column; gap: 20px; }
             .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; border: 1px solid #94a3b8; }
             .data-table th { background-color: #1e3a8a; color: white; padding: 8px; text-align: center; border: 1px solid #94a3b8; }
             .data-table td { padding: 8px; border: 1px solid #cbd5e1; text-align: center; }
@@ -335,8 +335,18 @@
         const group25th = ["癮室", "承億", "文旅"]; 
         const groupEndOfMonth = ["晶華", "君悅", "飯店"]; 
 
+        // 🛠️ 修復 1：增加對 Firestore Timestamp 物件的防呆保護
         function standardizeDate(dStr) {
             if(!dStr) return "";
+            
+            // 防呆：如果 Firebase 存成時間戳記 (Timestamp 物件)
+            if (typeof dStr === 'object' && typeof dStr.toDate === 'function') {
+                let d = dStr.toDate();
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            }
+
+            // 強制轉字串，避免下方 .includes() 崩潰
+            dStr = String(dStr).trim();
             
             if (dStr.includes('T') && dStr.includes('Z')) {
                 let d = new Date(dStr);
@@ -353,7 +363,7 @@
             if(parts.length >= 3) {
                 return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].substring(0,2).padStart(2, '0')}`;
             }
-            return String(dStr).trim();
+            return dStr;
         }
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
@@ -398,7 +408,6 @@
         window.calculateDriverPerformance = calculateDriverPerformance;
         window.showDriverDetails = showDriverDetails;
 
-        // ★ 更新單價：強制綁定完整的飯店+部門名稱 (例如: 承億 回洗_床單)
         window.updateCustomPrice = async function(hotelName, item, newVal, inputEl) {
             let key = `${hotelName}_${item}`;
             
@@ -424,7 +433,7 @@
                 }
             } catch (err) {
                 console.error(err);
-                alert("儲存價格失敗，請檢查網路連線！");
+                alert("儲存價格失敗，請檢查網路連線或權限設定！");
             } finally {
                 inputEl.style.opacity = '1';
             }
@@ -505,7 +514,7 @@
                             customPrices = priceDoc.data().prices;
                         }
                     } catch(err) {
-                        console.warn("載入自訂價格失敗", err);
+                        console.warn("載入自訂價格失敗 (可能是 Firestore 權限問題)", err);
                     }
 
                     document.getElementById('syncStatus').innerText = "✅ 試算表設定同步完成";
@@ -515,27 +524,20 @@
                 }
             } catch(e) {
                 console.warn("同步大腦失敗", e);
-                document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
+                document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗 (可能是 GAS API 設定問題)";
                 document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
             }
         }
 
-        // ★ 核心變更：完全精準比對 (不自動繼承)
-        // 必須是 "飯店名稱(含部門)_品項" 才會讀取到價格，找不到就是沒有報價
         function getPrice(hotelName, item) {
             let exactKey = `${hotelName}_${item}`;
             
-            // 1. 找網頁自訂價
             if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") {
                 return Number(customPrices[exactKey]);
             }
-            
-            // 2. 找試算表報價
             if (sheetPrices[exactKey] !== undefined) {
                 return sheetPrices[exactKey];
             }
-            
-            // 找不到就回傳 null，表示沒有報價
             return null; 
         }
 
@@ -550,27 +552,33 @@
             syncMasterDataFromSheet();
         });
 
-        // ==========================================
-        // 🚀 【系統 1】財務：預覽、勾選與列印功能
-        // ==========================================
+        // 🛠️ 修復 2：增加跨 Firestore Timestamp/String 查詢，防呆空值處理
         async function fetchInitialHotels() {
             const container = document.getElementById('hotelCheckboxes');
             container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
             try {
                 const startDate = document.getElementById('startDate').value;
                 const endDate = document.getElementById('endDate').value;
+                if(!startDate || !endDate) return;
                 
                 let startParts = startDate.split('-'); let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
+                // 若 Firebase 的日期型態混合了 String 和 Timestamp，必須用三種 Query 攔截
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                
+                const startTs = new Date(`${startDate}T00:00:00`);
+                const endTs = new Date(`${endDate}T23:59:59`);
+                const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
+
+                const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
 
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 let hotels = new Set();
                 uniqueCompanies.clear();
@@ -579,13 +587,19 @@
                     let d = docSnap.data();
                     let dDate = standardizeDate(d.date);
                     if (dDate >= startDate && dDate <= endDate) {
-                        let h = d.hotelKeyword;
+                        // 🛠️ 修復 3：防止未命名飯店空值報錯
+                        let h = d.hotelKeyword || "未命名飯店";
                         if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
                         hotels.add(h);
-                        uniqueCompanies.add(d.hotelKeyword); 
+                        if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword); 
                     }
                 });
                 
+                if(hotels.size === 0) {
+                     container.innerHTML = `<div class="text-gray-500 font-bold w-full py-2">該區間無任何出貨紀錄，或日期抓取失敗</div>`;
+                     return;
+                }
+
                 container.innerHTML = Array.from(hotels).sort().map(h => `
                     <label class="cb-label flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition">
                         <input type="checkbox" value="${h}" class="hotel-cb rounded text-blue-600 w-4 h-4">
@@ -597,7 +611,11 @@
                 compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` + 
                     Array.from(uniqueCompanies).sort().map(c => `<option value="${c}">${c} (含旗下全部分支)</option>`).join('');
 
-            } catch (e) { container.innerHTML = `<div class="text-red-500">載入失敗</div>`; }
+            } catch (e) {
+                // 將明確錯誤顯示在 UI，以免隱藏 Crash 問題
+                console.error("載入失敗: ", e);
+                container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded">載入失敗: ${e.message}</div>`;
+            }
         }
 
         function filterCheckboxes() {
@@ -632,20 +650,25 @@
             btn.innerHTML = `計算中...`; btn.disabled = true;
             
             await syncMasterDataFromSheet();
-
             tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在從物流資料庫抓取實點數量...</td></tr>`;
             
             try {
                 let startParts = startDate.split('-'); let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+                
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                const startTs = new Date(`${startDate}T00:00:00`);
+                const endTs = new Date(`${endDate}T23:59:59`);
+                const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
+
+                const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
 
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 rawLogisticsData = [];
 
@@ -654,7 +677,7 @@
                     let dDate = standardizeDate(d.date);
                     
                     if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword;
+                        let hotelName = d.hotelKeyword || "未命名飯店";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
                         
                         if (selectedHotels.includes(hotelName)) {
@@ -662,7 +685,7 @@
                                 let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
                                 if (actual > 0) {
                                     rawLogisticsData.push({
-                                        parentCompany: d.hotelKeyword, hotel: hotelName,
+                                        parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                                         date: dDate, item: item.itemName, qty: actual
                                     });
                                 }
@@ -693,7 +716,6 @@
 
                     let lastDate = ""; let deptSubtotal = 0;
                     records.forEach(r => {
-                        // ★ 完全精準比對：傳入包含部門的 r.hotel
                         let price = getPrice(r.hotel, r.item); 
                         let priceVal = price !== null ? price : "";
                         
@@ -726,6 +748,7 @@
 
                 tbody.innerHTML = html;
             } catch (e) {
+                console.error(e);
                 tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
             } finally {
                 btn.innerHTML = `開始結算預覽`; btn.disabled = false;
@@ -777,7 +800,6 @@
 
             invoiceData.forEach(r => {
                 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                // ★ 完全精準比對
                 let price = getPrice(r.hotel, r.item) || 0; 
                 let amt = r.qty * price; grandTotal += amt;
                 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
@@ -864,7 +886,6 @@
             let deptsData = {}; let grandTotal = 0;
             invoiceData.forEach(r => {
                 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-                // ★ 完全精準比對
                 let price = getPrice(r.hotel, r.item) || 0;
                 let amt = r.qty * price; grandTotal += amt;
                 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt });
@@ -900,20 +921,25 @@
             const btn = document.getElementById('calcDriverBtn');
             
             btn.innerHTML = `計算中...`; btn.disabled = true;
-
             await syncMasterDataFromSheet();
 
             try {
                 let startParts = startDate.split('-'); let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+                
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                const startTs = new Date(`${startDate}T00:00:00`);
+                const endTs = new Date(`${endDate}T23:59:59`);
+                const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
+
+                const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
 
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 currentDriverStats = {};
                 currentUnassignedStats = { totalAmt: 0, details: [] };
@@ -922,12 +948,11 @@
                     const d = docSnap.data();
                     let dDate = standardizeDate(d.date);
                     if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword;
+                        let hotelName = d.hotelKeyword || "未命名飯店";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
                         
                         let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
 
-                        // 1. 判定路線 (Keyword Matching)
                         let assignedRoute = "未分類路線";
                         for (let [routeName, keywords] of Object.entries(sheetRoutes)) {
                             if (keywords.some(kw => {
@@ -938,17 +963,14 @@
                             }
                         }
 
-                        // 2. 判定當天該路線的司機
                         let driverName = null;
                         if (sheetSchedules[dDate] && sheetSchedules[dDate][assignedRoute]) {
                             driverName = sheetSchedules[dDate][assignedRoute];
                         }
 
-                        // 3. 計算金額
                         (d.items || []).forEach(item => {
                             let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
                             if (actual > 0) {
-                                // ★ 完全精準比對
                                 let price = getPrice(hotelName, item.itemName) || 0;
                                 let amt = actual * price;
                                 
@@ -970,7 +992,7 @@
                 renderDriverCards();
 
             } catch (e) {
-                console.error(e);
+                console.error("業績計算失敗: ", e);
                 alert("計算失敗: " + e.message);
             } finally {
                 btn.innerHTML = `▶ 開始計算業績`; btn.disabled = false;
@@ -984,7 +1006,7 @@
             
             let html = "";
             for (let [driverName, data] of Object.entries(currentDriverStats)) {
-                let bonus = Math.round(data.totalAmt * 0.029); // 2.9% 抽成
+                let bonus = Math.round(data.totalAmt * 0.029); 
                 html += `
                     <div class="bg-white border-2 border-indigo-200 rounded-xl p-5 shadow-sm hover:shadow-md transition transform hover:-translate-y-1">
                         <h4 class="text-xl font-black text-indigo-900 mb-3 border-b-2 border-indigo-100 pb-2">🧑‍✈️ ${driverName}</h4>
@@ -1071,4 +1093,3 @@
     </script>
 </body>
 </html>
-```eof
