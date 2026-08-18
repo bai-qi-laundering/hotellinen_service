@@ -22,7 +22,6 @@
     </style>
 </head>
 <body class="p-3 pb-32 relative">
-
     <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">
         <!-- Toast message will be injected here -->
     </div>
@@ -170,7 +169,6 @@
             fetchData(false); 
         }
 
-        // ★ 核心邏輯：檢查該單據日期是否已超過「3天後的 12:00」
         function checkIsLocked(dateStr) {
             if (!dateStr) return false;
             let parts = dateStr.split('-');
@@ -184,6 +182,7 @@
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
+            let queryDate = urlParams.get('date'); // 🌟 關鍵修復：嘗試去抓網址上的日期
             
             if (!currentHotel || currentHotel.trim() === "") {
                 document.getElementById('hotelTitle').innerText = "連結錯誤";
@@ -198,7 +197,6 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            // ★ 清理所有快取
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('logistics_cache_') || key === 'inventory_masterData') {
                     localStorage.removeItem(key);
@@ -218,13 +216,18 @@
                 console.error("Template load error:", e);
             }
 
-            const latestDate = getLocalDateString(new Date());
-            document.getElementById('datePicker').value = latestDate;
+            // 🌟 關鍵修復邏輯：有指定日期就用指定的，沒指定才用今天
+            let targetDate = getLocalDateString(new Date()); 
+            
+            if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                targetDate = queryDate; // 只要網址有傳日期過來，就強制鎖定那個日期！
+            }
+
+            document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
             fetchData(false);
         }
 
-        // ★ 萬用欄位解析器：防呆所有飯店端可能的數量與名稱設定
         function extractQty(obj) {
             if (!obj) return "0";
             if (obj.doubleCount !== undefined && obj.doubleCount !== null && obj.doubleCount !== "") return String(obj.doubleCount);
@@ -235,7 +238,6 @@
             return "0";
         }
 
-        // ★ 嚴格過濾無效品項名稱
         function isValidItemName(name) {
             if (!name) return false;
             let cleanName = String(name).trim();
@@ -257,14 +259,14 @@
 
             try {
                 let rawData = [];
-                let baseInventoryItems = [];
-
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 
                 const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
-                // ★ 讀取飯店端資料 (防呆版)
+                // ★ 1. 嚴格對齊：建立真實盤點資料庫的 Map，作為「唯一真理」
+                let inventoryMap = {}; 
+                
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
                     const hotelStr = d.hotel || d.hotelKeyword || d.hotelName || "";
@@ -273,67 +275,59 @@
                         let deptName = hotelStr.replace(currentHotel, "").trim();
                         if (deptName === "") deptName = "房務";
 
-                        // 支援飯店端用「陣列 items」包裹的情境
-                        if (Array.isArray(d.items)) {
-                            d.items.forEach(subItem => {
-                                let itemName = subItem.itemName || subItem.item || subItem.name;
-                                if (isValidItemName(itemName)) {
-                                    baseInventoryItems.push({
-                                        hotelFull: hotelStr,
-                                        deptName: deptName,
-                                        itemName: String(itemName).trim(),
-                                        originalQty: extractQty(subItem),
-                                        auntNote: subItem.note || subItem.auntNote || d.note || ""
-                                    });
-                                }
-                            });
-                        } else {
-                            // 支援舊版單一文件格式
-                            let itemName = d.item || d.itemName || d.name;
+                        const processInvItem = (itemData) => {
+                            let itemName = itemData.itemName || itemData.item || itemData.name;
                             if (isValidItemName(itemName)) {
-                                baseInventoryItems.push({
-                                    hotelFull: hotelStr,
+                                let key = `${deptName}_${String(itemName).trim()}`;
+                                inventoryMap[key] = {
                                     deptName: deptName,
                                     itemName: String(itemName).trim(),
-                                    originalQty: extractQty(d),
-                                    auntNote: d.note || ""
-                                });
+                                    originalQty: extractQty(itemData), // ★ 絕對的盤點數量
+                                    auntNote: itemData.note || itemData.auntNote || d.note || ""
+                                };
                             }
+                        };
+
+                        if (Array.isArray(d.items)) {
+                            d.items.forEach(processInvItem);
+                        } else {
+                            processInvItem(d);
                         }
                     }
                 });
 
+                // ★ 2. 讀取物流紀錄 (只取簽名與實收量，不信任其盤點數量)
                 let savedLogistics = {};
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
                     savedLogistics[d.deptName] = d;
                 });
 
-                // 將最新飯店資料與已存的物流簽單資料進行配對
-                baseInventoryItems.forEach(item => {
-                    let savedDept = savedLogistics[item.deptName] || 
-                                    savedLogistics[item.hotelFull] || 
-                                    savedLogistics[`${currentHotel} ${item.deptName}`];
-                    
-                    if (!savedDept) {
-                        savedDept = Object.values(savedLogistics).find(s => 
-                            (s.deptName && s.deptName.includes(item.deptName)) || 
-                            (item.deptName && item.deptName.includes(s.deptName)) ||
-                            (item.hotelFull && item.hotelFull.includes(s.deptName))
-                        );
-                    }
-
-                    let actualQty = item.originalQty;
+                // ★ 3. 強制組合：逼物流單的盤點數量 (originalQty) 必須是從 inventory_records 抓出來的
+                for (let key in inventoryMap) {
+                    let invItem = inventoryMap[key];
+                    let actualQty = invItem.originalQty; // 實收量預設等於最新的盤點量
                     let driverNote = "";
                     let clientSig = "";
                     let driverSig = "";
+
+                    // 尋找物流單是否有這部門的紀錄
+                    let savedDept = savedLogistics[invItem.deptName];
+                    if (!savedDept) {
+                        // 模糊比對部門名稱 (容錯處理，確保不會漏掉舊簽名)
+                        savedDept = Object.values(savedLogistics).find(s => 
+                            (s.deptName && s.deptName.includes(invItem.deptName)) || 
+                            (invItem.deptName && invItem.deptName.includes(s.deptName))
+                        );
+                    }
 
                     if (savedDept) {
                         clientSig = savedDept.clientSig || "";
                         driverSig = savedDept.driverSig || "";
                         if (savedDept.items) {
-                            let savedItem = savedDept.items.find(i => i.itemName === item.itemName);
+                            let savedItem = savedDept.items.find(i => i.itemName === invItem.itemName);
                             if (savedItem) {
+                                // 只有司機有改過「實收量」才套用，否則實收量跟著盤點量走
                                 if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") {
                                     actualQty = String(savedItem.actualQty);
                                 }
@@ -343,37 +337,39 @@
                     }
 
                     rawData.push({
-                        deptName: item.deptName,
-                        itemName: item.itemName,
-                        originalQty: item.originalQty,
-                        auntNote: item.auntNote,
+                        deptName: invItem.deptName,
+                        itemName: invItem.itemName,
+                        originalQty: invItem.originalQty, // 👈 絕對強制綁定真實盤點數量
+                        auntNote: invItem.auntNote,
                         actualQty: actualQty,
                         driverNote: driverNote,
                         clientSig: clientSig,
                         driverSig: driverSig
                     });
-                });
+                }
 
-                // 補上物流單有、但飯店端被刪除或改名的品項
+                // ★ 4. 處理「物流單上有，但盤點單上根本沒有」的幽靈品項
                 for (let deptKey in savedLogistics) {
                     let savedDept = savedLogistics[deptKey];
                     if (savedDept.items) {
                         savedDept.items.forEach(savedItem => {
-                            // ★ 阻擋物流單裡面既有的 undefined 垃圾資料
                             if (!isValidItemName(savedItem.itemName)) return;
-
-                            let exists = rawData.some(r => r.deptName === savedDept.deptName && r.itemName === savedItem.itemName);
-                            if (!exists) {
-                                rawData.push({
-                                    deptName: savedDept.deptName,
-                                    itemName: savedItem.itemName,
-                                    originalQty: savedItem.originalQty || "0",
-                                    auntNote: savedItem.auntNote || "",
-                                    actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : (savedItem.originalQty || "0"),
-                                    driverNote: savedItem.driverNote || "",
-                                    clientSig: savedDept.clientSig || "",
-                                    driverSig: savedDept.driverSig || ""
-                                });
+                            
+                            let key = `${savedDept.deptName}_${savedItem.itemName}`;
+                            if (!inventoryMap[key]) {
+                                // ★ 核心修改：除非是司機「臨時新增」的，否則盤點表沒有的幽靈資料，通通直接捨棄不顯示！
+                                if (savedItem.driverNote === "司機臨時新增") {
+                                    rawData.push({
+                                        deptName: savedDept.deptName,
+                                        itemName: savedItem.itemName,
+                                        originalQty: "0", 
+                                        auntNote: savedItem.auntNote || "",
+                                        actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : "0",
+                                        driverNote: savedItem.driverNote || "",
+                                        clientSig: savedDept.clientSig || "",
+                                        driverSig: savedDept.driverSig || ""
+                                    });
+                                }
                             }
                         });
                     }
@@ -411,7 +407,6 @@
 
             groupedData = {};
             cleanData.forEach(item => {
-                // ★ 更安全的零值檢查，避免字串 "05" 的影響
                 if (Number(item.originalQty || 0) === 0 && Number(item.actualQty || 0) === 0) {
                     return; 
                 }
@@ -443,11 +438,9 @@
             renderDepartments();
         }
 
-        // ★ 修改此處：接收 inputEl 本身，以便即時消除 0 並改變框線顏色
         function handleQtyChange(dept, idx, inputEl) {
             let val = inputEl.value;
             
-            // 自動消除開頭的 0，避免輸入 "05" 造成後續字串判斷異常與寫入錯誤
             if (val.length > 1 && val.startsWith('0')) {
                 val = val.replace(/^0+/, '');
                 if (val === '') val = '0';
@@ -458,10 +451,8 @@
             const original = groupedData[dept].items[idx].originalQty;
             const statusSpan = document.getElementById(`status-${dept}-${idx}`);
             
-            // 抓取用來顯示紅框的外層容器
             const container = inputEl.closest('.bg-blue-50');
 
-            // ★ 修改為精準數字對比，且與 UI 即時連動
             if (Number(val || 0) === Number(original || 0)) {
                 statusSpan.innerHTML = "✅ 相符"; 
                 statusSpan.className = "text-green-600 font-bold ml-3 text-base";
@@ -594,7 +585,6 @@
                 });
 
                 let itemsHtml = groupedData[dept].items.map((item, idx) => {
-                    // ★ 更安全的數量比較
                     let isMatching = Number(item.actualQty || 0) === Number(item.originalQty || 0);
                     let statusText = isMatching ? "✅ 相符" : "⚠️ 已修改";
                     let statusClass = isMatching ? "text-green-600 font-bold ml-3 text-base" : "text-red-500 font-bold ml-3 text-base";
@@ -614,7 +604,6 @@
                             <div class="flex justify-between items-center">
                                 <span class="font-bold text-blue-900">實收(請款)量：</span>
                                 <div class="flex items-center">
-                                    <!-- ★ 改傳 this 讓函式可以抓到元素本人 -->
                                     <input type="number" oninput="handleQtyChange('${dept}', ${idx}, this)" value="${item.actualQty}" 
                                            class="w-20 p-1 text-right font-black text-2xl outline-none rounded ${inputDisabled ? 'bg-transparent text-gray-600 pr-0' : 'bg-white border-b-2 border-blue-500 text-blue-700 shadow-sm'}" 
                                            ${inputDisabled ? 'disabled' : ''}>
