@@ -17,7 +17,6 @@ body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont
 .subtotal-row { background-color: #f8f9fa; border-bottom: 3px solid #dee2e6; }
 .total-row { background-color: #eff6ff; }
 .price-display { font-weight: bold; color: #1e3a8a; }
-.price-missing { color: #dc2626; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 
 .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
 .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
@@ -80,121 +79,159 @@ body { background: white; padding: 0; margin: 0; }
 <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
 </div>
 
-<!-- ★ 系統分頁切換 -->
-<div class="flex gap-4 border-b border-gray-300 mb-6">
-<button id="tabBtnFinance" onclick="switchSysTab('finance')" class="pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition">💰 財務對帳單 (對外請款)</button>
-<button id="tabBtnDriver" onclick="switchSysTab('driver')" class="pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition">🚗 司機業績結算 (內部抽成)</button>
+<!-- ★ 系統分頁切換 (三大系統) -->
+<div class="flex gap-2 sm:gap-4 border-b border-gray-300 mb-6 overflow-x-auto custom-scroll pb-1">
+<button id="tabBtnFinance" onclick="switchSysTab('finance')" class="pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition whitespace-nowrap">💰 財務對帳單</button>
+<button id="tabBtnBoss" onclick="switchSysTab('boss')" class="pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-emerald-700 transition whitespace-nowrap">📊 老闆業績戰情室</button>
+<button id="tabBtnDriver" onclick="switchSysTab('driver')" class="pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition whitespace-nowrap">🚗 司機業績結算</button>
 </div>
 
-<!-- 共用區塊：日期選擇 -->
-<div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 w-full max-w-2xl">
-<h3 class="font-bold text-gray-800 mb-4 border-b pb-2">📅 結帳與業績區間設定</h3>
-<div class="flex gap-4">
-<div class="flex items-center gap-3 flex-1">
-<span class="text-gray-600 font-bold">起始：</span>
-<input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
-</div>
-<div class="flex items-center gap-3 flex-1">
-<span class="text-gray-600 font-bold">結束：</span>
-<input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
-</div>
-</div>
+<!-- ==================== 【共用區塊：日期與飯店選擇】 ==================== -->
+<div id="sharedFilterSection" class="block">
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 w-full">
+        <h3 class="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">📅 1. 選擇查詢區間</h3>
+        <div class="flex gap-4 max-w-2xl">
+            <div class="flex items-center gap-3 flex-1">
+                <span class="text-gray-600 font-bold">起始：</span>
+                <input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+            </div>
+            <div class="flex items-center gap-3 flex-1">
+                <span class="text-gray-600 font-bold">結束：</span>
+                <input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div class="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-100">
+            <h3 class="font-bold text-orange-800 mb-4 border-b border-orange-200 pb-2">2. 快速載入群組名單：</h3>
+            <div class="flex flex-col gap-3">
+                <button onclick="quickSelectGroup('25th')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
+                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
+                </button>
+                <button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
+                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 1號/月底結帳飯店
+                </button>
+                <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
+                    <span>☐</span> 清空所有勾選
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
+            <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">3. 關鍵字過濾 (自訂選單)：</h3>
+            <div class="flex flex-col gap-3 flex-1">
+                <input type="text" id="keywordFilter" onkeyup="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
+                <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
+                    <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
+        <h3 class="font-bold text-gray-800 border-b pb-3 mb-4">✅ 請確認下方要 <span class="text-blue-600">結算/看業績</span> 的飯店清單：</h3>
+        <div id="hotelCheckboxes" class="flex flex-wrap gap-x-6 gap-y-3 max-h-48 overflow-y-auto custom-scroll p-2">
+            <div class="text-gray-400 font-bold w-full text-center py-4">正在載入區間內的飯店清單...</div>
+        </div>
+    </div>
 </div>
 
 <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
 <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
 </div>
 
-<!-- ==================== 【系統 1：財務對帳單與老闆業績看板】 ==================== -->
+<!-- ==================== 【系統 1：財務對帳單】 ==================== -->
 <div id="sysFinance" class="block">
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-<div class="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-100">
-<h3 class="font-bold text-orange-800 mb-4 border-b border-orange-200 pb-2">1. 快速載入群組名單：</h3>
-<div class="flex flex-col gap-3">
-<button onclick="quickSelectGroup('25th')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-<span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
-</button>
-<button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-<span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 月底結帳飯店
-</button>
-<button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
-<span>☐</span> 清空所有勾選
-</button>
-</div>
-</div>
-
-<div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
-<h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">2. 關鍵字過濾 (自訂選單)：</h3>
-<div class="flex flex-col gap-3 flex-1">
-<input type="text" id="keywordFilter" onkeyup="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
-<button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
-<span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
-</button>
-</div>
-</div>
-</div>
-
-<div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
-<div class="flex justify-between items-center border-b pb-3 mb-4">
-<h3 class="font-bold text-gray-800">✅ 請確認下方要結算/看業績的飯店清單 <span class="text-xs text-gray-400 font-normal">(僅顯示期間內有紀錄者)</span>：</h3>
-<button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-700 hover:bg-blue-800 text-white font-bold px-8 py-2 rounded-full shadow transition-colors disabled:opacity-50">
-開始結算預覽 (計算業績)
-</button>
-</div>
-<div id="hotelCheckboxes" class="flex flex-wrap gap-x-6 gap-y-3 max-h-48 overflow-y-auto custom-scroll p-2">
-<div class="text-gray-400 font-bold w-full text-center py-4">正在載入區間內的飯店清單...</div>
-</div>
-</div>
-
-<!-- 🏆 新增：老闆專用業績看板 (計算後顯示) -->
-<div id="performanceSummaryBox" class="hidden bg-gradient-to-r from-amber-500 to-orange-600 rounded-xl shadow-lg p-6 mb-8 text-white">
-    <div class="flex justify-between items-center border-b border-white/30 pb-4 mb-4">
-        <div>
-            <h3 class="text-2xl font-black flex items-center gap-2">📊 業績結算總覽</h3>
-            <p class="text-orange-100 mt-1 text-sm font-bold" id="summaryDateRange"></p>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
+        <div class="p-4 bg-gray-50 flex justify-between items-center border-b border-gray-200 rounded-t-xl">
+            <div class="flex flex-col gap-1">
+                <h3 class="font-black text-gray-800 text-xl flex items-center gap-2">💰 內部核對與對帳單產出</h3>
+                <span class="text-xs text-blue-600 font-bold">💡 表格內的單價可直接修改並會自動記憶！(依照簽收單順序排列)</span>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg shadow transition-colors disabled:opacity-50">
+                    🔄 載入/更新明細
+                </button>
+                <button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2 rounded-lg shadow-sm flex items-center gap-2">
+                    📑 產生客戶對帳單
+                </button>
+            </div>
         </div>
-        <div class="text-right">
-            <p class="text-sm font-bold text-orange-100 mb-1">勾選店家總營業額 (含稅)</p>
-            <p id="summaryGrandTotal" class="text-4xl font-black tracking-wider drop-shadow-md">$0</p>
-            <p id="summaryGrandTotalUntaxed" class="text-xs text-orange-200 mt-1">未稅: $0</p>
+        <div class="overflow-x-auto max-h-[600px] custom-scroll relative">
+            <table class="bank-table">
+                <thead>
+                    <tr>
+                        <th class="w-32 text-center">出貨日期</th>
+                        <th class="w-48">品項名稱</th>
+                        <th class="w-24 text-center">數量 (實收)</th>
+                        <th class="w-28 text-center">單價 (可修改)</th>
+                        <th class="w-32 text-right pr-6">小計金額</th>
+                    </tr>
+                </thead>
+                <tbody id="internalTableBody">
+                    <tr><td colspan="5" class="py-16 text-center text-gray-400 font-bold">請先勾選飯店後，點擊右上角「載入/更新明細」</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
-    <h4 class="font-bold text-orange-100 mb-3 border-l-4 border-white pl-2">各店家業績佔比 (未稅)：</h4>
-    <div id="summaryStoresList" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[200px] overflow-y-auto custom-scroll pr-2">
-        <!-- 店家小卡插入點 -->
+</div>
+
+<!-- ==================== 【系統 2：老闆業績戰情室】 ==================== -->
+<div id="sysBoss" class="hidden">
+    <div class="bg-gradient-to-br from-emerald-800 to-teal-900 rounded-2xl shadow-xl p-6 mb-8 text-white relative overflow-hidden">
+        <!-- 裝飾背景 -->
+        <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-white opacity-5 rounded-full blur-2xl"></div>
+        
+        <div class="flex justify-between items-end border-b border-white/20 pb-5 mb-6 relative z-10">
+            <div>
+                <h2 class="text-3xl font-black flex items-center gap-3 drop-shadow-md">
+                    <span>📊</span> 業績戰情總覽
+                </h2>
+                <p class="text-emerald-100 mt-2 font-bold text-sm bg-black/20 inline-block px-3 py-1 rounded-full" id="bossDateRange">尚未計算</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="loadBossData()" id="loadBossBtn" class="bg-emerald-500 hover:bg-emerald-400 text-white font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-emerald-400 flex items-center gap-2">
+                    ▶ 立即計算業績
+                </button>
+                <button onclick="exportBossExcel()" id="exportBossBtn" class="hidden bg-white text-emerald-800 hover:bg-gray-100 font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-gray-200 flex items-center gap-2">
+                    ⬇️ 匯出業績 Excel
+                </button>
+            </div>
+        </div>
+
+        <div id="bossDashboardContent" class="hidden relative z-10">
+            <!-- 總計數據區 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5">
+                    <p class="text-emerald-200 text-sm font-bold mb-1">未稅總營業額</p>
+                    <p id="bossTotalUntaxed" class="text-3xl font-black">$0</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5">
+                    <p class="text-emerald-200 text-sm font-bold mb-1">營業稅金 (5%)</p>
+                    <p id="bossTotalTax" class="text-3xl font-black">$0</p>
+                </div>
+                <div class="bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl p-5 transform scale-105 shadow-lg">
+                    <p class="text-white text-sm font-bold mb-1 flex items-center gap-1">⭐ 含稅總營業額</p>
+                    <p id="bossTotalFinal" class="text-4xl font-black text-yellow-300 drop-shadow">$0</p>
+                </div>
+            </div>
+
+            <!-- 各店家業績清單 -->
+            <h3 class="font-bold text-lg mb-3 border-l-4 border-emerald-400 pl-3">各店家業績貢獻 (未稅)</h3>
+            <div id="bossStoreGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[300px] overflow-y-auto custom-scroll pr-2 pb-2">
+                <!-- 店家卡片 -->
+            </div>
+        </div>
+        
+        <div id="bossEmptyState" class="text-center py-10 text-emerald-200/50 font-bold text-lg">
+            請點擊上方「立即計算業績」按鈕生成戰情數據
+        </div>
     </div>
 </div>
 
-<div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
-<div class="p-4 bg-gray-50 flex justify-between items-center border-b border-gray-200 rounded-t-xl">
-<div class="flex items-center gap-4">
-<h3 class="font-black text-gray-800 text-lg">內部核對總表 <span class="text-sm text-gray-500 font-medium ml-2">依照簽收單順序排列</span></h3>
-<span class="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold shadow-sm">💡 現在您可以直接在表格內修改並記憶單價了！</span>
-</div>
-<button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2 rounded-lg shadow-sm flex items-center gap-2">
-產生客戶對帳單
-</button>
-</div>
-<div class="overflow-x-auto max-h-[600px] custom-scroll relative">
-<table class="bank-table">
-<thead>
-<tr>
-<th class="w-32 text-center">出貨日期</th>
-<th class="w-48">品項名稱</th>
-<th class="w-24 text-center">數量 (實收)</th>
-<th class="w-28 text-center">單價 (可修改)</th>
-<th class="w-32 text-right pr-6">小計金額</th>
-</tr>
-</thead>
-<tbody id="internalTableBody">
-<tr><td colspan="5" class="py-16 text-center text-gray-400 font-bold">請先勾選飯店後，點擊「開始結算預覽」</td></tr>
-</tbody>
-</table>
-</div>
-</div>
-</div>
 
-<!-- ==================== 【系統 2：司機業績計算】 ==================== -->
+<!-- ==================== 【系統 3：司機業績計算】 ==================== -->
 <div id="sysDriver" class="hidden">
 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
 <div class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
@@ -208,7 +245,7 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 <!-- 司機業績總覽卡片區 -->
 <div id="driverCardsContainer" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-<div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請點擊上方「開始計算業績」</div>
+<div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請確認日期後，點擊上方「開始計算業績」</div>
 </div>
 
 <!-- 孤兒單據警告區 (找不到負責人) -->
@@ -264,14 +301,14 @@ body { background: white; padding: 0; margin: 0; }
 <div class="bg-gray-100 border border-gray-200 rounded-lg p-4 mb-4">
 <div class="flex justify-between items-end mb-3 border-b border-gray-300 pb-2">
 <h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，不可在此修改)</h4>
-<span class="text-xs text-red-500 font-bold">如需修改請至試算表【客戶資料表】</span>
+<span class="text-xs text-red-500 font-bold">如需修改請至試算表</span>
 </div>
 <div class="grid grid-cols-2 gap-4 text-sm">
-<div><label class="font-bold text-gray-500 text-xs">發票抬頭名稱</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">統一編號</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+<div><label class="font-bold text-gray-500 text-xs">發票抬頭</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+<div><label class="font-bold text-gray-500 text-xs">統編</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
 <div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">聯絡電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div class="col-span-2"><label class="font-bold text-gray-500 text-xs">出貨/聯絡地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+<div><label class="font-bold text-gray-500 text-xs">電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+<div class="col-span-2"><label class="font-bold text-gray-500 text-xs">地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
 <div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
 <div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
 </div>
@@ -291,7 +328,7 @@ body { background: white; padding: 0; margin: 0; }
 
 <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
 <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
-<button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載 Excel</button>
+<button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載對帳 Excel</button>
 <button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
 </div>
 
@@ -299,12 +336,12 @@ body { background: white; padding: 0; margin: 0; }
 <div class="excel-bottom-bar no-print">
 <a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
 <a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
-<a href="finance.html" class="excel-tab active">💰 財務對帳單</a>
+<a href="finance.html" class="excel-tab active">💰 結帳戰情系統</a>
 </div>
 
 <script type="module">
 // ==========================================
-// ★ 核心設定區：請貼上您的 Google Apps Script 網址
+// ★ 核心設定區
 // ==========================================
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -324,12 +361,12 @@ const db = initializeFirestore(app, {
 localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
 
-// 財務共用變數
-let rawLogisticsData = [];
+// 全域共用變數
+let rawLogisticsData = []; 
+let currentBossData = []; // 專門給老闆業績戰情室存放資料
 let uniqueCompanies = new Set();
 let sheetPrices = {};
 let sheetClients = {};
-// 司機業績專用變數
 let sheetRoutes = {};
 let sheetSchedules = {};
 let currentDriverStats = {};
@@ -337,9 +374,8 @@ let currentUnassignedStats = {};
 let customPrices = {};
 
 const group25th = ["癮室", "承億", "文旅"];
-const groupEndOfMonth = ["晶華", "君悅", "飯店"];
+const groupEndOfMonth = ["晶華", "君悅", "飯店"]; // 1號/月底結帳群組
 
-// 🛠️ 防呆保護
 function standardizeDate(dStr) {
 if(!dStr) return "";
 if (typeof dStr === 'object' && typeof dStr.toDate === 'function') {
@@ -363,22 +399,39 @@ const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('startDate').value = getLocalDateString(firstDay);
 document.getElementById('endDate').value = getLocalDateString(today);
 
-// 綁定全域函數
+// ★ 系統切換邏輯 (三系統)
 window.switchSysTab = function(tab) {
-if (tab === 'finance') {
-document.getElementById('sysFinance').classList.remove('hidden');
-document.getElementById('sysDriver').classList.add('hidden');
-document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-black text-xl border-b-4 border-amber-600 text-amber-700 transition";
-document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-indigo-600 transition";
-} else {
-document.getElementById('sysFinance').classList.add('hidden');
-document.getElementById('sysDriver').classList.remove('hidden');
-document.getElementById('tabBtnFinance').className = "pb-3 px-4 font-bold text-xl border-b-4 border-transparent text-gray-500 hover:text-amber-600 transition";
-document.getElementById('tabBtnDriver').className = "pb-3 px-4 font-black text-xl border-b-4 border-indigo-600 text-indigo-700 transition";
+    // 隱藏所有內容
+    ['finance', 'boss', 'driver'].forEach(t => {
+        document.getElementById(`sys${t.charAt(0).toUpperCase() + t.slice(1)}`).classList.add('hidden');
+        let btn = document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        btn.classList.remove('border-amber-600', 'text-amber-700', 'font-black', 'border-emerald-600', 'text-emerald-700', 'border-indigo-600', 'text-indigo-700');
+        btn.classList.add('border-transparent', 'text-gray-500', 'font-bold');
+    });
+
+    const activeBtn = document.getElementById(`tabBtn${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+    activeBtn.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
+    activeBtn.classList.add('font-black');
+
+    if (tab === 'finance') {
+        document.getElementById('sysFinance').classList.remove('hidden');
+        document.getElementById('sharedFilterSection').classList.remove('hidden'); // 顯示飯店選擇器
+        activeBtn.classList.add('border-amber-600', 'text-amber-700');
+    } else if (tab === 'boss') {
+        document.getElementById('sysBoss').classList.remove('hidden');
+        document.getElementById('sharedFilterSection').classList.remove('hidden'); // 顯示飯店選擇器
+        activeBtn.classList.add('border-emerald-600', 'text-emerald-700');
+    } else if (tab === 'driver') {
+        document.getElementById('sysDriver').classList.remove('hidden');
+        document.getElementById('sharedFilterSection').classList.add('hidden'); // 司機不需要選飯店
+        activeBtn.classList.add('border-indigo-600', 'text-indigo-700');
+    }
 }
-}
+
 window.fetchInitialHotels = fetchInitialHotels;
 window.loadFinanceData = loadFinanceData;
+window.loadBossData = loadBossData;
+window.exportBossExcel = exportBossExcel;
 window.openInvoiceModal = openInvoiceModal;
 window.closeInvoiceModal = () => document.getElementById('invoiceModal').classList.replace('flex', 'hidden');
 window.loadClientProfile = loadClientProfile;
@@ -406,8 +459,7 @@ inputEl.style.opacity = '0.5';
 try {
 await setDoc(doc(db, 'inventory_config', 'custom_prices'), { prices: customPrices }, { merge: true });
 showToast("✅ 單價已儲存！");
-if (!document.getElementById('sysFinance').classList.contains('hidden')) loadFinanceData();
-else calculateDriverPerformance();
+loadFinanceData(); // 更新財務表格
 } catch (err) {
 console.error(err);
 alert("儲存價格失敗，請檢查網路連線或權限設定！");
@@ -479,7 +531,7 @@ const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
 if (priceDoc.exists() && priceDoc.data().prices) customPrices = priceDoc.data().prices;
 } catch(err) { console.warn("載入自訂價格失敗", err); }
 
-document.getElementById('syncStatus').innerText = "✅ 試算表設定同步完成";
+document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
 document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
 } else throw new Error(json.error);
 } catch(e) {
@@ -580,143 +632,235 @@ const keywords = type === '25th' ? group25th : groupEndOfMonth;
 checkboxes.forEach(cb => { if (keywords.some(kw => cb.value.includes(kw))) cb.checked = true; });
 }
 
+// 共用取資料函數 (供 Finance & Boss 使用)
+async function fetchRecordsForSelectedHotels() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
+    
+    if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
+
+    await syncMasterDataFromSheet();
+
+    let startParts = startDate.split('-'); let endParts = endDate.split('-');
+    let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+    let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+    const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+    const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+    const startTs = new Date(`${startDate}T00:00:00`);
+    const endTs = new Date(`${endDate}T23:59:59`);
+    const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
+
+    const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
+    let uniqueDocs = new Map();
+    snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
+    snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+    snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
+
+    let results = [];
+    uniqueDocs.forEach(docSnap => {
+        const d = docSnap.data();
+        let dDate = standardizeDate(d.date);
+        if (dDate >= startDate && dDate <= endDate) {
+            let hotelName = d.hotelKeyword || "未命名飯店";
+            if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+            if (selectedHotels.includes(hotelName)) {
+                (d.items || []).forEach((item, idx) => {
+                    let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
+                    if (actual > 0) {
+                        results.push({
+                            parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
+                            date: dDate, item: item.itemName, qty: actual,
+                            receiptOrder: idx
+                        });
+                    }
+                });
+            }
+        }
+    });
+    return results;
+}
+
+// 💰 系統1：財務載入
 async function loadFinanceData() {
-const startDate = document.getElementById('startDate').value;
-const endDate = document.getElementById('endDate').value;
-const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
-const tbody = document.getElementById('internalTableBody');
-const btn = document.getElementById('loadBtn');
-const summaryBox = document.getElementById('performanceSummaryBox');
+    const tbody = document.getElementById('internalTableBody');
+    const btn = document.getElementById('loadBtn');
+    btn.innerHTML = `計算中...`; btn.disabled = true;
+    tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在撈取明細資料...</td></tr>`;
 
-summaryBox.classList.add('hidden'); // 先隱藏看板
+    try {
+        rawLogisticsData = await fetchRecordsForSelectedHotels();
+        
+        if(rawLogisticsData.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-gray-400">勾選區間內無出貨紀錄</td></tr>`;
+            return;
+        }
 
-btn.innerHTML = `計算中...`; btn.disabled = true;
-await syncMasterDataFromSheet();
-tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在撈取數量與計算業績...</td></tr>`;
+        let deptsData = {};
+        rawLogisticsData.forEach(r => {
+            if(!deptsData[r.hotel]) deptsData[r.hotel] = [];
+            deptsData[r.hotel].push(r);
+        });
 
-try {
-let startParts = startDate.split('-'); let endParts = endDate.split('-');
-let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-const startTs = new Date(`${startDate}T00:00:00`);
-const endTs = new Date(`${endDate}T23:59:59`);
-const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
+        let html = ""; 
+        const sortedDepts = Object.keys(deptsData).sort();
+        
+        sortedDepts.forEach(deptName => {
+            let records = deptsData[deptName];
+            // 依照日期與簽收單索引排序
+            records.sort((a,b) => { 
+                if(a.date !== b.date) return a.date < b.date ? -1 : 1; 
+                return a.receiptOrder - b.receiptOrder; 
+            });
 
-const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
-let uniqueDocs = new Map();
-snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
+            html += `<tr class="dept-header"><td colspan="5" class="font-black text-blue-900 text-base py-2 pl-4 border-y-2 border-blue-200">🏨 ${deptName}</td></tr>`;
 
-rawLogisticsData = [];
+            let lastDate = ""; let deptSubtotal = 0;
+            records.forEach(r => {
+                let price = getPrice(r.hotel, r.item);
+                let priceVal = price !== null ? price : "";
+                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.hotel}', '${r.item}', this.value, this)">`;
+                let subtotalDisplay = "";
+                if (price === null || price === "") {
+                    subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
+                } else {
+                    let subtotal = r.qty * price;
+                    deptSubtotal += subtotal; 
+                    subtotalDisplay = `$${subtotal.toLocaleString()}`;
+                }
 
-uniqueDocs.forEach(docSnap => {
-const d = docSnap.data();
-let dDate = standardizeDate(d.date);
-if (dDate >= startDate && dDate <= endDate) {
-let hotelName = d.hotelKeyword || "未命名飯店";
-if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
-if (selectedHotels.includes(hotelName)) {
-// 🛠️ 修改點 1：紀錄 item 在陣列中的原始索引 (idx) 當作簽收單排序依據
-(d.items || []).forEach((item, idx) => {
-let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
-if (actual > 0) {
-rawLogisticsData.push({
-parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
-date: dDate, item: item.itemName, qty: actual,
-receiptOrder: idx  // ✨ 關鍵：儲存原簽收單的索引順序
-});
-}
-});
-}
-}
-});
+                let dateDisplay = (r.date !== lastDate) ? r.date : "";
+                lastDate = r.date;
 
-if(rawLogisticsData.length === 0) {
-tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-gray-400">勾選區間內無出貨紀錄</td></tr>`;
-return;
-}
+                html += `<tr><td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td><td class="font-bold text-gray-800">${r.item}</td><td class="text-center font-black">${r.qty}</td><td class="text-center price-display">${priceDisplay}</td><td class="text-right pr-6 font-bold text-blue-800">${subtotalDisplay}</td></tr>`;
+            });
 
-let deptsData = {};
-rawLogisticsData.forEach(r => {
-if(!deptsData[r.hotel]) deptsData[r.hotel] = [];
-deptsData[r.hotel].push(r);
-});
+            html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg">$${deptSubtotal.toLocaleString()}</td></tr>`;
+        });
 
-let html = ""; let grandTotal = 0;
-let summaryHtml = ""; // 儲存看板小卡的 HTML
-
-const sortedDepts = Object.keys(deptsData).sort();
-sortedDepts.forEach(deptName => {
-let records = deptsData[deptName];
-
-// 🛠️ 修改點 2：第一層照日期排，第二層照「簽收單順序」排 (不再按筆畫)
-records.sort((a,b) => { 
-    if(a.date !== b.date) return a.date < b.date ? -1 : 1; 
-    return a.receiptOrder - b.receiptOrder; 
-});
-
-html += `<tr class="dept-header"><td colspan="5" class="font-black text-blue-900 text-base py-2 pl-4 border-y-2 border-blue-200">🏨 ${deptName}</td></tr>`;
-
-let lastDate = ""; let deptSubtotal = 0;
-records.forEach(r => {
-let price = getPrice(r.hotel, r.item);
-let priceVal = price !== null ? price : "";
-let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="輸入單價" class="w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.hotel}', '${r.item}', this.value, this)">`;
-let subtotalDisplay = "";
-if (price === null || price === "") {
-subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
-} else {
-let subtotal = r.qty * price;
-deptSubtotal += subtotal; grandTotal += subtotal;
-subtotalDisplay = `$${subtotal.toLocaleString()}`;
+        tbody.innerHTML = html;
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center py-10">${e.message}</td></tr>`;
+    } finally {
+        btn.innerHTML = `🔄 載入/更新明細`; btn.disabled = false;
+    }
 }
 
-let dateDisplay = (r.date !== lastDate) ? r.date : "";
-lastDate = r.date;
+// 📊 系統2：老闆業績載入
+async function loadBossData() {
+    const btn = document.getElementById('loadBossBtn');
+    const content = document.getElementById('bossDashboardContent');
+    const emptyState = document.getElementById('bossEmptyState');
+    const exportBtn = document.getElementById('exportBossBtn');
+    
+    btn.innerHTML = `計算中...`; btn.disabled = true;
+    
+    try {
+        currentBossData = await fetchRecordsForSelectedHotels();
+        
+        if(currentBossData.length === 0) {
+            alert("勾選範圍內無紀錄可計算！");
+            return;
+        }
 
-html += `<tr><td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td><td class="font-bold text-gray-800">${r.item}</td><td class="text-center font-black">${r.qty}</td><td class="text-center price-display">${priceDisplay}</td><td class="text-right pr-6 font-bold text-blue-800">${subtotalDisplay}</td></tr>`;
-});
+        let deptsData = {};
+        let grandTotal = 0;
+        
+        currentBossData.forEach(r => {
+            if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
+            let price = getPrice(r.hotel, r.item) || 0;
+            let amt = r.qty * price;
+            deptsData[r.hotel] += amt;
+            grandTotal += amt;
+        });
 
-html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg">$${deptSubtotal.toLocaleString()}</td></tr>`;
+        let taxAmount = Math.round(grandTotal * 0.05); 
+        let finalAmount = grandTotal + taxAmount;
 
-// 建立業績看板的小卡片
-summaryHtml += `
-<div class="bg-white/20 rounded-lg p-3 border border-white/30 hover:bg-white/30 transition shadow-sm">
-    <div class="text-xs text-orange-50 font-bold truncate mb-1" title="${deptName}">${deptName}</div>
-    <div class="text-xl font-black text-white">$${deptSubtotal.toLocaleString()}</div>
-</div>`;
-});
+        // 更新看板數字
+        document.getElementById('bossDateRange').innerText = `${document.getElementById('startDate').value} 至 ${document.getElementById('endDate').value}`;
+        document.getElementById('bossTotalUntaxed').innerText = `$${grandTotal.toLocaleString()}`;
+        document.getElementById('bossTotalTax').innerText = `$${taxAmount.toLocaleString()}`;
+        document.getElementById('bossTotalFinal').innerText = `$${finalAmount.toLocaleString()}`;
 
-let taxAmount = Math.round(grandTotal * 0.05); let finalAmount = grandTotal + taxAmount;
+        // 更新小卡
+        let summaryHtml = "";
+        const sortedDepts = Object.entries(deptsData).sort((a,b) => b[1] - a[1]); // 依業績高低排序
+        sortedDepts.forEach(([deptName, amt]) => {
+            summaryHtml += `
+            <div class="bg-white/10 rounded-lg p-4 border border-white/20 hover:bg-white/20 transition shadow-sm">
+                <div class="text-sm text-emerald-100 font-bold truncate mb-2" title="${deptName}">${deptName}</div>
+                <div class="text-2xl font-black text-white">$${amt.toLocaleString()}</div>
+            </div>`;
+        });
+        document.getElementById('bossStoreGrid').innerHTML = summaryHtml;
 
-// 隱藏在明細最下方的舊版總計（保留以防萬一，但因為上方有大字板了，可以不用再捲到底）
-html += `
-<tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2">$${grandTotal.toLocaleString()}</td></tr>
-<tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2">$${taxAmount.toLocaleString()}</td></tr>
-<tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6">$${finalAmount.toLocaleString()}</td></tr>
-`;
-tbody.innerHTML = html;
+        emptyState.classList.add('hidden');
+        content.classList.remove('hidden');
+        exportBtn.classList.remove('hidden');
 
-// 🛠️ 修改點 3：更新並顯示老闆專用看板
-document.getElementById('summaryDateRange').innerText = `統計期間：${startDate} 至 ${endDate}`;
-document.getElementById('summaryGrandTotal').innerText = `$${finalAmount.toLocaleString()}`;
-document.getElementById('summaryGrandTotalUntaxed').innerText = `未稅總額: $${grandTotal.toLocaleString()}`;
-document.getElementById('summaryStoresList').innerHTML = summaryHtml;
-summaryBox.classList.remove('hidden');
-
-} catch (e) {
-console.error(e);
-tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
-} finally {
-btn.innerHTML = `開始結算預覽 (計算業績)`; btn.disabled = false;
+    } catch (e) {
+        alert(e.message);
+    } finally {
+        btn.innerHTML = `▶ 重新計算業績`; btn.disabled = false;
+    }
 }
+
+// 📊 系統2：老闆專屬匯出 Excel
+function exportBossExcel() {
+    if (currentBossData.length === 0) { alert("請先計算業績！"); return; }
+    
+    let deptsData = {};
+    let grandTotal = 0;
+    
+    // 整理明細
+    let detailsForExcel = [["出貨日期", "飯店名稱", "品項名稱", "數量", "單價", "金額小計"]];
+    currentBossData.sort((a,b) => {
+        if(a.date !== b.date) return a.date < b.date ? -1 : 1; 
+        if(a.hotel !== b.hotel) return a.hotel < b.hotel ? -1 : 1;
+        return a.receiptOrder - b.receiptOrder;
+    });
+
+    currentBossData.forEach(r => {
+        let price = getPrice(r.hotel, r.item) || 0;
+        let amt = r.qty * price;
+        grandTotal += amt;
+        
+        if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
+        deptsData[r.hotel] += amt;
+        
+        detailsForExcel.push([r.date, r.hotel, r.item, r.qty, price, amt]);
+    });
+
+    // 建立 Workbook
+    let wb = XLSX.utils.book_new();
+
+    // Sheet 1: 業績總覽
+    let ws1_data = [
+        ["百麒物流 - 老闆業績戰情報表"],
+        ["統計區間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`],
+        [],
+        ["飯店名稱", "結算總計 (未稅)"]
+    ];
+    const sortedDepts = Object.entries(deptsData).sort((a,b) => b[1] - a[1]); // 依業績排序
+    sortedDepts.forEach(([dept, amt]) => { ws1_data.push([dept, amt]); });
+    
+    ws1_data.push([]); 
+    ws1_data.push(["總計數據"]); 
+    ws1_data.push(["未稅金額", grandTotal]); 
+    ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); 
+    ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "各店業績總覽");
+
+    // Sheet 2: 完整明細
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailsForExcel), "所有出貨明細");
+
+    XLSX.writeFile(wb, `老闆業績戰報_${document.getElementById('startDate').value.replace(/-/g,'')}至${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
 }
 
+// 財務對帳單產出邏輯
 function openInvoiceModal() {
-if(rawLogisticsData.length === 0) { alert("請先載入預覽帳目！"); return; }
+if(rawLogisticsData.length === 0) { alert("請先於「財務對帳單」畫面點擊載入明細！"); return; }
 document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
 }
 
@@ -808,7 +952,6 @@ html += `
 
 let pageNum = 2;
 for (let [deptName, records] of Object.entries(deptsData)) {
-// PDF 對帳單同樣也套用「簽收單原始順序」排序
 records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.receiptOrder - b.receiptOrder; });
 
 html += `<div class="page-break"></div>
@@ -867,7 +1010,7 @@ XLSX.writeFile(wb, `百麒對帳單_${comp}_${document.getElementById('endDate')
 }
 
 // ==========================================
-// 🚀 【系統 2】司機業績
+// 🚀 【系統 3】司機業績
 // ==========================================
 async function calculateDriverPerformance() {
 const startDate = document.getElementById('startDate').value;
@@ -937,7 +1080,6 @@ currentUnassignedStats.details.push(detailObj);
 
 renderDriverCards();
 } catch (e) {
-console.error("業績計算失敗: ", e);
 alert("計算失敗: " + e.message);
 } finally {
 btn.innerHTML = `▶ 開始計算業績`; btn.disabled = false;
