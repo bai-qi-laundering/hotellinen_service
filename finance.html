@@ -666,7 +666,13 @@ async function fetchRecordsForSelectedHotels() {
             if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
             if (selectedHotels.includes(hotelName)) {
                 (d.items || []).forEach((item, idx) => {
-                    let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
+                    // ★ 核心修復點：如果 actualQty 是 null 或空字串 (手動補單)，強制抓 originalQty 算錢
+                    let actualVal = item.actualQty;
+                    if (actualVal === null || actualVal === undefined || actualVal === "") {
+                        actualVal = item.originalQty;
+                    }
+                    let actual = Number(actualVal) || 0;
+
                     if (actual > 0) {
                         results.push({
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
@@ -1059,7 +1065,13 @@ let driverName = null;
 if (sheetSchedules[dDate] && sheetSchedules[dDate][assignedRoute]) driverName = sheetSchedules[dDate][assignedRoute];
 
 (d.items || []).forEach(item => {
-let actual = Number((item.actualQty !== undefined && item.actualQty !== "") ? item.actualQty : item.originalQty);
+// ★ 核心修復點：同上，自動判斷與代入 originalQty
+let actualVal = item.actualQty;
+if (actualVal === null || actualVal === undefined || actualVal === "") {
+    actualVal = item.originalQty;
+}
+let actual = Number(actualVal) || 0;
+
 if (actual > 0) {
 let price = getPrice(hotelName, item.itemName) || 0;
 let amt = actual * price;
