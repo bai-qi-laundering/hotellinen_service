@@ -129,6 +129,49 @@
         window.addNewItem = addNewItem;
         window.fetchData = fetchData;
 
+        // ★ 新增：強制同步至財務系統的方法
+        window.forceSyncToFinance = async function(deptKey) {
+            const btn = event.currentTarget;
+            const originalText = btn.innerText;
+            btn.innerText = "傳送中...";
+            btn.disabled = true;
+
+            try {
+                showToastMsg("⏳ 正在強制同步至財務系統...");
+                const docId = `${currentDate}_${currentHotel}_${deptKey}`;
+                const docRef = doc(db, 'logistics_records', docId);
+
+                let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
+                    deptName: item.deptName,
+                    itemName: item.itemName,
+                    originalQty: item.originalQty,
+                    auntNote: item.auntNote,
+                    actualQty: item.actualQty,
+                    driverNote: item.driverNote || "手動強制同步"
+                }));
+
+                await setDoc(docRef, {
+                    date: currentDate,
+                    hotelKeyword: currentHotel,
+                    deptName: deptKey,
+                    items: safeItemsForDatabase,
+                    clientSig: groupedData[deptKey].clientSig || "",
+                    driverSig: groupedData[deptKey].driverSig || "",
+                    timestamp: new Date().toLocaleString(),
+                    forcedSync: true
+                }, { merge: true });
+
+                groupedData[deptKey].isSynced = true;
+                renderDepartments();
+                showToastMsg("✅ 已成功強制同步至財務後台！");
+            } catch(e) {
+                console.error(e);
+                showToastMsg("⚠️ 同步失敗：" + e.message, true);
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
         const loadingHtml = `
             <div class="flex flex-col items-center justify-center py-12 space-y-4">
                 <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -142,7 +185,7 @@
         function showToastMsg(msg, isError = false) {
             const toast = document.getElementById('toast');
             toast.innerText = msg;
-            toast.className = `fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-[10000] font-bold text-center ${isError ? 'bg-red-600' : 'bg-green-700'}`;
+            toast.className = `fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-[10000] font-bold text-center w-[90%] max-w-sm ${isError ? 'bg-red-600' : 'bg-green-700'}`;
             toast.classList.remove('opacity-0'); 
             setTimeout(() => toast.classList.add('opacity-0'), 3000);
         }
@@ -182,7 +225,7 @@
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
-            let queryDate = urlParams.get('date'); // 🌟 關鍵修復：嘗試去抓網址上的日期
+            let queryDate = urlParams.get('date'); 
             
             if (!currentHotel || currentHotel.trim() === "") {
                 document.getElementById('hotelTitle').innerText = "連結錯誤";
@@ -216,11 +259,9 @@
                 console.error("Template load error:", e);
             }
 
-            // 🌟 關鍵修復邏輯：有指定日期就用指定的，沒指定才用今天
             let targetDate = getLocalDateString(new Date()); 
-            
             if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                targetDate = queryDate; // 只要網址有傳日期過來，就強制鎖定那個日期！
+                targetDate = queryDate; 
             }
 
             document.getElementById('datePicker').value = targetDate;
@@ -241,7 +282,6 @@
         function isValidItemName(name) {
             if (!name) return false;
             let cleanName = String(name).trim();
-            // 排除空字串以及任何文字型態的 undefined / null
             if (cleanName === "" || cleanName.toLowerCase() === "undefined" || cleanName.toLowerCase() === "null") return false;
             return true;
         }
@@ -264,7 +304,6 @@
                 
                 const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
-                // ★ 1. 嚴格對齊：建立真實盤點資料庫的 Map，作為「唯一真理」
                 let inventoryMap = {}; 
                 
                 invSnap.forEach(docSnap => {
@@ -282,7 +321,7 @@
                                 inventoryMap[key] = {
                                     deptName: deptName,
                                     itemName: String(itemName).trim(),
-                                    originalQty: extractQty(itemData), // ★ 絕對的盤點數量
+                                    originalQty: extractQty(itemData),
                                     auntNote: itemData.note || itemData.auntNote || d.note || ""
                                 };
                             }
@@ -296,25 +335,21 @@
                     }
                 });
 
-                // ★ 2. 讀取物流紀錄 (只取簽名與實收量，不信任其盤點數量)
                 let savedLogistics = {};
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
                     savedLogistics[d.deptName] = d;
                 });
 
-                // ★ 3. 強制組合：逼物流單的盤點數量 (originalQty) 必須是從 inventory_records 抓出來的
                 for (let key in inventoryMap) {
                     let invItem = inventoryMap[key];
-                    let actualQty = invItem.originalQty; // 實收量預設等於最新的盤點量
+                    let actualQty = invItem.originalQty; 
                     let driverNote = "";
                     let clientSig = "";
                     let driverSig = "";
 
-                    // 尋找物流單是否有這部門的紀錄
                     let savedDept = savedLogistics[invItem.deptName];
                     if (!savedDept) {
-                        // 模糊比對部門名稱 (容錯處理，確保不會漏掉舊簽名)
                         savedDept = Object.values(savedLogistics).find(s => 
                             (s.deptName && s.deptName.includes(invItem.deptName)) || 
                             (invItem.deptName && invItem.deptName.includes(s.deptName))
@@ -327,7 +362,6 @@
                         if (savedDept.items) {
                             let savedItem = savedDept.items.find(i => i.itemName === invItem.itemName);
                             if (savedItem) {
-                                // 只有司機有改過「實收量」才套用，否則實收量跟著盤點量走
                                 if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") {
                                     actualQty = String(savedItem.actualQty);
                                 }
@@ -339,16 +373,16 @@
                     rawData.push({
                         deptName: invItem.deptName,
                         itemName: invItem.itemName,
-                        originalQty: invItem.originalQty, // 👈 絕對強制綁定真實盤點數量
+                        originalQty: invItem.originalQty, 
                         auntNote: invItem.auntNote,
                         actualQty: actualQty,
                         driverNote: driverNote,
                         clientSig: clientSig,
-                        driverSig: driverSig
+                        driverSig: driverSig,
+                        isSynced: !!savedDept // ★ 紀錄這筆資料是否曾經存進財務系統
                     });
                 }
 
-                // ★ 4. 處理「物流單上有，但盤點單上根本沒有」的幽靈品項
                 for (let deptKey in savedLogistics) {
                     let savedDept = savedLogistics[deptKey];
                     if (savedDept.items) {
@@ -357,7 +391,6 @@
                             
                             let key = `${savedDept.deptName}_${savedItem.itemName}`;
                             if (!inventoryMap[key]) {
-                                // ★ 核心修改：除非是司機「臨時新增」的，否則盤點表沒有的幽靈資料，通通直接捨棄不顯示！
                                 if (savedItem.driverNote === "司機臨時新增") {
                                     rawData.push({
                                         deptName: savedDept.deptName,
@@ -367,7 +400,8 @@
                                         actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : "0",
                                         driverNote: savedItem.driverNote || "",
                                         clientSig: savedDept.clientSig || "",
-                                        driverSig: savedDept.driverSig || ""
+                                        driverSig: savedDept.driverSig || "",
+                                        isSynced: true
                                     });
                                 }
                             }
@@ -412,7 +446,9 @@
                 }
 
                 if (!groupedData[item.deptName]) {
-                    groupedData[item.deptName] = { items: [], clientSig: "", driverSig: "" };
+                    groupedData[item.deptName] = { items: [], clientSig: "", driverSig: "", isSynced: item.isSynced };
+                } else {
+                    if (item.isSynced) groupedData[item.deptName].isSynced = true;
                 }
                 
                 if (item.clientSig) groupedData[item.deptName].clientSig = item.clientSig;
@@ -527,6 +563,7 @@
         function renderDepartments() {
             let html = "";
             let deptIndex = 0;
+            let autoSyncPromises = []; // ★ 儲存自動背景同步的任務
 
             const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
 
@@ -535,6 +572,7 @@
             for (let dept in groupedData) {
                 deptIndex++;
                 let deptId = `dept_${deptIndex}`;
+                let isSynced = groupedData[dept].isSynced;
 
                 let localItemOrder = {};
                 if (masterTemplate && masterTemplate.length > 0) {
@@ -560,16 +598,45 @@
 
                 let actionButton = "";
 
+                // ★ UI 顯示邏輯：特別抓出【逾期卻未同步財務】的幽靈單據
                 if (isCompleted) {
-                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex items-center justify-center gap-2">
-                        <span>✅ 已點收完畢</span>
-                        <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-4">查看簽名</button>
+                    actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex flex-col items-center justify-center gap-2">
+                        <div class="flex items-center justify-center gap-2">
+                            <span>✅ 已點收完畢</span>
+                            <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-2">查看簽名</button>
+                        </div>
+                        <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手動同步至財務系統</button>
                     </div>`;
                 } else if (isSystemLocked) {
-                    actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-1">
-                        <span>🔒 逾期系統已自動結單</span>
-                        <span class="text-sm text-gray-400 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
-                    </div>`;
+                    if (!isSynced) {
+                        actionButton = `<div class="w-full mt-4 py-4 text-red-700 font-black text-xl text-center bg-red-50 rounded-xl border-2 border-red-300 shadow-sm flex flex-col items-center justify-center gap-2">
+                            <span>⚠️ 逾期未簽收，且尚未進入財務系統</span>
+                            <span class="text-sm text-red-500 font-bold">目前財務後台看不到這筆帳單</span>
+                            <button onclick="forceSyncToFinance('${dept}')" class="mt-2 text-base bg-red-600 text-white font-bold px-6 py-2 rounded-lg shadow-md active:bg-red-700 animate-pulse">🔄 立即強制同步至財務系統</button>
+                        </div>`;
+                        
+                        // 🌟 自動推播邏輯：偵測到沒同步的幽靈鎖定單，直接在背景幫忙推送到資料庫！
+                        let safeItemsForDatabase = groupedData[dept].items.map(item => ({
+                            deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                            auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote || "系統自動結單"
+                        }));
+                        let docRef = doc(db, 'logistics_records', `${currentDate}_${currentHotel}_${dept}`);
+                        
+                        let p = setDoc(docRef, {
+                            date: currentDate, hotelKeyword: currentHotel, deptName: dept,
+                            items: safeItemsForDatabase, clientSig: "", driverSig: "",
+                            timestamp: new Date().toLocaleString(), isAutoSynced: true
+                        }, { merge: true }).then(() => { groupedData[dept].isSynced = true; });
+                        
+                        autoSyncPromises.push(p);
+
+                    } else {
+                        actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-2">
+                            <span>🔒 逾期系統已自動結單</span>
+                            <span class="text-sm text-gray-500 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
+                            <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-gray-300 text-gray-700 border border-gray-400 px-3 py-1 rounded shadow-sm active:bg-gray-400">🔄 重新手動同步至財務</button>
+                        </div>`;
+                    }
                 } else if (hasClientSig && !hasDriverSig) {
                     actionButton = `<button onclick="openSignModal('${dept}')" class="w-full mt-4 p-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-md animate-pulse">🚚 等待司機簽名確認</button>`;
                 } else if (!hasClientSig && hasDriverSig) {
@@ -648,7 +715,17 @@
                     ${actionButton}
                 </div>`;
             }
+            
             document.getElementById('departmentsContainer').innerHTML = html;
+
+            // ★ 執行背景自動同步
+            if(autoSyncPromises.length > 0) {
+                Promise.all(autoSyncPromises).then(() => {
+                    showToastMsg("🔄 系統已自動將幽靈單據補傳送至財務後台！");
+                    // 延遲一秒重繪，讓紅色的按鈕變成正常的灰色按鈕
+                    setTimeout(renderDepartments, 1200); 
+                }).catch(err => console.error(err));
+            }
         }
 
         function setupCanvas(canvas, ctx) {
@@ -826,10 +903,12 @@
                 
                 groupedData[activeDeptKey].clientSig = cBase64;
                 groupedData[activeDeptKey].driverSig = dBase64;
+                groupedData[activeDeptKey].isSynced = true; // ★ 提交後標記為已同步
                 
                 if (isNewDriverSig && syncDepts.length > 0) {
                     syncDepts.forEach(dept => {
                         groupedData[dept].driverSig = dBase64;
+                        groupedData[dept].isSynced = true; // ★ 提交後標記為已同步
                     });
                 }
 
@@ -854,3 +933,4 @@
     </script>
 </body>
 </html>
+```eof
