@@ -6,7 +6,6 @@
     <title>百麒物流 - 總管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* STREAMING_CHUNK:Configuring basic styles and layout... */
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
         input[type="date"] { position: relative; }
@@ -55,7 +54,6 @@
 </head>
 <body class="p-4 md:p-8">
 
-    <!-- STREAMING_CHUNK:Rendering Modals and Overlays... -->
     <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
         <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
     </div>
@@ -72,13 +70,52 @@
         </div>
     </div>
 
+    <!-- 歷史補單浮窗 -->
+    <div id="manualEntryModal" class="hidden fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-100 flex flex-col max-h-[90vh]">
+            <div class="bg-emerald-600 p-4 rounded-t-2xl text-white font-black text-xl flex justify-between items-center">
+                <span>➕ 歷史補單 (手動新增物流/財務紀錄)</span>
+                <button onclick="closeManualEntryModal()" class="hover:bg-emerald-700 p-1 rounded">✖</button>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scroll flex-1">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-1 text-sm">單據日期 <span class="text-red-500">*</span></label>
+                        <input type="date" id="manualDate" class="w-full border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-1 text-sm">飯店關鍵字 <span class="text-red-500">*</span></label>
+                        <input type="text" id="manualHotel" placeholder="例如：承億" class="w-full border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-gray-700 font-bold mb-1 text-sm">部門名稱</label>
+                        <input type="text" id="manualDept" placeholder="預設：房務" value="房務" class="w-full border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none">
+                    </div>
+                </div>
+                
+                <div class="border-t border-gray-200 pt-4 mt-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-gray-700 font-black text-lg">📦 品項與數量</label>
+                        <button onclick="addManualEntryRow()" class="bg-emerald-100 text-emerald-700 px-3 py-1 rounded shadow-sm font-bold text-sm hover:bg-emerald-200 border border-emerald-200">➕ 新增一列</button>
+                    </div>
+                    <div id="manualItemsContainer" class="space-y-2">
+                        <!-- Dynamic rows here -->
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-2xl">
+                <button onclick="closeManualEntryModal()" class="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-sm hover:bg-gray-300 transition-colors">取消</button>
+                <button onclick="saveManualEntry()" id="manualSaveBtn" class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg font-bold shadow-md hover:bg-emerald-700 transition-colors">💾 儲存單據</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 全域簽名預覽浮窗 -->
     <div id="globalSigPreview" class="hidden fixed z-[9999] bg-white border-2 border-blue-400 shadow-2xl rounded-lg p-2 transition-opacity duration-100">
         <img id="globalSigImg" src="" class="max-w-[250px] max-h-[150px] bg-white">
         <div class="text-center text-xs text-gray-400 mt-1 font-bold">點擊空白處關閉</div>
     </div>
 
-    <!-- STREAMING_CHUNK:Rendering Inventory Section... -->
     <!-- 👑 藍色：盤點明細後台 (Inventory Section) -->
     <div id="sectionInventory" class="max-w-[1400px] mx-auto block animate-[fadeIn_0.3s_ease-out]">
         <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
@@ -163,7 +200,6 @@
         </div>
     </div>
 
-    <!-- STREAMING_CHUNK:Rendering Logistics Section... -->
     <!-- 📦 綠色：物流查帳後台 (Logistics Section) -->
     <div id="sectionLogistics" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]">
         <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
@@ -197,9 +233,14 @@
                     </select>
                 </div>
 
-                <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm ml-auto">
-                    載入物流單據
-                </button>
+                <div class="flex ml-auto gap-2">
+                    <button onclick="openManualEntryModal()" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-emerald-300">
+                        ➕ 歷史補單
+                    </button>
+                    <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
+                        載入物流單據
+                    </button>
+                </div>
             </div>
 
             <div class="flex-1 overflow-auto bg-white relative">
@@ -220,7 +261,6 @@
         </div>
     </div>
 
-    <!-- STREAMING_CHUNK:Rendering bottom tabs... -->
     <!-- 底部 Excel 主頁籤 -->
     <div class="excel-bottom-bar">
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
@@ -228,7 +268,6 @@
         <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
     </div>
 
-    <!-- STREAMING_CHUNK:Firebase configuration and Logic Init... -->
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -331,7 +370,6 @@
             return index === -1 ? 99999 : index; 
         }
 
-        // STREAMING_CHUNK:Adding Force Sync to Logistics function...
         // ★ 新增功能：從盤點後台強制同步單筆資料至物流系統 (財務系統)
         window.forceSyncToLogistics = async function(docId, category, item, dateStr, e) {
             if(e) e.stopPropagation();
@@ -420,7 +458,129 @@
             }
         };
 
-        // STREAMING_CHUNK:Defining utility functions...
+        // ===============================================
+        // ★ 歷史補單功能 (手動新增紀錄)
+        // ===============================================
+        window.openManualEntryModal = function() {
+            document.getElementById('manualDate').value = getLocalDateString(new Date());
+            document.getElementById('manualHotel').value = "";
+            document.getElementById('manualDept').value = "房務";
+            document.getElementById('manualItemsContainer').innerHTML = "";
+            addManualEntryRow(); // 預設新增一列空白的
+            document.getElementById('manualEntryModal').classList.remove('hidden');
+        };
+
+        window.closeManualEntryModal = function() {
+            document.getElementById('manualEntryModal').classList.add('hidden');
+        };
+
+        window.addManualEntryRow = function() {
+            const container = document.getElementById('manualItemsContainer');
+            const row = document.createElement('div');
+            row.className = "flex gap-2 items-center manual-item-row";
+            row.innerHTML = `
+                <input type="text" placeholder="品項名稱 (如: 浴巾)" class="flex-1 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none item-name">
+                <input type="number" placeholder="數量" class="w-24 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none text-center item-qty">
+                <button onclick="this.parentElement.remove()" class="bg-red-50 text-red-500 px-3 py-2 rounded-lg font-bold hover:bg-red-100 border border-red-200">✖</button>
+            `;
+            container.appendChild(row);
+        };
+
+        window.saveManualEntry = async function() {
+            const dateStr = document.getElementById('manualDate').value;
+            const hotelKeyword = document.getElementById('manualHotel').value.trim();
+            let deptName = document.getElementById('manualDept').value.trim();
+            if (!deptName) deptName = "房務";
+
+            if (!dateStr || !hotelKeyword) {
+                await customAlert("⚠️ 日期與飯店關鍵字為必填！");
+                return;
+            }
+
+            const rowElements = document.querySelectorAll('.manual-item-row');
+            let itemsToAdd = [];
+            
+            rowElements.forEach(row => {
+                const name = row.querySelector('.item-name').value.trim();
+                const qty = row.querySelector('.item-qty').value.trim();
+                if (name && qty) {
+                    itemsToAdd.push({
+                        itemName: name,
+                        originalQty: String(qty),
+                        actualQty: String(qty),
+                        auntNote: "",
+                        driverNote: "後台歷史補單"
+                    });
+                }
+            });
+
+            if (itemsToAdd.length === 0) {
+                await customAlert("⚠️ 請至少輸入一個品項與數量！");
+                return;
+            }
+
+            const btn = document.getElementById('manualSaveBtn');
+            btn.innerHTML = "儲存中...";
+            btn.disabled = true;
+
+            try {
+                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                const logDocRef = doc(db, 'logistics_records', logDocId);
+                const logSnap = await getDoc(logDocRef);
+
+                let finalItems = [];
+
+                if (logSnap.exists()) {
+                    let existingData = logSnap.data();
+                    finalItems = existingData.items || [];
+                    
+                    // 合併邏輯：如果已有該品項則覆寫，沒有則新增
+                    itemsToAdd.forEach(newItem => {
+                        let existingItemIdx = finalItems.findIndex(i => i.itemName === newItem.itemName);
+                        if (existingItemIdx > -1) {
+                            finalItems[existingItemIdx].originalQty = newItem.originalQty;
+                            finalItems[existingItemIdx].actualQty = newItem.actualQty;
+                            finalItems[existingItemIdx].driverNote = "後台歷史補單 (覆寫)";
+                        } else {
+                            finalItems.push(newItem);
+                        }
+                    });
+
+                    await setDoc(logDocRef, {
+                        items: finalItems,
+                        forcedSync: true
+                    }, { merge: true });
+
+                } else {
+                    // 若完全沒這張單，直接新增
+                    await setDoc(logDocRef, {
+                        date: dateStr,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        forcedSync: true,
+                        items: itemsToAdd
+                    });
+                }
+
+                showToast("✅ 歷史單據已成功補入！財務系統現可讀取！");
+                closeManualEntryModal();
+                
+                // 強制清空快取，重新載入讓畫面顯示新打進去的單
+                lastLogFetchRange = { start: "", end: "" };
+                loadLogData(); 
+
+            } catch (e) {
+                console.error(e);
+                await customAlert("儲存失敗：" + e.message);
+            } finally {
+                btn.innerHTML = "💾 儲存單據";
+                btn.disabled = false;
+            }
+        };
+
         function getPossibleDates(dateStr) {
             if(!dateStr) return [];
             let parts = dateStr.split(/[-/]/);
@@ -467,7 +627,6 @@
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
 
-        // STREAMING_CHUNK:Delete and Change Date operations...
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation(); 
             
@@ -792,7 +951,6 @@
             }
         }
 
-        // STREAMING_CHUNK:Loading Inventory data into tables...
         async function loadInvData() {
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
@@ -1047,7 +1205,6 @@
             } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
         }
 
-        // STREAMING_CHUNK:Loading Logistics Data...
         async function loadLogData() {
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
@@ -1368,3 +1525,4 @@
     </script>
 </body>
 </html>
+```eof
