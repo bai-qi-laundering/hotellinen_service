@@ -6,6 +6,7 @@
     <title>百麒物流 - 總管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* STREAMING_CHUNK:Configuring basic styles and layout... */
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
         input[type="date"] { position: relative; }
@@ -54,6 +55,7 @@
 </head>
 <body class="p-4 md:p-8">
 
+    <!-- STREAMING_CHUNK:Rendering Modals and Overlays... -->
     <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
         <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
     </div>
@@ -76,6 +78,7 @@
         <div class="text-center text-xs text-gray-400 mt-1 font-bold">點擊空白處關閉</div>
     </div>
 
+    <!-- STREAMING_CHUNK:Rendering Inventory Section... -->
     <!-- 👑 藍色：盤點明細後台 (Inventory Section) -->
     <div id="sectionInventory" class="max-w-[1400px] mx-auto block animate-[fadeIn_0.3s_ease-out]">
         <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
@@ -115,9 +118,9 @@
                             <th class="w-28 text-center">現場簽名</th>
                             <th class="w-24 text-center">復點數量<br><span class="text-xs text-blue-200 font-normal">(唯讀)</span></th>
                             <th class="w-28 text-center">復點簽名</th>
-                            <th class="w-60">精確復點時間 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
+                            <th class="w-52">精確復點時間 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
                             <th class="w-48">備註摘要 <span class="text-xs text-blue-200 font-normal">(點擊修改)</span></th>
-                            <th class="w-16 text-center text-red-200 font-bold">操作</th>
+                            <th class="w-32 text-center text-red-200 font-bold">操作</th>
                         </tr>
                     </thead>
                     <tbody id="invTableBody">
@@ -160,6 +163,7 @@
         </div>
     </div>
 
+    <!-- STREAMING_CHUNK:Rendering Logistics Section... -->
     <!-- 📦 綠色：物流查帳後台 (Logistics Section) -->
     <div id="sectionLogistics" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]">
         <div class="flex justify-between items-end mb-6 border-b pb-4 relative z-50">
@@ -216,6 +220,7 @@
         </div>
     </div>
 
+    <!-- STREAMING_CHUNK:Rendering bottom tabs... -->
     <!-- 底部 Excel 主頁籤 -->
     <div class="excel-bottom-bar">
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
@@ -223,6 +228,7 @@
         <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
     </div>
 
+    <!-- STREAMING_CHUNK:Firebase configuration and Logic Init... -->
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -325,6 +331,96 @@
             return index === -1 ? 99999 : index; 
         }
 
+        // STREAMING_CHUNK:Adding Force Sync to Logistics function...
+        // ★ 新增功能：從盤點後台強制同步單筆資料至物流系統 (財務系統)
+        window.forceSyncToLogistics = async function(docId, category, item, dateStr, e) {
+            if(e) e.stopPropagation();
+            
+            const btn = e.currentTarget;
+            const originalHtml = btn.innerHTML;
+            
+            const confirmSync = await customConfirm(`⚠️ 確定要將【${category} - ${item}】的數量\n強制覆寫到物流與財務系統中嗎？`);
+            if (!confirmSync) return;
+
+            try {
+                btn.innerHTML = `<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+                btn.disabled = true;
+
+                // 取得目前這筆盤點的資料
+                const record = invRecords.find(r => r.docId === docId);
+                if (!record) throw new Error("找不到本地端暫存資料");
+
+                let qtyToSync = (record.doubleCount !== undefined && record.doubleCount !== null && record.doubleCount !== "") ? record.doubleCount : record.count;
+                if (!qtyToSync) qtyToSync = "0";
+
+                let hotelKeyword = category;
+                let deptName = "房務";
+                let catParts = category.split(' ');
+                if (catParts.length > 1) {
+                    deptName = catParts.pop();
+                    hotelKeyword = catParts.join(' ');
+                }
+                
+                let targetCat = masterData.find(d => d.hotel === category);
+                if (targetCat) {
+                    hotelKeyword = targetCat.baseName;
+                    deptName = targetCat.deptName || "房務";
+                }
+
+                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                const logDocRef = doc(db, 'logistics_records', logDocId);
+                const logSnap = await getDoc(logDocRef);
+
+                if (logSnap.exists()) {
+                    let logData = logSnap.data();
+                    let logItems = logData.items || [];
+                    let itemIndex = logItems.findIndex(i => i.itemName === item);
+                    
+                    if (itemIndex > -1) {
+                        logItems[itemIndex].originalQty = String(qtyToSync);
+                        logItems[itemIndex].actualQty = String(qtyToSync); // 強制同步覆寫這兩個數字
+                        logItems[itemIndex].driverNote = "後台強制同步覆寫";
+                    } else {
+                        logItems.push({
+                            itemName: item,
+                            originalQty: String(qtyToSync),
+                            actualQty: String(qtyToSync),
+                            auntNote: record.note || "",
+                            driverNote: "後台強制同步新增"
+                        });
+                    }
+                    await setDoc(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
+                } else {
+                    // 如果整張單子都沒有，就創一張新的
+                    await setDoc(logDocRef, {
+                        date: dateStr,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        forcedSync: true,
+                        items: [{
+                            itemName: item,
+                            originalQty: String(qtyToSync),
+                            actualQty: String(qtyToSync),
+                            auntNote: record.note || "",
+                            driverNote: "後台強制同步新增"
+                        }]
+                    });
+                }
+                showToast("✅ 強制同步成功，財務系統現可讀取此筆數量！");
+                btn.innerHTML = `<span class="text-green-500">✅ 已同步</span>`;
+                setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
+            } catch (err) {
+                console.error(err);
+                await customAlert("同步失敗：" + err.message);
+                btn.innerHTML = originalHtml; 
+                btn.disabled = false;
+            }
+        };
+
+        // STREAMING_CHUNK:Defining utility functions...
         function getPossibleDates(dateStr) {
             if(!dateStr) return [];
             let parts = dateStr.split(/[-/]/);
@@ -371,6 +467,7 @@
         window.toggleLogDetail = toggleLogDetail;
         window.updateLogQty = updateLogQty; 
 
+        // STREAMING_CHUNK:Delete and Change Date operations...
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation(); 
             
@@ -695,6 +792,7 @@
             }
         }
 
+        // STREAMING_CHUNK:Loading Inventory data into tables...
         async function loadInvData() {
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
@@ -817,7 +915,8 @@
                             </div>
                         </td>
                         <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')"></td>
-                        <td class="text-center">
+                        <td class="text-center flex justify-center items-center gap-2">
+                            <button onclick="forceSyncToLogistics('${r.docId}', '${r.hotel}', '${r.item}', '${r.date}', event)" class="text-xs bg-red-600 text-white px-2 py-1 rounded shadow-sm font-bold hover:bg-red-700 active:bg-red-800 transition-colors" title="強制將此數量同步覆寫至物流系統中">強制同步</button>
                             <button onclick="deleteRecord('inventory_records', '${r.docId}', event, '${r.hotel}', '${r.item}', '${r.date}')" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
                         </td>
                     </tr>
@@ -866,9 +965,7 @@
 
                             if (itemIndex > -1) {
                                 if (field === 'doubleCount' || field === 'count') {
-                                    // ★ 致命錯誤修復：絕對不可以強制覆蓋實收數量 (actualQty)！
                                     logItems[itemIndex].originalQty = String(finalQty);
-                                    // REMOVED: logItems[itemIndex].actualQty = String(finalQty); 
                                 }
                                 if (field === 'note') {
                                     logItems[itemIndex].auntNote = cleanVal;
@@ -950,6 +1047,7 @@
             } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
         }
 
+        // STREAMING_CHUNK:Loading Logistics Data...
         async function loadLogData() {
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
@@ -977,13 +1075,13 @@
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
-                // 2. ★ 抓取盤點資料庫 (真實對照組)
+                // 2. 抓取盤點資料庫 (真實對照組)
                 const qInvStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qInvUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
                 const [snapStandard, snapUnpad, snapInvStandard, snapInvUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qInvStandard), getDocs(qInvUnpad)]);
                 
-                // ★ 建立真實盤點數量的對照表
+                // 建立真實盤點數量的對照表
                 let invMap = {};
                 const processInv = (docSnap) => {
                     let d = docSnap.data();
@@ -1018,7 +1116,7 @@
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.itemName || "").trim();
                             
-                            // ★ 修復重點：強迫去盤點表抓取「真實」盤點量
+                            // 強迫去盤點表抓取「真實」盤點量
                             let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
                             if (trueOrig === undefined) trueOrig = orig; // 容錯機制：盤點表沒有的，才採信物流舊資料
 
@@ -1029,7 +1127,7 @@
                             
                             validItems.push({
                                 itemName: item.itemName,
-                                bqQty: trueOrig, // 👈 在這裡強行換成真實的盤點數量
+                                bqQty: trueOrig, 
                                 actualQty: actual
                             });
                         });
