@@ -31,7 +31,7 @@
             <h1 id="hotelTitle" class="text-3xl font-black mb-1 mt-2">載入中...</h1>
             <div class="flex justify-center items-center gap-3 mt-2">
                 <p id="dateTitle" class="text-lg font-bold text-blue-200">出貨點收系統</p>
-                <button onclick="fetchData(false)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
+                <button onclick="fetchData(false, true)" class="bg-blue-700 text-white text-sm px-3 py-1 rounded-lg shadow active:bg-blue-600 border border-blue-600">
                     🔄 重新載入
                 </button>
             </div>
@@ -86,7 +86,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         // ★ 引入 initializeFirestore 啟用本地快取機制，大幅提升速度
-        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -274,7 +274,7 @@
                 <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速雲端載入中...</div>
             </div>`;
 
-        async function fetchData(isBackground = false) {
+        async function fetchData(isBackground = false, forceServer = false) {
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
             } else {
@@ -291,8 +291,12 @@
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 
+                // ★ 如果點擊「重新載入」，強制走 getDocsFromServer 繞過快取，保證拿到最新單據
+                const fetchMethod = forceServer ? getDocsFromServer : getDocs;
+                if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
+
                 // 平行查詢兩個表
-                const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
+                const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), fetchMethod(logQ)]);
 
                 let inventoryMap = {}; 
                 
