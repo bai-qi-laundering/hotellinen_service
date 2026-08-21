@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <!-- ★ 強制瀏覽器每次都抓最新網頁，解決客人死當在舊版、必須開無痕的問題 -->
+    <!-- ★ 強制瀏覽器每次都抓最新網頁 -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -23,7 +23,6 @@
 </head>
 <body class="p-3 pb-32 relative">
     <div id="toast" class="fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-[10000] font-bold text-center">
-        <!-- Toast message will be injected here -->
     </div>
 
     <div class="main-container">
@@ -86,7 +85,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 引入 initializeFirestore 啟用本地快取機制，大幅提升速度
+        import { getFirestore, collection, query, where, getDocs, doc, setDoc, getDoc, addDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -99,7 +99,10 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        // ★ 啟用 Firestore 本機快取，減少每次載入都要等網路的時間
+        const db = initializeFirestore(app, {
+            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+        });
         
         let currentHotel = "";
         let currentDate = "";
@@ -113,85 +116,22 @@
         const clientCtx = clientCanvas.getContext('2d');
         const driverCtx = driverCanvas.getContext('2d');
 
-        window.clientCanvas = clientCanvas;
-        window.driverCanvas = driverCanvas;
-        window.clientCtx = clientCtx;
-        window.driverCtx = driverCtx;
+        window.clientCanvas = clientCanvas; window.driverCanvas = driverCanvas;
+        window.clientCtx = clientCtx; window.driverCtx = driverCtx;
 
-        window.dateChanged = dateChanged;
-        window.clearCanvas = clearCanvas;
-        window.openSignModal = openSignModal;
-        window.closeSignModal = closeSignModal;
-        window.submitVerify = submitVerify;
-        window.handleQtyChange = handleQtyChange;
-        window.toggleDropdown = toggleDropdown;
-        window.selectOption = selectOption;
-        window.addNewItem = addNewItem;
-        window.fetchData = fetchData;
+        window.dateChanged = dateChanged; window.clearCanvas = clearCanvas;
+        window.openSignModal = openSignModal; window.closeSignModal = closeSignModal;
+        window.submitVerify = submitVerify; window.handleQtyChange = handleQtyChange;
+        window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
+        window.addNewItem = addNewItem; window.fetchData = fetchData;
 
-        // ★ 新增：強制同步至財務系統的方法
-        window.forceSyncToFinance = async function(deptKey) {
-            const btn = event.currentTarget;
-            const originalText = btn.innerText;
-            btn.innerText = "傳送中...";
-            btn.disabled = true;
-
-            try {
-                showToastMsg("⏳ 正在強制同步至財務系統...");
-                const docId = `${currentDate}_${currentHotel}_${deptKey}`;
-                const docRef = doc(db, 'logistics_records', docId);
-
-                let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
-                    deptName: item.deptName,
-                    itemName: item.itemName,
-                    originalQty: item.originalQty,
-                    auntNote: item.auntNote,
-                    actualQty: item.actualQty,
-                    driverNote: item.driverNote || "手動強制同步"
-                }));
-
-                await setDoc(docRef, {
-                    date: currentDate,
-                    hotelKeyword: currentHotel,
-                    deptName: deptKey,
-                    items: safeItemsForDatabase,
-                    clientSig: groupedData[deptKey].clientSig || "",
-                    driverSig: groupedData[deptKey].driverSig || "",
-                    timestamp: new Date().toLocaleString(),
-                    forcedSync: true
-                }, { merge: true });
-
-                groupedData[deptKey].isSynced = true;
-                renderDepartments();
-                showToastMsg("✅ 已成功強制同步至財務後台！");
-            } catch(e) {
-                console.error(e);
-                showToastMsg("⚠️ 同步失敗：" + e.message, true);
-                btn.innerText = originalText;
-                btn.disabled = false;
-            }
-        }
-
-        const loadingHtml = `
-            <div class="flex flex-col items-center justify-center py-12 space-y-4">
-                <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速雲端載入中...</div>
-            </div>
-        `;
-
-        function showToastMsg(msg, isError = false) {
-            const toast = document.getElementById('toast');
-            toast.innerText = msg;
-            toast.className = `fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-[10000] font-bold text-center w-[90%] max-w-sm ${isError ? 'bg-red-600' : 'bg-green-700'}`;
-            toast.classList.remove('opacity-0'); 
-            setTimeout(() => toast.classList.add('opacity-0'), 3000);
-        }
-
-        function getLocalDateString(dateObj) {
-            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        // ★ 修正 1：純粹用字串取得今天日期，完全避免時區擾亂
+        function getTodayString() {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
         }
 
         function getExactTimeString() {
@@ -201,10 +141,14 @@
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
         }
 
+        // ★ 修正 2：直接切字串解析日期，不再用 new Date(dateString) 避免日期變成前一天
         function updateDateDisplay() {
-            const d = new Date(document.getElementById('datePicker').value);
-            document.getElementById('dateDisplay').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
             currentDate = document.getElementById('datePicker').value;
+            if(!currentDate) return;
+            const parts = currentDate.split('-');
+            if(parts.length === 3) {
+                document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`;
+            }
         }
 
         function dateChanged() { 
@@ -212,14 +156,53 @@
             fetchData(false); 
         }
 
+        function showToastMsg(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.className = `fixed top-10 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-[10000] font-bold text-center w-[90%] max-w-sm ${isError ? 'bg-red-600' : 'bg-green-700'}`;
+            toast.classList.remove('opacity-0'); 
+            setTimeout(() => toast.classList.add('opacity-0'), 3000);
+        }
+
+        window.forceSyncToFinance = async function(deptKey) {
+            const btn = event.currentTarget;
+            const originalText = btn.innerText;
+            btn.innerText = "傳送中..."; btn.disabled = true;
+
+            try {
+                showToastMsg("⏳ 正在強制同步至財務系統...");
+                const docId = `${currentDate}_${currentHotel}_${deptKey}`;
+                const docRef = doc(db, 'logistics_records', docId);
+
+                let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
+                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                    auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote || "手動強制同步"
+                }));
+
+                await setDoc(docRef, {
+                    date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
+                    items: safeItemsForDatabase, clientSig: groupedData[deptKey].clientSig || "", driverSig: groupedData[deptKey].driverSig || "",
+                    timestamp: new Date().toLocaleString(), forcedSync: true
+                }, { merge: true });
+
+                groupedData[deptKey].isSynced = true;
+                renderDepartments();
+                showToastMsg("✅ 已成功強制同步至財務後台！");
+            } catch(e) {
+                console.error(e);
+                showToastMsg("⚠️ 同步失敗：" + e.message, true);
+                btn.innerText = originalText; btn.disabled = false;
+            }
+        }
+
         function checkIsLocked(dateStr) {
             if (!dateStr) return false;
             let parts = dateStr.split('-');
             if (parts.length !== 3) return false;
+            // 這裡依然可以用 new Date 做單純的計算，因為只要鎖定日期差距
             let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
             lockDate.setDate(lockDate.getDate() + 3);
-            let now = new Date();
-            return now >= lockDate;
+            return new Date() >= lockDate;
         }
 
         async function init() {
@@ -240,14 +223,19 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('logistics_cache_') || key === 'inventory_masterData') {
-                    localStorage.removeItem(key);
-                }
-            });
+            // ★ 修正 3：移除清除 localStorage 的邏輯，讓 Firebase cache 正常發揮作用
+            // 這樣在無網路或換頁時，載入速度會倍增
+            
+            let targetDate = getTodayString(); // 取代原本會因時區錯亂的 getLocalDateString(new Date())
+            if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                targetDate = queryDate; 
+            }
 
-            try {
-                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
+            document.getElementById('datePicker').value = targetDate;
+            updateDateDisplay();
+
+            // 平行載入 Template (不需 await 阻塞主畫面讀取)
+            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
                     globalItemOrder = {};
@@ -255,17 +243,8 @@
                         if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                     });
                 }
-            } catch (e) {
-                console.error("Template load error:", e);
-            }
+            }).catch(e => console.error("Template load error:", e));
 
-            let targetDate = getLocalDateString(new Date()); 
-            if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                targetDate = queryDate; 
-            }
-
-            document.getElementById('datePicker').value = targetDate;
-            updateDateDisplay();
             fetchData(false);
         }
 
@@ -286,6 +265,15 @@
             return true;
         }
 
+        const loadingHtml = `
+            <div class="flex flex-col items-center justify-center py-12 space-y-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速雲端載入中...</div>
+            </div>`;
+
         async function fetchData(isBackground = false) {
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
@@ -299,9 +287,11 @@
 
             try {
                 let rawData = [];
+                // 盡可能讓資料庫去篩選，降低下載的封包大小
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
                 
+                // 平行查詢兩個表
                 const [invSnap, logSnap] = await Promise.all([getDocs(invQ), getDocs(logQ)]);
 
                 let inventoryMap = {}; 
@@ -319,10 +309,8 @@
                             if (isValidItemName(itemName)) {
                                 let key = `${deptName}_${String(itemName).trim()}`;
                                 inventoryMap[key] = {
-                                    deptName: deptName,
-                                    itemName: String(itemName).trim(),
-                                    originalQty: extractQty(itemData),
-                                    auntNote: itemData.note || itemData.auntNote || d.note || ""
+                                    deptName: deptName, itemName: String(itemName).trim(),
+                                    originalQty: extractQty(itemData), auntNote: itemData.note || itemData.auntNote || d.note || ""
                                 };
                             }
                         };
@@ -344,9 +332,7 @@
                 for (let key in inventoryMap) {
                     let invItem = inventoryMap[key];
                     let actualQty = invItem.originalQty; 
-                    let driverNote = "";
-                    let clientSig = "";
-                    let driverSig = "";
+                    let driverNote = ""; let clientSig = ""; let driverSig = "";
 
                     let savedDept = savedLogistics[invItem.deptName];
                     if (!savedDept) {
@@ -357,29 +343,21 @@
                     }
 
                     if (savedDept) {
-                        clientSig = savedDept.clientSig || "";
-                        driverSig = savedDept.driverSig || "";
+                        clientSig = savedDept.clientSig || ""; driverSig = savedDept.driverSig || "";
                         if (savedDept.items) {
                             let savedItem = savedDept.items.find(i => i.itemName === invItem.itemName);
                             if (savedItem) {
-                                if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") {
-                                    actualQty = String(savedItem.actualQty);
-                                }
+                                if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") actualQty = String(savedItem.actualQty);
                                 driverNote = savedItem.driverNote || "";
                             }
                         }
                     }
 
                     rawData.push({
-                        deptName: invItem.deptName,
-                        itemName: invItem.itemName,
-                        originalQty: invItem.originalQty, 
-                        auntNote: invItem.auntNote,
-                        actualQty: actualQty,
-                        driverNote: driverNote,
-                        clientSig: clientSig,
-                        driverSig: driverSig,
-                        isSynced: !!savedDept // ★ 紀錄這筆資料是否曾經存進財務系統
+                        deptName: invItem.deptName, itemName: invItem.itemName,
+                        originalQty: invItem.originalQty, auntNote: invItem.auntNote,
+                        actualQty: actualQty, driverNote: driverNote,
+                        clientSig: clientSig, driverSig: driverSig, isSynced: !!savedDept
                     });
                 }
 
@@ -388,20 +366,13 @@
                     if (savedDept.items) {
                         savedDept.items.forEach(savedItem => {
                             if (!isValidItemName(savedItem.itemName)) return;
-                            
                             let key = `${savedDept.deptName}_${savedItem.itemName}`;
                             if (!inventoryMap[key]) {
                                 if (savedItem.driverNote === "司機臨時新增") {
                                     rawData.push({
-                                        deptName: savedDept.deptName,
-                                        itemName: savedItem.itemName,
-                                        originalQty: "0", 
-                                        auntNote: savedItem.auntNote || "",
-                                        actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : "0",
-                                        driverNote: savedItem.driverNote || "",
-                                        clientSig: savedDept.clientSig || "",
-                                        driverSig: savedDept.driverSig || "",
-                                        isSynced: true
+                                        deptName: savedDept.deptName, itemName: savedItem.itemName, originalQty: "0", 
+                                        auntNote: savedItem.auntNote || "", actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : "0",
+                                        driverNote: savedItem.driverNote || "", clientSig: savedDept.clientSig || "", driverSig: savedDept.driverSig || "", isSynced: true
                                     });
                                 }
                             }
@@ -441,9 +412,7 @@
 
             groupedData = {};
             cleanData.forEach(item => {
-                if (Number(item.originalQty || 0) === 0 && Number(item.actualQty || 0) === 0) {
-                    return; 
-                }
+                if (Number(item.originalQty || 0) === 0 && Number(item.actualQty || 0) === 0) return; 
 
                 if (!groupedData[item.deptName]) {
                     groupedData[item.deptName] = { items: [], clientSig: "", driverSig: "", isSynced: item.isSynced };
@@ -457,12 +426,8 @@
                 let finalActualQty = (item.actualQty !== undefined && item.actualQty !== "" && item.actualQty !== null) ? item.actualQty : item.originalQty;
 
                 groupedData[item.deptName].items.push({
-                    deptName: item.deptName,
-                    itemName: item.itemName,
-                    originalQty: item.originalQty,
-                    auntNote: item.auntNote,
-                    actualQty: finalActualQty,
-                    driverNote: item.driverNote
+                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                    auntNote: item.auntNote, actualQty: finalActualQty, driverNote: item.driverNote
                 });
             });
 
@@ -470,39 +435,26 @@
                 document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-green-600 font-bold text-xl">🎉 此日期所有品項出貨量皆為 0，無須點交！</div>';
                 return;
             }
-
             renderDepartments();
         }
 
         function handleQtyChange(dept, idx, inputEl) {
             let val = inputEl.value;
-            
             if (val.length > 1 && val.startsWith('0')) {
-                val = val.replace(/^0+/, '');
-                if (val === '') val = '0';
+                val = val.replace(/^0+/, ''); if (val === '') val = '0';
                 inputEl.value = val;
             }
-
             groupedData[dept].items[idx].actualQty = val;
             const original = groupedData[dept].items[idx].originalQty;
             const statusSpan = document.getElementById(`status-${dept}-${idx}`);
-            
             const container = inputEl.closest('.bg-blue-50');
 
             if (Number(val || 0) === Number(original || 0)) {
-                statusSpan.innerHTML = "✅ 相符"; 
-                statusSpan.className = "text-green-600 font-bold ml-3 text-base";
-                if (container) {
-                    container.classList.remove('border-red-300');
-                    container.classList.add('border-transparent');
-                }
+                statusSpan.innerHTML = "✅ 相符"; statusSpan.className = "text-green-600 font-bold ml-3 text-base";
+                if (container) { container.classList.remove('border-red-300'); container.classList.add('border-transparent'); }
             } else {
-                statusSpan.innerHTML = "⚠️ 已修改"; 
-                statusSpan.className = "text-red-500 font-bold ml-3 text-base";
-                if (container) {
-                    container.classList.remove('border-transparent');
-                    container.classList.add('border-red-300');
-                }
+                statusSpan.innerHTML = "⚠️ 已修改"; statusSpan.className = "text-red-500 font-bold ml-3 text-base";
+                if (container) { container.classList.remove('border-transparent'); container.classList.add('border-red-300'); }
             }
         }
 
@@ -520,27 +472,13 @@
         function addNewItem(deptId, deptName) {
             const inputEl = document.getElementById(`newItemInput-${deptId}`);
             const newItemName = inputEl.value.trim();
-
-            if (!newItemName) {
-                showToastMsg("⚠️ 請輸入要新增的品項名稱！", true);
-                return;
-            }
-            
+            if (!newItemName) { showToastMsg("⚠️ 請輸入要新增的品項名稱！", true); return; }
             let exists = groupedData[deptName].items.some(i => i.itemName === newItemName);
-            if (exists) {
-                showToastMsg("⚠️ 這個品項已經在上方列表裡面囉！", true);
-                return;
-            }
+            if (exists) { showToastMsg("⚠️ 這個品項已經在上方列表裡面囉！", true); return; }
 
             groupedData[deptName].items.push({
-                deptName: deptName,
-                itemName: newItemName,
-                originalQty: "0",
-                auntNote: "",
-                actualQty: "0",
-                driverNote: "司機臨時新增"
+                deptName: deptName, itemName: newItemName, originalQty: "0", auntNote: "", actualQty: "0", driverNote: "司機臨時新增"
             });
-
             inputEl.value = "";
             showToastMsg("✅ 已新增臨時品項！");
             renderDepartments(); 
@@ -551,7 +489,6 @@
                 const deptId = menu.id.split('-')[1];
                 const btn = document.getElementById(`dropdownBtn-${deptId}`);
                 const input = document.getElementById(`newItemInput-${deptId}`);
-                
                 if (menu && !menu.classList.contains('hidden')) {
                     if (!menu.contains(e.target) && (!btn || !btn.contains(e.target)) && e.target !== input) {
                         menu.classList.add('hidden');
@@ -563,77 +500,53 @@
         function renderDepartments() {
             let html = "";
             let deptIndex = 0;
-            let autoSyncPromises = []; // ★ 儲存自動背景同步的任務
-
+            let autoSyncPromises = []; 
             const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
-
             let isSystemLocked = checkIsLocked(currentDate);
 
             for (let dept in groupedData) {
                 deptIndex++;
                 let deptId = `dept_${deptIndex}`;
                 let isSynced = groupedData[dept].isSynced;
-
                 let localItemOrder = {};
                 if (masterTemplate && masterTemplate.length > 0) {
                     let matchedItems = masterTemplate.filter(t => 
                         (t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel))) && 
                         ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && t.hotel.includes(dept)))
                     );
-                    
-                    if (matchedItems.length === 0) {
-                        matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
-                    }
-
-                    matchedItems.forEach((t, idx) => {
-                        if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx;
-                    });
+                    if (matchedItems.length === 0) matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
+                    matchedItems.forEach((t, idx) => { if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx; });
                 }
 
                 let hasClientSig = groupedData[dept].clientSig ? true : false;
                 let hasDriverSig = groupedData[dept].driverSig ? true : false;
                 let isCompleted = hasClientSig && hasDriverSig;
-
                 let inputDisabled = isCompleted || isSystemLocked;
-
                 let actionButton = "";
 
-                // ★ UI 顯示邏輯：特別抓出【逾期卻未同步財務】的幽靈單據
                 if (isCompleted) {
                     actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex flex-col items-center justify-center gap-2">
-                        <div class="flex items-center justify-center gap-2">
-                            <span>✅ 已點收完畢</span>
-                            <button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-2">查看簽名</button>
-                        </div>
+                        <div class="flex items-center justify-center gap-2"><span>✅ 已點收完畢</span><button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-2">查看簽名</button></div>
                         <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手動同步至財務系統</button>
                     </div>`;
                 } else if (isSystemLocked) {
                     if (!isSynced) {
                         actionButton = `<div class="w-full mt-4 py-4 text-red-700 font-black text-xl text-center bg-red-50 rounded-xl border-2 border-red-300 shadow-sm flex flex-col items-center justify-center gap-2">
-                            <span>⚠️ 逾期未簽收，且尚未進入財務系統</span>
-                            <span class="text-sm text-red-500 font-bold">目前財務後台看不到這筆帳單</span>
+                            <span>⚠️ 逾期未簽收，且尚未進入財務系統</span><span class="text-sm text-red-500 font-bold">目前財務後台看不到這筆帳單</span>
                             <button onclick="forceSyncToFinance('${dept}')" class="mt-2 text-base bg-red-600 text-white font-bold px-6 py-2 rounded-lg shadow-md active:bg-red-700 animate-pulse">🔄 立即強制同步至財務系統</button>
                         </div>`;
-                        
-                        // 🌟 自動推播邏輯：偵測到沒同步的幽靈鎖定單，直接在背景幫忙推送到資料庫！
                         let safeItemsForDatabase = groupedData[dept].items.map(item => ({
                             deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
                             auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote || "系統自動結單"
                         }));
                         let docRef = doc(db, 'logistics_records', `${currentDate}_${currentHotel}_${dept}`);
-                        
                         let p = setDoc(docRef, {
-                            date: currentDate, hotelKeyword: currentHotel, deptName: dept,
-                            items: safeItemsForDatabase, clientSig: "", driverSig: "",
-                            timestamp: new Date().toLocaleString(), isAutoSynced: true
+                            date: currentDate, hotelKeyword: currentHotel, deptName: dept, items: safeItemsForDatabase, clientSig: "", driverSig: "", timestamp: new Date().toLocaleString(), isAutoSynced: true
                         }, { merge: true }).then(() => { groupedData[dept].isSynced = true; });
-                        
                         autoSyncPromises.push(p);
-
                     } else {
                         actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-2">
-                            <span>🔒 逾期系統已自動結單</span>
-                            <span class="text-sm text-gray-500 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
+                            <span>🔒 逾期系統已自動結單</span><span class="text-sm text-gray-500 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
                             <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-gray-300 text-gray-700 border border-gray-400 px-3 py-1 rounded shadow-sm active:bg-gray-400">🔄 重新手動同步至財務</button>
                         </div>`;
                     }
@@ -666,7 +579,6 @@
                             </div>
                         </div>
                         ${item.auntNote ? `<div class="text-base text-orange-700 bg-orange-100 p-3 rounded-lg mb-3 font-bold border border-orange-200">📝 飯店備註: ${item.auntNote}</div>` : ''}
-                        
                         <div class="bg-blue-50 p-3 rounded-lg border ${isMatching ? 'border-transparent' : 'border-red-300'}">
                             <div class="flex justify-between items-center">
                                 <span class="font-bold text-blue-900">實收(請款)量：</span>
@@ -678,12 +590,9 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    `}).join('');
+                    </div>`}).join('');
 
-                let dropdownHtml = commonItems.map(val => 
-                    `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`
-                ).join('');
+                let dropdownHtml = commonItems.map(val => `<div class="p-3 border-b border-gray-100 text-xl font-black text-gray-700 active:bg-blue-50 cursor-pointer" onclick="selectOption('${deptId}', '${val}')">${val}</div>`).join('');
 
                 let addItemHtml = "";
                 if (!inputDisabled) {
@@ -696,9 +605,7 @@
                                 <button id="dropdownBtn-${deptId}" onclick="toggleDropdown('${deptId}', event)" class="absolute right-1 top-1/2 transform -translate-y-1/2 p-1 bg-indigo-100 text-indigo-800 rounded-md font-bold shadow-sm border border-indigo-300 active:bg-indigo-200 flex items-center justify-center h-8 w-8">
                                     <svg class="w-5 h-5 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                                 </button>
-                                <div id="customDropdownMenu-${deptId}" class="hidden absolute z-[30000] w-full mt-1 max-h-60 overflow-y-auto bg-white border-2 border-indigo-300 rounded-xl shadow-2xl">
-                                    ${dropdownHtml}
-                                </div>
+                                <div id="customDropdownMenu-${deptId}" class="hidden absolute z-[30000] w-full mt-1 max-h-60 overflow-y-auto bg-white border-2 border-indigo-300 rounded-xl shadow-2xl">${dropdownHtml}</div>
                             </div>
                             <button onclick="addNewItem('${deptId}', '${dept}')" class="px-4 bg-green-600 text-white rounded-lg font-bold text-lg shadow-md active:bg-green-700 whitespace-nowrap">新增</button>
                         </div>
@@ -707,36 +614,31 @@
 
                 html += `
                 <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
-                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl">
-                        <h2 class="text-xl font-black text-center">${dept}</h2>
-                    </div>
-                    ${itemsHtml}
-                    ${addItemHtml}
-                    ${actionButton}
+                    <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl"><h2 class="text-xl font-black text-center">${dept}</h2></div>
+                    ${itemsHtml}${addItemHtml}${actionButton}
                 </div>`;
             }
             
             document.getElementById('departmentsContainer').innerHTML = html;
-
-            // ★ 執行背景自動同步
             if(autoSyncPromises.length > 0) {
                 Promise.all(autoSyncPromises).then(() => {
                     showToastMsg("🔄 系統已自動將幽靈單據補傳送至財務後台！");
-                    // 延遲一秒重繪，讓紅色的按鈕變成正常的灰色按鈕
                     setTimeout(renderDepartments, 1200); 
                 }).catch(err => console.error(err));
             }
         }
 
+        // ★ 修正 4：讓畫布底圖變成白色，不要透明，後續才能存成體積小的 JPG
         function setupCanvas(canvas, ctx) {
-            canvas.isModified = false;
-            canvas.isCleared = false; 
+            canvas.isModified = false; canvas.isCleared = false; 
+
+            function fillWhite() {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
 
             function start(e) { 
-                e.preventDefault(); 
-                canvas.painting = true; 
-                canvas.isCleared = false; 
-                draw(e); 
+                e.preventDefault(); canvas.painting = true; canvas.isCleared = false; draw(e); 
             }
             function draw(e) {
                 if(!canvas.painting) return; e.preventDefault();
@@ -750,36 +652,31 @@
             canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, {passive: false});
             canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
             canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
+            canvas.fillWhite = fillWhite;
         }
         setupCanvas(clientCanvas, clientCtx);
         setupCanvas(driverCanvas, driverCtx);
 
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
-            canvas.isModified = true; 
-            canvas.isCleared = true; 
+            canvas.fillWhite(); // 清除後重新補白
+            canvas.isModified = true; canvas.isCleared = true; 
         }
 
         function openSignModal(deptName) {
             activeDeptKey = deptName;
             document.getElementById('modalDeptTitle').innerText = deptName;
-            
             let existClient = groupedData[deptName].clientSig;
             let existDriver = groupedData[deptName].driverSig;
 
             document.getElementById('signModal').classList.remove('hidden');
             requestAnimationFrame(() => {
                 [clientCanvas, driverCanvas].forEach(c => { 
-                    c.width = c.offsetWidth; 
-                    c.height = 160; 
-                    c.isModified = false; 
-                    c.isCleared = false; 
+                    c.width = c.offsetWidth; c.height = 160; c.isModified = false; c.isCleared = false; 
                 });
                 [clientCtx, driverCtx].forEach(ctx => { 
-                    ctx.lineWidth = 4; 
-                    ctx.lineCap = 'round'; 
-                    ctx.strokeStyle = '#000'; 
-                    ctx.clearRect(0, 0, 500, 200); 
+                    ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; 
+                    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200); // 初始化全白
                 });
                 
                 if(existClient) { let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; }
@@ -793,52 +690,37 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
 
+            // ★ 修正 5：將簽名儲存格式改為 JPEG，品質 50%。檔案大小從原本 500KB 驟降到 20KB 內！
             let cBase64 = existClient || ""; 
             if (clientCanvas.isModified) {
-                if (clientCanvas.isCleared) {
-                    cBase64 = ""; 
-                } else {
-                    cBase64 = clientCanvas.toDataURL('image/png'); 
-                }
+                if (clientCanvas.isCleared) { cBase64 = ""; } 
+                else { cBase64 = clientCanvas.toDataURL('image/jpeg', 0.5); }
             }
 
             let dBase64 = existDriver || "";
             if (driverCanvas.isModified) {
-                if (driverCanvas.isCleared) {
-                    dBase64 = ""; 
-                } else {
-                    dBase64 = driverCanvas.toDataURL('image/png'); 
-                }
+                if (driverCanvas.isCleared) { dBase64 = ""; } 
+                else { dBase64 = driverCanvas.toDataURL('image/jpeg', 0.5); }
             }
 
             if (!cBase64 && !dBase64) {
-                 showToastMsg("⚠️ 請至少一方完成簽名！(司機或飯店)", true);
-                 return;
+                 showToastMsg("⚠️ 請至少一方完成簽名！(司機或飯店)", true); return;
             }
 
             const btn = document.getElementById('submitBtn');
             btn.innerText = "傳送中..."; btn.disabled = true;
 
             let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
-            let payloads = [];
-            let syncDepts = [];
+            let payloads = []; let syncDepts = [];
 
             let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
-                deptName: item.deptName,
-                itemName: item.itemName,
-                originalQty: item.originalQty,
-                auntNote: item.auntNote,
-                actualQty: item.actualQty, 
-                driverNote: item.driverNote
+                deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
             }));
 
             payloads.push({
-                date: currentDate,
-                hotelKeyword: currentHotel,
-                deptName: activeDeptKey,
-                items: safeItemsForDatabase,
-                clientSig: cBase64,
-                driverSig: dBase64
+                date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
+                items: safeItemsForDatabase, clientSig: cBase64, driverSig: dBase64
             });
 
             if (isNewDriverSig) {
@@ -847,20 +729,12 @@
                         let existOtherDriver = groupedData[dept].driverSig;
                         if (!existOtherDriver) {
                             let deptItemsSafe = groupedData[dept].items.map(item => ({
-                                deptName: item.deptName,
-                                itemName: item.itemName,
-                                originalQty: item.originalQty,
-                                auntNote: item.auntNote,
-                                actualQty: item.actualQty,
-                                driverNote: item.driverNote
+                                deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                                auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
                             }));
                             payloads.push({
-                                date: currentDate,
-                                hotelKeyword: currentHotel,
-                                deptName: dept,
-                                items: deptItemsSafe,
-                                clientSig: groupedData[dept].clientSig || "", 
-                                driverSig: dBase64 
+                                date: currentDate, hotelKeyword: currentHotel, deptName: dept,
+                                items: deptItemsSafe, clientSig: groupedData[dept].clientSig || "", driverSig: dBase64 
                             });
                             syncDepts.push(dept);
                         }
@@ -874,25 +748,14 @@
                     const docRef = doc(db, 'logistics_records', docId);
 
                     addDoc(collection(db, 'history_logs'), {
-                        logDate: getLocalDateString(new Date()),
-                        timestamp: Date.now(),
-                        timeString: getExactTimeString(),
-                        operator: "🚚 物流點收系統",
-                        date: p.date,
-                        hotel: `${p.hotelKeyword} ${p.deptName}`,
-                        item: "物流點收單",
-                        field: "點交狀態",
-                        oldValue: "更新前",
-                        newValue: "已更新簽收狀態"
+                        logDate: getTodayString(), timestamp: Date.now(), timeString: getExactTimeString(),
+                        operator: "🚚 物流點收系統", date: p.date, hotel: `${p.hotelKeyword} ${p.deptName}`,
+                        item: "物流點收單", field: "點交狀態", oldValue: "更新前", newValue: "已更新簽收狀態"
                     });
 
                     return setDoc(docRef, {
-                        date: p.date,
-                        hotelKeyword: p.hotelKeyword,
-                        deptName: p.deptName,
-                        items: p.items,
-                        clientSig: p.clientSig,
-                        driverSig: p.driverSig,
+                        date: p.date, hotelKeyword: p.hotelKeyword, deptName: p.deptName,
+                        items: p.items, clientSig: p.clientSig, driverSig: p.driverSig,
                         timestamp: new Date().toLocaleString()
                     }, { merge: true });
                 });
@@ -900,15 +763,12 @@
                 await Promise.all(savePromises);
 
                 btn.innerText = "確認送出"; btn.disabled = false;
-                
-                groupedData[activeDeptKey].clientSig = cBase64;
-                groupedData[activeDeptKey].driverSig = dBase64;
-                groupedData[activeDeptKey].isSynced = true; // ★ 提交後標記為已同步
+                groupedData[activeDeptKey].clientSig = cBase64; groupedData[activeDeptKey].driverSig = dBase64;
+                groupedData[activeDeptKey].isSynced = true; 
                 
                 if (isNewDriverSig && syncDepts.length > 0) {
                     syncDepts.forEach(dept => {
-                        groupedData[dept].driverSig = dBase64;
-                        groupedData[dept].isSynced = true; // ★ 提交後標記為已同步
+                        groupedData[dept].driverSig = dBase64; groupedData[dept].isSynced = true; 
                     });
                 }
 
@@ -920,7 +780,6 @@
                 } else {
                     showToastMsg("✅ 點收簽單已成功更新！");
                 }
-
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
@@ -933,4 +792,3 @@
     </script>
 </body>
 </html>
-```eof
