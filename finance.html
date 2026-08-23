@@ -558,6 +558,7 @@ window.batchSavePrices = async function() {
 }
 
 
+// ✅ 優化過後的 recalculateFinanceUI (解決 Layout Thrashing)
 function recalculateFinanceUI() {
     let grandTotal = 0;
     let deptSubtotals = {};
@@ -567,7 +568,8 @@ function recalculateFinanceUI() {
         if (!deptName) return;
 
         let qtyEl = tr.querySelector('.qty-cell');
-        let qty = qtyEl ? (Number(qtyEl.innerText) || 0) : 0;
+        // 改用 textContent 讀取，完全不觸發畫面重排 (Reflow)
+        let qty = qtyEl ? (Number(qtyEl.textContent) || 0) : 0;
         
         let priceInput = tr.querySelector('.price-input');
         let price = priceInput ? (Number(priceInput.value) || 0) : 0;
@@ -576,7 +578,11 @@ function recalculateFinanceUI() {
         
         let subtotalEl = tr.querySelector('.subtotal-cell');
         if (subtotalEl) {
-            subtotalEl.innerText = `$${subtotal.toLocaleString()}`;
+            let newText = `$${subtotal.toLocaleString()}`;
+            // 只有當計算出的小計沒變，就不要寫入 DOM，大幅節省瀏覽器負載
+            if (subtotalEl.textContent !== newText) {
+                subtotalEl.textContent = newText;
+            }
         }
         
         if (!deptSubtotals[deptName]) deptSubtotals[deptName] = 0;
@@ -587,17 +593,22 @@ function recalculateFinanceUI() {
     document.querySelectorAll('[data-subtotal-id]').forEach(el => {
         let dept = el.getAttribute('data-subtotal-id');
         if (deptSubtotals[dept] !== undefined) {
-            el.innerText = `$${deptSubtotals[dept].toLocaleString()}`;
+            let newDeptText = `$${deptSubtotals[dept].toLocaleString()}`;
+            if (el.textContent !== newDeptText) {
+                el.textContent = newDeptText;
+            }
         }
     });
 
     let tax = Math.round(grandTotal * 0.05);
     let finalAmount = grandTotal + tax;
 
-    if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').innerText = `$${grandTotal.toLocaleString()}`;
-    if (document.getElementById('financeTax')) document.getElementById('financeTax').innerText = `$${tax.toLocaleString()}`;
-    if (document.getElementById('financeFinal')) document.getElementById('financeFinal').innerText = `$${finalAmount.toLocaleString()}`;
+    // 底部總計區域也一併改為 textContent
+    if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${grandTotal.toLocaleString()}`;
+    if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
+    if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
 }
+
 
 async function syncMasterDataFromSheet() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
