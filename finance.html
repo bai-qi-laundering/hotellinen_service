@@ -147,14 +147,14 @@ body { background: white; padding: 0; margin: 0; }
         <div class="p-4 bg-gray-50 flex flex-col xl:flex-row justify-between items-start xl:items-center border-b border-gray-200 rounded-t-xl gap-4">
             <div class="flex flex-col gap-1">
                 <h3 class="font-black text-gray-800 text-xl flex items-center gap-2">💰 內部核對與對帳單產出</h3>
-                <span class="text-xs text-blue-600 font-bold">💡 【新版】您可連續輸入單價，全部打完後再點擊「批次儲存」，保證不當機！</span>
+                <span class="text-xs text-blue-600 font-bold">💡 您可以直接修改品項名稱與單價，系統將會自動計算，點擊「批次儲存」即可完整更新資料庫。</span>
             </div>
             <div class="flex flex-wrap gap-3">
                 <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg shadow transition-colors disabled:opacity-50">
                     🔄 載入/更新明細
                 </button>
                 <button onclick="batchSavePrices()" id="batchSaveBtn" class="bg-gray-400 text-white font-bold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-all duration-300 disabled:opacity-50 pointer-events-none">
-                    💾 尚未修改單價
+                    💾 尚未修改內容
                 </button>
                 <button onclick="openInvoiceModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2">
                     📑 產生客戶對帳單
@@ -166,7 +166,7 @@ body { background: white; padding: 0; margin: 0; }
                 <thead>
                     <tr>
                         <th class="w-32 text-center">出貨日期</th>
-                        <th class="w-48">品項名稱</th>
+                        <th class="w-48">品項名稱 (可修改)</th>
                         <th class="w-24 text-center">數量 (實收)</th>
                         <th class="w-28 text-center">單價 (可修改)</th>
                         <th class="w-32 text-right pr-6">小計金額</th>
@@ -183,7 +183,6 @@ body { background: white; padding: 0; margin: 0; }
 <!-- ==================== 【系統 2：老闆業績戰情室】 ==================== -->
 <div id="sysBoss" class="hidden">
     <div class="bg-gradient-to-br from-emerald-800 to-teal-900 rounded-2xl shadow-xl p-6 mb-8 text-white relative overflow-hidden">
-        <!-- 裝飾背景 -->
         <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-white opacity-5 rounded-full blur-2xl"></div>
         
         <div class="flex justify-between items-end border-b border-white/20 pb-5 mb-6 relative z-10">
@@ -204,7 +203,6 @@ body { background: white; padding: 0; margin: 0; }
         </div>
 
         <div id="bossDashboardContent" class="hidden relative z-10">
-            <!-- 總計數據區 -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5">
                     <p class="text-emerald-200 text-sm font-bold mb-1">未稅總營業額</p>
@@ -220,7 +218,6 @@ body { background: white; padding: 0; margin: 0; }
                 </div>
             </div>
 
-            <!-- 各店家業績清單 -->
             <h3 class="font-bold text-lg mb-3 border-l-4 border-emerald-400 pl-3">各店家業績貢獻 (未稅)</h3>
             <div id="bossStoreGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[300px] overflow-y-auto custom-scroll pr-2 pb-2">
                 <!-- 店家卡片 -->
@@ -232,7 +229,6 @@ body { background: white; padding: 0; margin: 0; }
         </div>
     </div>
 </div>
-
 
 <!-- ==================== 【系統 3：司機業績計算】 ==================== -->
 <div id="sysDriver" class="hidden">
@@ -246,12 +242,10 @@ body { background: white; padding: 0; margin: 0; }
 ▶ 開始計算業績
 </button>
 </div>
-<!-- 司機業績總覽卡片區 -->
 <div id="driverCardsContainer" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
 <div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請確認日期後，點擊上方「開始計算業績」</div>
 </div>
 
-<!-- 孤兒單據警告區 (找不到負責人) -->
 <div id="unassignedBox" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-5 mb-6 shadow-sm">
 <h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未歸屬業績 (無對應排班)</h4>
 <p class="text-sm text-red-600 font-bold mb-3">以下日期的出貨紀錄，在試算表【司機排班表】中找不到負責該路線的司機，因此未計入任何人的業績中。請至試算表補上排班並重新計算。</p>
@@ -261,7 +255,6 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 </div>
 
-<!-- 點擊卡片後展開的明細表 -->
 <div id="driverDetailSection" class="hidden mt-8 border-t-2 pt-6 border-indigo-100">
 <h4 id="driverDetailTitle" class="text-2xl font-black text-indigo-900 mb-4">明細清單</h4>
 <div class="overflow-x-auto max-h-[500px] custom-scroll relative border border-gray-200 rounded-lg">
@@ -343,9 +336,6 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 
 <script type="module">
-// ==========================================
-// ★ 核心設定區
-// ==========================================
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -376,8 +366,8 @@ let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
 
-// ★ 新增：用於記錄哪些單價被修改，等待「批次儲存」
-let pendingPriceUpdates = []; 
+// ★ 待儲存更新陣列 (現在包含品項與價格)
+let pendingUpdatesArray = []; 
 let customPricesDirty = false;
 
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
@@ -406,7 +396,6 @@ const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('startDate').value = getLocalDateString(firstDay);
 document.getElementById('endDate').value = getLocalDateString(today);
 
-// ★ 系統切換邏輯
 window.switchSysTab = function(tab) {
     ['finance', 'boss', 'driver'].forEach(t => {
         document.getElementById(`sys${t.charAt(0).toUpperCase() + t.slice(1)}`).classList.add('hidden');
@@ -457,43 +446,83 @@ window.calculateDriverPerformance = calculateDriverPerformance;
 window.showDriverDetails = showDriverDetails;
 
 
-// ★★★ 全新機制：輸入時不連資料庫，只記錄到本地，等按鈕按下才批次儲存 ★★★
-window.markPriceChanged = function(docId, hotelName, itemName, newVal, inputEl, dateStr) {
-    let newPrice = newVal.trim() === "" ? 0 : Number(newVal);
-    if (isNaN(newPrice)) newPrice = 0;
-
-    // 1. 更新記憶體
-    let record = rawLogisticsData.find(r => r.docId === docId && r.item === itemName);
-    if (record) {
-        record.savedPrice = newPrice;
-        record.currentPrice = newPrice;
+// ★ 處理待儲存清單 (共用)
+function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice) {
+    let existing = pendingUpdatesArray.find(p => p.docId === docId && p.receiptOrder === receiptOrder);
+    if (existing) {
+        existing.newItemName = newItemName;
+        existing.newPrice = newPrice;
+    } else {
+        pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice });
     }
-    let key = `${hotelName}_${itemName}`;
-    if (newVal.trim() === "") delete customPrices[key];
-    else customPrices[key] = newPrice;
-
-    // 2. 加入待更新清單
-    pendingPriceUpdates.push({ docId, hotelName, itemName, newPrice });
     customPricesDirty = true;
-
-    // 3. 畫面提示
-    inputEl.style.backgroundColor = '#fef08a'; // 背景變微黃代表未儲存
+    
     const saveBtn = document.getElementById('batchSaveBtn');
     saveBtn.classList.remove('bg-gray-400', 'pointer-events-none');
     saveBtn.classList.add('bg-red-600', 'animate-pulse', 'pointer-events-auto');
-    saveBtn.innerHTML = `💾 批次儲存 (${pendingPriceUpdates.length}筆修改)`;
-
-    // 4. 重新計算小計 (純前端算，瞬間完成不卡頓)
-    try {
-        recalculateFinanceUI();
-    } catch(err) {
-        console.error("更新畫面總計錯誤:", err);
-    }
+    saveBtn.innerHTML = `💾 批次儲存 (${pendingUpdatesArray.length}筆修改)`;
 }
 
-// ★★★ 手動批次儲存按鈕執行邏輯 ★★★
+// ★ 當使用者修改「品項名稱」時觸發
+window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputEl) {
+    let newItemName = newVal.trim();
+    let record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+    if(!record) return;
+
+    if(!newItemName) {
+        inputEl.value = record.item; // 不能為空，還原
+        alert("品項名稱不可為空！");
+        return;
+    }
+
+    record.item = newItemName; // 更新本地記憶體
+    inputEl.style.backgroundColor = '#fef08a';
+
+    // 去大腦查新名稱的單價
+    let fetchedPrice = getPrice(hotelName, newItemName);
+    let newPrice = fetchedPrice !== null ? fetchedPrice : 0;
+    
+    record.currentPrice = newPrice;
+    record.savedPrice = newPrice;
+
+    // 自動更新右邊那格單價的畫面
+    let tr = inputEl.closest('tr');
+    let priceInput = tr.querySelector('.price-input');
+    if(priceInput) {
+        priceInput.value = (fetchedPrice !== null) ? newPrice : "";
+        priceInput.style.backgroundColor = '#fef08a';
+    }
+
+    registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice);
+    
+    // 不會卡頓地重新計算小計與總計
+    recalculateFinanceUI();
+}
+
+// ★ 當使用者修改「單價」時觸發
+window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, inputEl) {
+    let newPrice = newVal.trim() === "" ? 0 : Number(newVal);
+    if (isNaN(newPrice)) newPrice = 0;
+
+    let record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+    if(!record) return;
+
+    record.savedPrice = newPrice;
+    record.currentPrice = newPrice;
+
+    // 把手動修改的價格記進 customPrices
+    let key = `${hotelName}_${record.item}`;
+    if (newVal.trim() === "") delete customPrices[key];
+    else customPrices[key] = newPrice;
+
+    inputEl.style.backgroundColor = '#fef08a';
+    
+    registerPendingUpdate(docId, receiptOrder, hotelName, record.item, newPrice);
+    recalculateFinanceUI();
+}
+
 window.batchSavePrices = async function() {
-    if (pendingPriceUpdates.length === 0) return;
+    if (pendingUpdatesArray.length === 0) return;
 
     const btn = document.getElementById('batchSaveBtn');
     btn.innerHTML = `⏳ 儲存中...`;
@@ -501,25 +530,24 @@ window.batchSavePrices = async function() {
     btn.classList.remove('animate-pulse');
 
     try {
-        // 將同一個 docId 的修改合併，避免對同一個檔案重複讀寫
         let updatesByDoc = {};
-        for (let p of pendingPriceUpdates) {
+        for (let p of pendingUpdatesArray) {
             if (!updatesByDoc[p.docId]) updatesByDoc[p.docId] = [];
             updatesByDoc[p.docId].push(p);
         }
 
         let promises = [];
         
-        // 將所有修改推上 Firebase
         for (let docId in updatesByDoc) {
             let promise = getDoc(doc(db, 'logistics_records', docId)).then(docSnap => {
                 if (docSnap.exists()) {
                     let data = docSnap.data();
                     let changed = false;
                     for (let update of updatesByDoc[docId]) {
-                        let itemIdx = (data.items || []).findIndex(i => i.itemName === update.itemName);
-                        if (itemIdx > -1) {
-                            data.items[itemIdx].price = update.newPrice;
+                        // 使用 receiptOrder 精準更新陣列內的那個物件
+                        if (data.items && data.items[update.receiptOrder]) {
+                            data.items[update.receiptOrder].itemName = update.newItemName;
+                            data.items[update.receiptOrder].price = update.newPrice;
                             changed = true;
                         }
                     }
@@ -537,18 +565,17 @@ window.batchSavePrices = async function() {
 
         await Promise.all(promises);
 
-        // 成功儲存後清空記錄，並恢復畫面顏色
-        pendingPriceUpdates = [];
+        pendingUpdatesArray = [];
         customPricesDirty = false;
 
-        document.querySelectorAll('.price-input').forEach(el => el.style.backgroundColor = 'white');
+        document.querySelectorAll('.price-input, .item-input').forEach(el => el.style.backgroundColor = 'white');
         
         btn.classList.remove('bg-red-600');
         btn.classList.add('bg-gray-400', 'pointer-events-none');
-        btn.innerHTML = `💾 尚未修改單價`;
+        btn.innerHTML = `💾 尚未修改內容`;
         btn.disabled = false;
 
-        showToast("✅ 所有修改的單價已批次儲存完畢！");
+        showToast("✅ 所有修改 (含品項與單價) 已批次儲存完畢！");
     } catch (err) {
         console.error("批次儲存失敗:", err);
         alert("儲存失敗，請檢查網路連線後重試！");
@@ -557,8 +584,6 @@ window.batchSavePrices = async function() {
     }
 }
 
-
-// ✅ 優化過後的 recalculateFinanceUI (解決 Layout Thrashing)
 function recalculateFinanceUI() {
     let grandTotal = 0;
     let deptSubtotals = {};
@@ -568,7 +593,6 @@ function recalculateFinanceUI() {
         if (!deptName) return;
 
         let qtyEl = tr.querySelector('.qty-cell');
-        // 改用 textContent 讀取，完全不觸發畫面重排 (Reflow)
         let qty = qtyEl ? (Number(qtyEl.textContent) || 0) : 0;
         
         let priceInput = tr.querySelector('.price-input');
@@ -579,7 +603,6 @@ function recalculateFinanceUI() {
         let subtotalEl = tr.querySelector('.subtotal-cell');
         if (subtotalEl) {
             let newText = `$${subtotal.toLocaleString()}`;
-            // 只有當計算出的小計沒變，就不要寫入 DOM，大幅節省瀏覽器負載
             if (subtotalEl.textContent !== newText) {
                 subtotalEl.textContent = newText;
             }
@@ -603,7 +626,6 @@ function recalculateFinanceUI() {
     let tax = Math.round(grandTotal * 0.05);
     let finalAmount = grandTotal + tax;
 
-    // 底部總計區域也一併改為 textContent
     if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${grandTotal.toLocaleString()}`;
     if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
     if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
@@ -817,11 +839,11 @@ async function fetchRecordsForSelectedHotels() {
 
                     if (actual > 0) {
                         results.push({
-                            docId: docSnap.id,  // ★ 記錄下文檔 ID 才能寫入快照
+                            docId: docSnap.id,  
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                             date: dDate, item: item.itemName, qty: actual,
-                            receiptOrder: idx,
-                            savedPrice: item.price // ★ 如果這筆以前有結過帳、改過價錢，就會有這個值
+                            receiptOrder: idx, // 精準紀錄陣列索引，存檔不混亂
+                            savedPrice: item.price 
                         });
                     }
                 });
@@ -837,12 +859,12 @@ async function loadFinanceData() {
     const btn = document.getElementById('loadBtn');
     
     // 每次重新載入前，重置未儲存狀態
-    pendingPriceUpdates = [];
+    pendingUpdatesArray = [];
     customPricesDirty = false;
     const saveBtn = document.getElementById('batchSaveBtn');
     saveBtn.classList.remove('bg-red-600', 'animate-pulse', 'pointer-events-auto');
     saveBtn.classList.add('bg-gray-400', 'pointer-events-none');
-    saveBtn.innerHTML = `💾 尚未修改單價`;
+    saveBtn.innerHTML = `💾 尚未修改內容`;
     
     btn.innerHTML = `計算中...`; btn.disabled = true;
     tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center font-bold text-blue-600">正在撈取明細資料...</td></tr>`;
@@ -883,13 +905,14 @@ async function loadFinanceData() {
                 // 防禦性處理字串引號
                 let safeDocId = String(r.docId || "").replace(/'/g, "\\'");
                 let safeHotel = String(r.hotel || "").replace(/'/g, "\\'");
-                let safeItem = String(r.item || "").replace(/'/g, "\\'");
-                let safeDate = String(r.date || "").replace(/'/g, "\\'");
-                let safeItemAttr = String(r.item || "").replace(/"/g, "&quot;");
+                let safeItem = String(r.item || "").replace(/"/g, "&quot;");
                 let safeDeptAttr = String(deptName || "").replace(/"/g, "&quot;");
 
-                // ★ 改用 onchange，當輸入完畢移開游標或按下 Enter 時才觸發 markPriceChanged
-                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onchange="markPriceChanged('${safeDocId}', '${safeHotel}', '${safeItem}', this.value, this, '${safeDate}')">`;
+                // 品項輸入框 (可編輯)
+                let itemDisplay = `<input type="text" value="${safeItem}" class="item-input w-full text-left py-1 px-2 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-gray-800 transition" onchange="markItemChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
+
+                // 單價輸入框
+                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onchange="markPriceChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
                 
                 let subtotalDisplay = "";
                 if (price === null || price === "") {
@@ -904,9 +927,9 @@ async function loadFinanceData() {
                 let dateDisplay = (r.date !== lastDate) ? r.date : "";
                 lastDate = r.date;
 
-                html += `<tr class="main-row" data-dept="${safeDeptAttr}" data-docid="${safeDocId}" data-item="${safeItemAttr}">
+                html += `<tr class="main-row" data-dept="${safeDeptAttr}" data-docid="${safeDocId}">
                     <td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td>
-                    <td class="font-bold text-gray-800">${r.item}</td>
+                    <td class="font-bold text-gray-800">${itemDisplay}</td>
                     <td class="text-center font-black qty-cell">${r.qty}</td>
                     <td class="text-center price-display">${priceDisplay}</td>
                     <td class="text-right pr-6 font-bold text-blue-800 subtotal-cell">${subtotalDisplay}</td>
@@ -1041,8 +1064,8 @@ function exportBossExcel() {
 
 function openInvoiceModal() {
 if(rawLogisticsData.length === 0) { alert("請先於「財務對帳單」畫面點擊載入明細！"); return; }
-if(pendingPriceUpdates.length > 0) {
-    if(!confirm("您有尚未儲存的單價修改，這些修改在對帳單上雖然會顯示，但尚未上傳至資料庫。確定要直接產生對帳單嗎？")) return;
+if(pendingUpdatesArray.length > 0) {
+    if(!confirm("您有尚未儲存的內容修改，這些修改在對帳單上雖然會顯示，但尚未上傳至資料庫。確定要直接產生對帳單嗎？")) return;
 }
 document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
 }
@@ -1082,7 +1105,7 @@ let deptsData = {}; let itemSummary = {}; let grandTotal = 0;
 
 invoiceData.forEach(r => {
 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-// ★ 產生對帳單時，使用我們剛才在畫面上存好的 r.currentPrice
+// ★ 對帳單會自動抓取 r.item (如果您剛才修改了品項名稱，這裡會自動呈現新的)
 let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
 let amt = r.qty * price; grandTotal += amt;
 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
