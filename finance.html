@@ -449,74 +449,92 @@ window.quickSelectGroup = quickSelectGroup;
 window.calculateDriverPerformance = calculateDriverPerformance;
 window.showDriverDetails = showDriverDetails;
 
-// ★★★ 核心修復：快照單價 & 零讀取重算 ★★★
-window.updateCustomPrice = async function(docId, hotelName, itemName, newVal, inputEl, dateStr) {
-    let newPrice = newVal.trim() === "" ? 0 : Number(newVal);
-    inputEl.style.opacity = '0.5';
 
+// ★★★ 核心修復：使用 Optimistic UI 解決輸入時的卡頓問題 ★★★
+window.updateCustomPrice = function(docId, hotelName, itemName, newVal, inputEl, dateStr) {
+    let newPrice = newVal.trim() === "" ? 0 : Number(newVal);
+    if (isNaN(newPrice)) newPrice = 0; // 防呆處理
+
+    // 1. 立即更新記憶體與 UI (不卡住畫面，先呈現給使用者看)
+    inputEl.style.backgroundColor = '#fef08a'; // 稍微變黃色提示正在儲存
+    inputEl.style.transition = 'background-color 0.4s';
+
+    let record = rawLogisticsData.find(r => r.docId === docId && r.item === itemName);
+    if (record) {
+        record.savedPrice = newPrice;
+        record.currentPrice = newPrice;
+    }
+
+    let key = `${hotelName}_${itemName}`;
+    if (newVal.trim() === "") delete customPrices[key];
+    else customPrices[key] = newPrice;
+
+    // 零讀取重算 UI
     try {
-        // 1. 單據快照：把價格深深烙印在該筆出貨單上 (過去的帳單不再受未來漲價影響)
+        recalculateFinanceUI();
+    } catch (err) {
+        console.error("更新畫面時發生錯誤：", err);
+    }
+
+    // 2. 背景非同步寫入 Firebase (移除 await，讓網路不穩時也不會卡住使用者輸入)
+    const updateFirebase = async () => {
         const docRef = doc(db, 'logistics_records', docId);
-        const docSnap = await getDoc(docRef); // 1 讀取
+        const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             let data = docSnap.data();
             let itemIdx = (data.items || []).findIndex(i => i.itemName === itemName);
             if (itemIdx > -1) {
                 data.items[itemIdx].price = newPrice;
-                await setDoc(docRef, { items: data.items }, { merge: true }); // 1 寫入
+                await setDoc(docRef, { items: data.items }, { merge: true });
             }
         }
+        await setDoc(doc(db, 'inventory_config', 'custom_prices'), { prices: customPrices }, { merge: true });
+    };
 
-        // 2. 更新總表：作為未來新單據的預設值
-        let key = `${hotelName}_${itemName}`;
-        if (newVal.trim() === "") delete customPrices[key];
-        else customPrices[key] = newPrice;
-        
-        await setDoc(doc(db, 'inventory_config', 'custom_prices'), { prices: customPrices }, { merge: true }); // 1 寫入
-
-        // 3. 更新目前記憶體中的資料
-        let record = rawLogisticsData.find(r => r.docId === docId && r.item === itemName);
-        if (record) {
-            record.savedPrice = newPrice;
-            record.currentPrice = newPrice;
-        }
-
-        // 4. 零讀取重算 UI
-        recalculateFinanceUI();
-
-        showToast("✅ 單價已鎖定至此單據，並更新未來預設！");
-    } catch(err) {
-        console.error(err);
+    updateFirebase().then(() => {
+        inputEl.style.backgroundColor = 'white'; // 恢復白色代表儲存完成
+        showToast("✅ 單價已更新！");
+    }).catch(err => {
+        console.error("寫入背景失敗:", err);
+        inputEl.style.backgroundColor = '#fca5a5'; // 變紅色提示失敗
         alert("儲存價格失敗，請檢查網路連線或權限設定！");
-    } finally {
-        inputEl.style.opacity = '1';
-    }
+    });
 }
 
-// 零讀取瞬間重算整個畫面的總計金額
+// ★★★ 核心修復：更安全的 DOM 元素抓取，避免 querySelector 因特殊符號崩潰 ★★★
 function recalculateFinanceUI() {
     let grandTotal = 0;
     let deptSubtotals = {};
 
-    document.querySelectorAll('.main-row[data-dept]').forEach(tr => {
+    document.querySelectorAll('.main-row').forEach(tr => {
         let deptName = tr.getAttribute('data-dept');
-        let qty = Number(tr.querySelector('.qty-cell').innerText) || 0;
+        if (!deptName) return;
+
+        let qtyEl = tr.querySelector('.qty-cell');
+        let qty = qtyEl ? (Number(qtyEl.innerText) || 0) : 0;
+        
         let priceInput = tr.querySelector('.price-input');
         let price = priceInput ? (Number(priceInput.value) || 0) : 0;
         
         let subtotal = qty * price;
-        tr.querySelector('.subtotal-cell').innerText = `$${subtotal.toLocaleString()}`;
+        
+        let subtotalEl = tr.querySelector('.subtotal-cell');
+        if (subtotalEl) {
+            subtotalEl.innerText = `$${subtotal.toLocaleString()}`;
+        }
         
         if (!deptSubtotals[deptName]) deptSubtotals[deptName] = 0;
         deptSubtotals[deptName] += subtotal;
         grandTotal += subtotal;
     });
 
-    for (let dept in deptSubtotals) {
-        // 因為部門名稱可能有空白，所以用屬性選取器比較安全
-        let el = document.querySelector(`[data-subtotal-id="${dept}"]`);
-        if(el) el.innerText = `$${deptSubtotals[dept].toLocaleString()}`;
-    }
+    // 放棄使用危險的 querySelector(`[data-subtotal-id="${dept}"]`)，改用安全迴圈對比
+    document.querySelectorAll('[data-subtotal-id]').forEach(el => {
+        let dept = el.getAttribute('data-subtotal-id');
+        if (deptSubtotals[dept] !== undefined) {
+            el.innerText = `$${deptSubtotals[dept].toLocaleString()}`;
+        }
+    });
 
     let tax = Math.round(grandTotal * 0.05);
     let finalAmount = grandTotal + tax;
@@ -790,8 +808,16 @@ async function loadFinanceData() {
                 // 存回 r 中，給產生對帳單時使用
                 r.currentPrice = priceVal; 
 
-                // 綁定 onblur 事件，但不呼叫 loadFinanceData
-                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${r.docId}', '${r.hotel}', '${r.item}', this.value, this, '${r.date}')">`;
+                // ★ 防禦性處理單引號與雙引號，避免動態生成 HTML 時破壞語法
+                let safeDocId = String(r.docId || "").replace(/'/g, "\\'");
+                let safeHotel = String(r.hotel || "").replace(/'/g, "\\'");
+                let safeItem = String(r.item || "").replace(/'/g, "\\'");
+                let safeDate = String(r.date || "").replace(/'/g, "\\'");
+                let safeItemAttr = String(r.item || "").replace(/"/g, "&quot;");
+                let safeDeptAttr = String(deptName || "").replace(/"/g, "&quot;");
+
+                // 綁定 onblur 事件
+                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onblur="updateCustomPrice('${safeDocId}', '${safeHotel}', '${safeItem}', this.value, this, '${safeDate}')">`;
                 
                 let subtotalDisplay = "";
                 if (price === null || price === "") {
@@ -806,7 +832,7 @@ async function loadFinanceData() {
                 let dateDisplay = (r.date !== lastDate) ? r.date : "";
                 lastDate = r.date;
 
-                html += `<tr class="main-row" data-dept="${deptName}" data-docid="${r.docId}" data-item="${r.item}">
+                html += `<tr class="main-row" data-dept="${safeDeptAttr}" data-docid="${safeDocId}" data-item="${safeItemAttr}">
                     <td class="font-mono text-center text-gray-600 ${dateDisplay ? 'font-bold bg-white' : ''}">${dateDisplay}</td>
                     <td class="font-bold text-gray-800">${r.item}</td>
                     <td class="text-center font-black qty-cell">${r.qty}</td>
@@ -815,7 +841,7 @@ async function loadFinanceData() {
                 </tr>`;
             });
 
-            html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg" data-subtotal-id="${deptName}">$${deptSubtotal.toLocaleString()}</td></tr>`;
+            html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg" data-subtotal-id="${String(deptName).replace(/"/g, '&quot;')}">$${deptSubtotal.toLocaleString()}</td></tr>`;
         });
 
         let taxAmount = Math.round(grandTotal * 0.05); let finalAmount = grandTotal + taxAmount;
@@ -1257,4 +1283,3 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
-```eof
