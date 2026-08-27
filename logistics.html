@@ -46,6 +46,10 @@
                 <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">
             </div>
             <p class="text-center text-sm text-gray-400 font-bold">點擊上方可回溯查詢歷史點交紀錄</p>
+            <!-- 🌟 新增的資料修復按鈕 -->
+            <div class="text-center mt-1">
+                <button onclick="resetCurrentDateData()" class="text-xs text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-200 active:bg-red-100">🛠️ 資料異常？點此重置本日紀錄</button>
+            </div>
         </div>
 
         <!-- 點交清單區 -->
@@ -85,8 +89,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 引入 initializeFirestore 啟用本地快取機制，大幅提升速度
-        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // ★ 引入 deleteDoc，用於修復功能
+        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -99,7 +103,6 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        // ★ 啟用 Firestore 本機快取，減少每次載入都要等網路的時間
         const db = initializeFirestore(app, {
             localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
         });
@@ -125,7 +128,26 @@
         window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
         window.addNewItem = addNewItem; window.fetchData = fetchData;
 
-        // ★ 修正 1：純粹用字串取得今天日期，完全避免時區擾亂
+        // 🌟 新增的重置修復腳本
+        window.resetCurrentDateData = async function() {
+            if(!confirm(`⚠️ 警告：確定要重置 ${currentDate} 的點交紀錄嗎？\n這將會刪除當天的所有簽名與修改，並完全恢復為出貨原始數量！\n\n(僅建議在數量被系統異常覆蓋時使用)`)) return;
+
+            try {
+                showToastMsg("⏳ 正在還原原始資料中...");
+                let deletePromises = [];
+                for (let dept in groupedData) {
+                    const docId = `${currentDate}_${currentHotel}_${dept}`;
+                    deletePromises.push(deleteDoc(doc(db, 'logistics_records', docId)));
+                }
+                await Promise.all(deletePromises);
+                showToastMsg("✅ 資料已成功還原！重新載入中...");
+                fetchData(false, true); // 強制從伺服器抓最新原始資料
+            } catch(e) {
+                console.error(e);
+                showToastMsg("⚠️ 重置失敗：" + e.message, true);
+            }
+        }
+
         function getTodayString() {
             const now = new Date();
             const y = now.getFullYear();
@@ -141,7 +163,6 @@
             return `${y}-${m}-${d} ${h}:${min}:${s}`;
         }
 
-        // ★ 修正 2：直接切字串解析日期，不再用 new Date(dateString) 避免日期變成前一天
         function updateDateDisplay() {
             currentDate = document.getElementById('datePicker').value;
             if(!currentDate) return;
@@ -199,9 +220,9 @@
             if (!dateStr) return false;
             let parts = dateStr.split('-');
             if (parts.length !== 3) return false;
-            // 這裡依然可以用 new Date 做單純的計算，因為只要鎖定日期差距
             let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            lockDate.setDate(lockDate.getDate() + 3);
+            // 🌟 修復 2 天結單：原本 + 3 改為 + 2
+            lockDate.setDate(lockDate.getDate() + 2);
             return new Date() >= lockDate;
         }
 
@@ -223,10 +244,7 @@
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
             
-            // ★ 修正 3：移除清除 localStorage 的邏輯，讓 Firebase cache 正常發揮作用
-            // 這樣在無網路或換頁時，載入速度會倍增
-            
-            let targetDate = getTodayString(); // 取代原本會因時區錯亂的 getLocalDateString(new Date())
+            let targetDate = getTodayString(); 
             if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
                 targetDate = queryDate; 
             }
@@ -234,7 +252,7 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            // 平行載入 Template (不需 await 阻塞主畫面讀取)
+            // 平行載入 Template
             getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
@@ -275,6 +293,9 @@
             </div>`;
 
         async function fetchData(isBackground = false, forceServer = false) {
+            // 🌟 核心修復：記下開始抓資料時的日期
+            const fetchTargetDate = currentDate;
+
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
             } else {
@@ -287,16 +308,19 @@
 
             try {
                 let rawData = [];
-                // 盡可能讓資料庫去篩選，降低下載的封包大小
-                const invQ = query(collection(db, "inventory_records"), where("date", "==", currentDate));
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", currentDate), where("hotelKeyword", "==", currentHotel));
+                const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
-                // ★ 如果點擊「重新載入」，強制走 getDocsFromServer 繞過快取，保證拿到最新單據
                 const fetchMethod = forceServer ? getDocsFromServer : getDocs;
                 if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
 
-                // 平行查詢兩個表
                 const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), fetchMethod(logQ)]);
+
+                // 🌟 核心修復：如果下載回來發現日期已經變了，立刻終止，避免張冠李戴！
+                if (currentDate !== fetchTargetDate) {
+                    console.warn(`🔄 日期已從 ${fetchTargetDate} 切換為 ${currentDate}，捨棄舊請求防止資料覆寫`);
+                    return; 
+                }
 
                 let inventoryMap = {}; 
                 
@@ -545,7 +569,9 @@
                         }));
                         let docRef = doc(db, 'logistics_records', `${currentDate}_${currentHotel}_${dept}`);
                         let p = setDoc(docRef, {
-                            date: currentDate, hotelKeyword: currentHotel, deptName: dept, items: safeItemsForDatabase, clientSig: "", driverSig: "", timestamp: new Date().toLocaleString(), isAutoSynced: true
+                            date: currentDate, hotelKeyword: currentHotel, deptName: dept, items: safeItemsForDatabase, clientSig: "", driverSig: "", 
+                            // 🌟 明確標示後台顯示的時間戳記來源
+                            timestamp: new Date().toLocaleString() + " (逾期系統自動結單)", isAutoSynced: true
                         }, { merge: true }).then(() => { groupedData[dept].isSynced = true; });
                         autoSyncPromises.push(p);
                     } else {
@@ -632,7 +658,6 @@
             }
         }
 
-        // ★ 修正 4：讓畫布底圖變成白色，不要透明，後續才能存成體積小的 JPG
         function setupCanvas(canvas, ctx) {
             canvas.isModified = false; canvas.isCleared = false; 
 
@@ -663,7 +688,7 @@
 
         function clearCanvas(ctx, canvas) { 
             ctx.clearRect(0, 0, canvas.width, canvas.height); 
-            canvas.fillWhite(); // 清除後重新補白
+            canvas.fillWhite();
             canvas.isModified = true; canvas.isCleared = true; 
         }
 
@@ -680,7 +705,7 @@
                 });
                 [clientCtx, driverCtx].forEach(ctx => { 
                     ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; 
-                    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200); // 初始化全白
+                    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200);
                 });
                 
                 if(existClient) { let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; }
@@ -694,7 +719,6 @@
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
 
-            // ★ 修正 5：將簽名儲存格式改為 JPEG，品質 50%。檔案大小從原本 500KB 驟降到 20KB 內！
             let cBase64 = existClient || ""; 
             if (clientCanvas.isModified) {
                 if (clientCanvas.isCleared) { cBase64 = ""; } 
