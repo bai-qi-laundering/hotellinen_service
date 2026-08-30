@@ -147,7 +147,8 @@
                 return downloadUrl;
             } catch (error) {
                 console.error("圖片上傳失敗:", error);
-                throw new Error("圖片上傳失敗，請確認網路或 Storage 設定");
+                // 把更明確的錯誤訊息往外傳
+                throw new Error(error.message || "Storage 權限或設定異常");
             }
         }
 
@@ -853,7 +854,8 @@
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
-                showToastMsg("⚠️ 網路傳送或圖片上傳失敗，請確認網路！", true);
+                // 顯示精確的錯誤訊息，幫助除錯
+                showToastMsg("⚠️ 儲存失敗：" + e.message, true);
             }
         }
 
