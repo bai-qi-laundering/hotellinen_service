@@ -46,10 +46,10 @@
         .excel-tab.active-green { background-color: white; color: #059669; border-top: 3px solid #059669; font-weight: 900; }
         .excel-tab:hover:not(.active-blue):not(.active-green) { background-color: #f8f9fa; }
 
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        :: -webkit-scrollbar { width: 8px; height: 8px; }
+        :: -webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        :: -webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        :: -webkit-scrollbar-thumb:hover { background: #a8a8a8; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -58,7 +58,7 @@
         <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
     </div>
 
-    <!-- 系統客製化提示框 (取代原有的 alert / confirm) -->
+    <!-- 系統客製化提示框 -->
     <div id="customModal" class="hidden fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center backdrop-blur-sm">
         <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-100">
             <h3 id="modalTitle" class="text-xl font-black text-gray-800 mb-4 border-b pb-2">提示</h3>
@@ -98,9 +98,7 @@
                         <label class="block text-gray-700 font-black text-lg">📦 品項與數量</label>
                         <button onclick="addManualEntryRow()" class="bg-emerald-100 text-emerald-700 px-3 py-1 rounded shadow-sm font-bold text-sm hover:bg-emerald-200 border border-emerald-200">➕ 新增一列</button>
                     </div>
-                    <div id="manualItemsContainer" class="space-y-2">
-                        <!-- Dynamic rows here -->
-                    </div>
+                    <div id="manualItemsContainer" class="space-y-2"></div>
                 </div>
             </div>
             <div class="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-2xl">
@@ -129,25 +127,36 @@
         </div>
 
         <div id="viewInvMain" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50">
-                <div class="flex items-center gap-4">
-                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間查詢</span>
-                    <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-5 py-1.5 font-bold text-sm bg-blue-50/30">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50 flex-wrap gap-4">
+                <div class="flex items-center gap-4 flex-wrap">
+                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間</span>
+                    <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-4 py-1.5 font-bold text-sm bg-blue-50/30">
                         <input type="date" id="invStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
                         <span>-</span>
                         <input type="date" id="invEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
                     </div>
-                    <span class="text-gray-500 font-medium text-sm ml-4">共 <span id="invRecordCount" class="font-bold text-blue-600">0</span> 筆單據</span>
+                    <!-- 省讀取量：查詢前篩選飯店 -->
+                    <div class="flex items-center gap-1 border border-blue-300 rounded-lg px-3 py-1 bg-white">
+                        <span class="text-xs font-bold text-blue-600">🏨 飯店:</span>
+                        <input type="text" id="invFetchHotel" placeholder="全部或關鍵字" class="outline-none text-sm font-bold text-gray-700 w-28">
+                    </div>
+                    <span class="text-gray-500 font-medium text-sm">共 <span id="invRecordCount" class="font-bold text-blue-600">0</span> 筆單據</span>
                 </div>
-                <button onclick="loadInvData()" id="invLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
-                    下載明細
-                </button>
+                <div class="flex gap-2">
+                    <button onclick="batchChangeInventoryDate()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
+                        📅 批量改日期
+                    </button>
+                    <button onclick="loadInvData()" id="invLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
+                        下載明細
+                    </button>
+                </div>
             </div>
 
             <div class="flex-1 overflow-auto bg-white relative">
                 <table class="modern-table table-blue min-w-[1000px]">
                     <thead>
                         <tr>
+                            <th class="w-12 text-center"><input type="checkbox" id="invSelectAll" onchange="toggleSelectAllInv(this.checked)" class="w-4 h-4 cursor-pointer"></th>
                             <th class="w-32"><div class="text-xs text-blue-200 mb-1 font-normal">交易日期</div><select id="fltInvDate" class="header-select w-full" onchange="applyInvFilters()"><option value="">單據日期 ▾</option></select></th>
                             <th class="w-40"><div class="text-xs text-blue-200 mb-1 font-normal">對象</div><select id="fltInvHotel" class="header-select w-full" onchange="applyInvFilters()"><option value="">飯店/部門 ▾</option></select></th>
                             <th class="w-36"><div class="text-xs text-blue-200 mb-1 font-normal">項目</div><select id="fltInvItem" class="header-select w-full" onchange="applyInvFilters()"><option value="">品項 ▾</option></select></th>
@@ -161,7 +170,7 @@
                         </tr>
                     </thead>
                     <tbody id="invTableBody">
-                        <tr class="main-row"><td colspan="10" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></td></tr>
+                        <tr class="main-row"><td colspan="11" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「下載明細」載入資料</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -209,20 +218,27 @@
                 </h1>
                 <span class="text-gray-500 font-medium text-sm">共找到 <span id="logRecordCount" class="font-bold text-emerald-600">0</span> 筆出貨明細</span>
             </div>
-            <div class="flex items-center gap-3">
-                <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-sm"></span><span class="text-xs font-bold text-red-600 mr-2">有數量更改 / 缺簽名</span>
-                <span class="w-3 h-3 rounded-full bg-green-500 shadow-sm"></span><span class="text-xs font-bold text-green-700">數量無誤已簽收</span>
+            <!-- 三色標籤說明 -->
+            <div class="flex items-center gap-3 bg-white px-3 py-1.5 rounded-lg border border-gray-200">
+                <span class="w-3 h-3 rounded-full bg-yellow-400"></span><span class="text-xs font-bold text-yellow-700 mr-2">未簽名</span>
+                <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span><span class="text-xs font-bold text-red-600 mr-2">修改數量</span>
+                <span class="w-3 h-3 rounded-full bg-green-500"></span><span class="text-xs font-bold text-green-700">正常已簽收</span>
             </div>
         </div>
 
         <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
             <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-white z-50 flex-wrap gap-4">
-                <div class="flex items-center gap-4">
-                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間查詢</span>
-                    <div class="flex items-center gap-2 border-2 border-emerald-400 text-emerald-700 rounded-full px-5 py-1.5 font-bold text-sm bg-emerald-50/30">
+                <div class="flex items-center gap-4 flex-wrap">
+                    <span class="text-gray-500 font-bold text-sm hidden sm:inline">單據區間</span>
+                    <div class="flex items-center gap-2 border-2 border-emerald-400 text-emerald-700 rounded-full px-4 py-1.5 font-bold text-sm bg-emerald-50/30">
                         <input type="date" id="logStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
                         <span>-</span>
                         <input type="date" id="logEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                    </div>
+                    <!-- 省讀取量：物流後台預先篩選飯店 -->
+                    <div class="flex items-center gap-1 border border-emerald-300 rounded-lg px-3 py-1 bg-white">
+                        <span class="text-xs font-bold text-emerald-700">🏨 飯店:</span>
+                        <input type="text" id="logFetchHotel" placeholder="全部或關鍵字" class="outline-none text-sm font-bold text-gray-700 w-28">
                     </div>
                 </div>
                 
@@ -234,6 +250,9 @@
                 </div>
 
                 <div class="flex ml-auto gap-2">
+                    <button onclick="batchChangeLogisticsDate()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
+                        📅 批量改日期
+                    </button>
                     <button onclick="openManualEntryModal()" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-emerald-300">
                         ➕ 歷史補單
                     </button>
@@ -247,14 +266,15 @@
                 <table class="modern-table table-green min-w-[1000px]">
                     <thead>
                         <tr>
-                            <th class="w-40"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">狀態 / 預定送達日</div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">單據日期 ▾</option></select></th>
+                            <th class="w-12 text-center"><input type="checkbox" id="logSelectAll" onchange="toggleSelectAllLog(this.checked)" class="w-4 h-4 cursor-pointer"></th>
+                            <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">狀態 / 預定送達日</div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">單據日期 ▾</option></select></th>
                             <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">對象</div><select id="fltLogHotel" class="header-select w-full" onchange="applyLogFilters()"><option value="">飯店/部門 ▾</option></select></th>
                             <th class="w-48 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">系統押印</div>簽收時間 (精確)</th>
                             <th class="w-48 bg-emerald-800 text-right pr-6">明細操作</th>
                         </tr>
                     </thead>
                     <tbody id="logTableBody">
-                        <tr class="main-row"><td colspan="4" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「載入物流單據」查看簽收狀況</span></td></tr>
+                        <tr class="main-row"><td colspan="5" class="py-20 text-center"><span class="text-gray-500 font-medium">點擊右上角「載入物流單據」查看簽收狀況</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -290,16 +310,12 @@
         let invRecords = []; let invFiltered = []; 
         let logRecords = []; let logFiltered = []; 
         window.invHistoryRecords = []; 
-        
         let masterData = []; 
         
-        // ★ 快取防呆機制：記錄上一次讀取的日期區間
-        let lastInvFetchRange = { start: "", end: "" };
-        let lastLogFetchRange = { start: "", end: "" };
+        let lastInvFetchKey = "";
+        let lastLogFetchKey = "";
 
-        // ===============================================
-        // ★ 系統自訂安全提示框 (符合安全原則取代 alert/confirm)
-        // ===============================================
+        // 安全提示彈窗
         window.customAlert = function(msg) {
             return new Promise((resolve) => {
                 const modal = document.getElementById('customModal');
@@ -308,8 +324,7 @@
                 const btnCancel = document.getElementById('modalCancel');
                 const btnOk = document.getElementById('modalOk');
                 modal.classList.remove('hidden');
-                btnCancel.classList.add('hidden'); // alert 不需要取消按鈕
-
+                btnCancel.classList.add('hidden');
                 btnOk.onclick = () => { modal.classList.add('hidden'); resolve(); };
             });
         };
@@ -323,7 +338,6 @@
                 const btnOk = document.getElementById('modalOk');
                 modal.classList.remove('hidden');
                 btnCancel.classList.remove('hidden');
-
                 btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(false); };
                 btnOk.onclick = () => { modal.classList.add('hidden'); resolve(true); };
             });
@@ -341,9 +355,7 @@
                 const btnOk = document.getElementById('modalOk');
                 modal.classList.remove('hidden');
                 btnCancel.classList.remove('hidden');
-                
                 setTimeout(() => document.getElementById('promptInput').focus(), 100);
-
                 btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(null); };
                 btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('promptInput').value); };
             });
@@ -370,216 +382,22 @@
             return index === -1 ? 99999 : index; 
         }
 
-        // ★ 新增功能：從盤點後台強制同步單筆資料至物流系統 (財務系統)
-        window.forceSyncToLogistics = async function(docId, category, item, dateStr, e) {
-            if(e) e.stopPropagation();
-            
-            const btn = e.currentTarget;
-            const originalHtml = btn.innerHTML;
-            
-            const confirmSync = await customConfirm(`⚠️ 確定要將【${category} - ${item}】的數量\n強制覆寫到物流與財務系統中嗎？`);
-            if (!confirmSync) return;
+        function getLocalDateString(dateObj) { 
+            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; 
+        }
+        
+        function getLocalTimeString(dateObj) {
+            const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
+            const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
 
-            try {
-                btn.innerHTML = `<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
-                btn.disabled = true;
-
-                // 取得目前這筆盤點的資料
-                const record = invRecords.find(r => r.docId === docId);
-                if (!record) throw new Error("找不到本地端暫存資料");
-
-                let qtyToSync = (record.doubleCount !== undefined && record.doubleCount !== null && record.doubleCount !== "") ? record.doubleCount : record.count;
-                if (!qtyToSync) qtyToSync = "0";
-
-                let hotelKeyword = category;
-                let deptName = "房務";
-                let catParts = category.split(' ');
-                if (catParts.length > 1) {
-                    deptName = catParts.pop();
-                    hotelKeyword = catParts.join(' ');
-                }
-                
-                let targetCat = masterData.find(d => d.hotel === category);
-                if (targetCat) {
-                    hotelKeyword = targetCat.baseName;
-                    deptName = targetCat.deptName || "房務";
-                }
-
-                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
-                const logDocRef = doc(db, 'logistics_records', logDocId);
-                const logSnap = await getDoc(logDocRef);
-
-                if (logSnap.exists()) {
-                    let logData = logSnap.data();
-                    let logItems = logData.items || [];
-                    let itemIndex = logItems.findIndex(i => i.itemName === item);
-                    
-                    if (itemIndex > -1) {
-                        logItems[itemIndex].originalQty = String(qtyToSync);
-                        logItems[itemIndex].actualQty = String(qtyToSync); // 強制同步覆寫這兩個數字
-                        logItems[itemIndex].driverNote = "後台強制同步覆寫";
-                    } else {
-                        logItems.push({
-                            itemName: item,
-                            originalQty: String(qtyToSync),
-                            actualQty: String(qtyToSync),
-                            auntNote: record.note || "",
-                            driverNote: "後台強制同步新增"
-                        });
-                    }
-                    await setDoc(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
-                } else {
-                    // 如果整張單子都沒有，就創一張新的
-                    await setDoc(logDocRef, {
-                        date: dateStr,
-                        hotelKeyword: hotelKeyword,
-                        deptName: deptName,
-                        clientSig: "",
-                        driverSig: "",
-                        timestamp: getLocalTimeString(new Date()),
-                        forcedSync: true,
-                        items: [{
-                            itemName: item,
-                            originalQty: String(qtyToSync),
-                            actualQty: String(qtyToSync),
-                            auntNote: record.note || "",
-                            driverNote: "後台強制同步新增"
-                        }]
-                    });
-                }
-                showToast("✅ 強制同步成功，財務系統現可讀取此筆數量！");
-                btn.innerHTML = `<span class="text-green-500">✅ 已同步</span>`;
-                setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
-            } catch (err) {
-                console.error(err);
-                await customAlert("同步失敗：" + err.message);
-                btn.innerHTML = originalHtml; 
-                btn.disabled = false;
-            }
-        };
-
-        // ===============================================
-        // ★ 歷史補單功能 (手動新增紀錄)
-        // ===============================================
-        window.openManualEntryModal = function() {
-            document.getElementById('manualDate').value = getLocalDateString(new Date());
-            document.getElementById('manualHotel').value = "";
-            document.getElementById('manualDept').value = "房務";
-            document.getElementById('manualItemsContainer').innerHTML = "";
-            addManualEntryRow(); // 預設新增一列空白的
-            document.getElementById('manualEntryModal').classList.remove('hidden');
-        };
-
-        window.closeManualEntryModal = function() {
-            document.getElementById('manualEntryModal').classList.add('hidden');
-        };
-
-        window.addManualEntryRow = function() {
-            const container = document.getElementById('manualItemsContainer');
-            const row = document.createElement('div');
-            row.className = "flex gap-2 items-center manual-item-row";
-            row.innerHTML = `
-                <input type="text" placeholder="品項名稱 (如: 浴巾)" class="flex-1 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none item-name">
-                <input type="number" placeholder="數量" class="w-24 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none text-center item-qty">
-                <button onclick="this.parentElement.remove()" class="bg-red-50 text-red-500 px-3 py-2 rounded-lg font-bold hover:bg-red-100 border border-red-200">✖</button>
-            `;
-            container.appendChild(row);
-        };
-
-        window.saveManualEntry = async function() {
-            const dateStr = document.getElementById('manualDate').value;
-            const hotelKeyword = document.getElementById('manualHotel').value.trim();
-            let deptName = document.getElementById('manualDept').value.trim();
-            if (!deptName) deptName = "房務";
-
-            if (!dateStr || !hotelKeyword) {
-                await customAlert("⚠️ 日期與飯店關鍵字為必填！");
-                return;
-            }
-
-            const rowElements = document.querySelectorAll('.manual-item-row');
-            let itemsToAdd = [];
-            
-            rowElements.forEach(row => {
-                const name = row.querySelector('.item-name').value.trim();
-                const qty = row.querySelector('.item-qty').value.trim();
-                if (name && qty) {
-                    itemsToAdd.push({
-                        itemName: name,
-                        originalQty: String(qty),
-                        actualQty: String(qty),
-                        auntNote: "",
-                        driverNote: "後台歷史補單"
-                    });
-                }
-            });
-
-            if (itemsToAdd.length === 0) {
-                await customAlert("⚠️ 請至少輸入一個品項與數量！");
-                return;
-            }
-
-            const btn = document.getElementById('manualSaveBtn');
-            btn.innerHTML = "儲存中...";
-            btn.disabled = true;
-
-            try {
-                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
-                const logDocRef = doc(db, 'logistics_records', logDocId);
-                const logSnap = await getDoc(logDocRef);
-
-                let finalItems = [];
-
-                if (logSnap.exists()) {
-                    let existingData = logSnap.data();
-                    finalItems = existingData.items || [];
-                    
-                    // 合併邏輯：如果已有該品項則覆寫，沒有則新增
-                    itemsToAdd.forEach(newItem => {
-                        let existingItemIdx = finalItems.findIndex(i => i.itemName === newItem.itemName);
-                        if (existingItemIdx > -1) {
-                            finalItems[existingItemIdx].originalQty = newItem.originalQty;
-                            finalItems[existingItemIdx].actualQty = newItem.actualQty;
-                            finalItems[existingItemIdx].driverNote = "後台歷史補單 (覆寫)";
-                        } else {
-                            finalItems.push(newItem);
-                        }
-                    });
-
-                    await setDoc(logDocRef, {
-                        items: finalItems,
-                        forcedSync: true
-                    }, { merge: true });
-
-                } else {
-                    // 若完全沒這張單，直接新增
-                    await setDoc(logDocRef, {
-                        date: dateStr,
-                        hotelKeyword: hotelKeyword,
-                        deptName: deptName,
-                        clientSig: "",
-                        driverSig: "",
-                        timestamp: getLocalTimeString(new Date()),
-                        forcedSync: true,
-                        items: itemsToAdd
-                    });
-                }
-
-                showToast("✅ 歷史單據已成功補入！財務系統現可讀取！");
-                closeManualEntryModal();
-                
-                // 強制清空快取，重新載入讓畫面顯示新打進去的單
-                lastLogFetchRange = { start: "", end: "" };
-                loadLogData(); 
-
-            } catch (e) {
-                console.error(e);
-                await customAlert("儲存失敗：" + e.message);
-            } finally {
-                btn.innerHTML = "💾 儲存單據";
-                btn.disabled = false;
-            }
-        };
+        function standardizeDate(dStr) {
+            if(!dStr || typeof dStr !== 'string') return "";
+            let parts = dStr.split(/[-/]/);
+            if(parts.length !== 3) return dStr;
+            return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        }
 
         function getPossibleDates(dateStr) {
             if(!dateStr) return [];
@@ -591,23 +409,6 @@
             return [`${y}-${m}-${d}`, `${y}-${mNoPad}-${dNoPad}`, `${y}/${m}/${d}`, `${y}/${mNoPad}/${dNoPad}`];
         }
 
-        function standardizeDate(dStr) {
-            if(!dStr || typeof dStr !== 'string') return "";
-            let parts = dStr.split(/[-/]/);
-            if(parts.length !== 3) return dStr;
-            return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-        }
-
-        function getLocalDateString(dateObj) { 
-            return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; 
-        }
-        
-        function getLocalTimeString(dateObj) {
-            const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const d = String(dateObj.getDate()).padStart(2, '0');
-            const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const s = String(dateObj.getSeconds()).padStart(2, '0');
-            return `${y}-${m}-${d} ${h}:${min}:${s}`;
-        }
-
         const today = new Date();
         const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
         document.getElementById('invStartDate').value = getLocalDateString(firstDay);
@@ -616,306 +417,6 @@
         document.getElementById('logStartDate').value = getLocalDateString(firstDay);
         document.getElementById('logEndDate').value = getLocalDateString(today);
 
-        window.switchMainTab = switchMainTab;
-        window.switchInvView = switchInvView;
-        window.loadInvData = loadInvData;
-        window.applyInvFilters = applyInvFilters;
-        window.updateInvField = updateInvField;
-        window.loadInvHistory = loadInvHistory;
-        window.loadLogData = loadLogData;
-        window.applyLogFilters = applyLogFilters;
-        window.toggleLogDetail = toggleLogDetail;
-        window.updateLogQty = updateLogQty; 
-
-        window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
-            if(e) e.stopPropagation(); 
-            
-            const confirmDelete = await customConfirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！\n(若 Google 試算表中已有備份，請務必記得手動前往試算表刪除該行)`);
-            if (!confirmDelete) return;
-
-            try {
-                await deleteDoc(doc(db, collectionName, docId));
-                
-                if (collectionName === 'inventory_records' && category && item && dateStr) {
-                    try {
-                        let hotelKeyword = category;
-                        let deptName = "房務";
-                        let catParts = category.split(' ');
-                        if (catParts.length > 1) {
-                            deptName = catParts.pop();
-                            hotelKeyword = catParts.join(' ');
-                        }
-                        
-                        let targetCat = masterData.find(d => d.hotel === category);
-                        if (targetCat) {
-                            hotelKeyword = targetCat.baseName;
-                            deptName = targetCat.deptName || "房務";
-                        }
-
-                        const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
-                        const logDocRef = doc(db, 'logistics_records', logDocId);
-                        const logSnap = await getDoc(logDocRef);
-
-                        if (logSnap.exists()) {
-                            let logData = logSnap.data();
-                            let logItems = logData.items || [];
-                            let newItems = logItems.filter(i => i.itemName !== item);
-                            
-                            await setDoc(logDocRef, { items: newItems }, { merge: true });
-                        }
-
-                        if (logRecords.length > 0) {
-                            let localLogRecord = logRecords.find(r => r.id === logDocId);
-                            if (localLogRecord) {
-                                localLogRecord.items = localLogRecord.items.filter(i => i.itemName !== item);
-                                if (localLogRecord.items.length === 0) {
-                                    logRecords = logRecords.filter(r => r.id !== logDocId);
-                                }
-                                applyLogFilters();
-                            }
-                        }
-
-                    } catch(delErr) {
-                        console.warn("連動刪除物流單品項失敗", delErr);
-                    }
-                }
-
-                showToast("🗑️ 紀錄已成功從雲端刪除！");
-                
-                if (collectionName === 'inventory_records') {
-                    invRecords = invRecords.filter(r => r.docId !== docId);
-                    applyInvFilters(); 
-                } else if (collectionName === 'history_logs') {
-                    window.invHistoryRecords = window.invHistoryRecords.filter(r => r.docId !== docId);
-                    const tbody = document.getElementById('invHistoryBody');
-                    const btn = tbody.querySelector(`button[onclick*="${docId}"]`);
-                    if(btn) {
-                        const row = btn.closest('tr');
-                        if(row) row.remove();
-                    }
-                } else if (collectionName === 'logistics_records') {
-                    logRecords = logRecords.filter(r => r.id !== docId);
-                    applyLogFilters();
-                }
-            } catch (error) {
-                await customAlert("刪除失敗，請檢查網路連線：" + error.message);
-            }
-        };
-
-        window.changeInventoryDate = async function(docId, oldDate, newDate, hotel, item, inputEl) {
-            if (!newDate || newDate === oldDate) {
-                inputEl.value = oldDate; 
-                return;
-            }
-
-            const confirmChange = await customConfirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
-            if (!confirmChange) {
-                inputEl.value = oldDate; 
-                return;
-            }
-
-            try {
-                showToast("⏳ 正在搬移單據...");
-                inputEl.style.opacity = '0.5';
-
-                const oldDocRef = doc(db, 'inventory_records', docId);
-                const oldDocSnap = await getDoc(oldDocRef);
-                
-                if (!oldDocSnap.exists()) {
-                    await customAlert("找不到舊單據資料，可能已被刪除。");
-                    return;
-                }
-
-                let data = oldDocSnap.data();
-                data.date = newDate; 
-                
-                const safeItem = item.replace(/\//g, '-');
-                const newDocId = `${newDate}_${hotel}_${safeItem}`;
-                await setDoc(doc(db, 'inventory_records', newDocId), data);
-                await deleteDoc(oldDocRef);
-
-                try {
-                    let hotelKeyword = hotel;
-                    let deptName = "房務";
-                    let catParts = hotel.split(' ');
-                    if (catParts.length > 1) {
-                        deptName = catParts.pop();
-                        hotelKeyword = catParts.join(' ');
-                    }
-                    
-                    let targetCat = masterData.find(d => d.hotel === hotel);
-                    if (targetCat) {
-                        hotelKeyword = targetCat.baseName;
-                        deptName = targetCat.deptName || "房務";
-                    }
-
-                    const oldLogDocId = `${oldDate}_${hotelKeyword}_${deptName}`;
-                    const oldLogDocRef = doc(db, 'logistics_records', oldLogDocId);
-                    const oldLogSnap = await getDoc(oldLogDocRef);
-                    
-                    let movedItemData = null;
-
-                    if (oldLogSnap.exists()) {
-                        let logData = oldLogSnap.data();
-                        let logItems = logData.items || [];
-                        movedItemData = logItems.find(i => i.itemName === item);
-                        let newItems = logItems.filter(i => i.itemName !== item);
-                        await setDoc(oldLogDocRef, { items: newItems }, { merge: true });
-                    }
-
-                    if (movedItemData) {
-                        const newLogDocId = `${newDate}_${hotelKeyword}_${deptName}`;
-                        const newLogDocRef = doc(db, 'logistics_records', newLogDocId);
-                        const newLogSnap = await getDoc(newLogDocRef);
-
-                        if (newLogSnap.exists()) {
-                            let logData = newLogSnap.data();
-                            let logItems = logData.items || [];
-                            let existingIdx = logItems.findIndex(i => i.itemName === item);
-                            if (existingIdx > -1) {
-                                logItems[existingIdx] = movedItemData;
-                            } else {
-                                logItems.push(movedItemData);
-                            }
-                            await setDoc(newLogDocRef, { items: logItems }, { merge: true });
-                        } else {
-                            await setDoc(newLogDocRef, {
-                                date: newDate,
-                                hotelKeyword: hotelKeyword,
-                                deptName: deptName,
-                                items: [movedItemData],
-                                clientSig: "",
-                                driverSig: "",
-                                timestamp: getLocalTimeString(new Date())
-                            });
-                        }
-                    }
-
-                    if (logRecords.length > 0) {
-                        const localOldLog = logRecords.find(r => r.id === oldLogDocId);
-                        if (localOldLog) {
-                            localOldLog.items = localOldLog.items.filter(i => i.itemName !== item);
-                            if (localOldLog.items.length === 0) {
-                                logRecords = logRecords.filter(r => r.id !== oldLogDocId);
-                            }
-                            applyLogFilters();
-                        }
-                    }
-                } catch (syncErr) {
-                    console.warn("連動搬移物流單品項失敗", syncErr);
-                }
-
-                showToast("✅ 盤點日期已成功修改！");
-                
-                const localRecord = invRecords.find(r => r.docId === docId);
-                if (localRecord) {
-                    localRecord.date = newDate;
-                    localRecord.docId = newDocId;
-                }
-                applyInvFilters(); 
-
-            } catch (error) {
-                console.error("修改日期失敗:", error);
-                await customAlert("修改失敗，請檢查網路連線：" + error.message);
-                inputEl.style.opacity = '1';
-                inputEl.value = oldDate;
-            }
-        };
-
-        window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
-            if(e) e.stopPropagation();
-
-            const newDate = await customPrompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
-            
-            if (!newDate || newDate.trim() === "" || newDate === oldDate) return;
-            
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-                await customAlert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
-                return;
-            }
-
-            const confirmChange = await customConfirm(`⚠️ 確定要將此單據日期從 ${oldDate} 改為 ${newDate} 嗎？`);
-            if (!confirmChange) return;
-
-            try {
-                showToast("⏳ 正在搬移單據...");
-                
-                const oldDocRef = doc(db, 'logistics_records', docId);
-                const oldDocSnap = await getDoc(oldDocRef);
-                
-                if (!oldDocSnap.exists()) {
-                    await customAlert("找不到舊單據資料，可能已被刪除。");
-                    return;
-                }
-
-                let data = oldDocSnap.data();
-                data.date = newDate; 
-                
-                const newDocId = `${newDate}_${hotelKeyword}_${deptName}`;
-                await setDoc(doc(db, 'logistics_records', newDocId), data);
-                await deleteDoc(oldDocRef);
-
-                showToast("✅ 單據日期已成功修改！");
-                
-                const localLogRecord = logRecords.find(r => r.id === docId);
-                if (localLogRecord) {
-                    localLogRecord.date = newDate;
-                    localLogRecord.id = newDocId;
-                }
-                applyLogFilters();
-
-            } catch (error) {
-                console.error("修改日期失敗:", error);
-                await customAlert("修改失敗，請檢查網路連線：" + error.message);
-            }
-        };
-
-        window.toggleSigPreview = function(e, source, index, type) {
-            e.stopPropagation();
-            const box = document.getElementById('globalSigPreview');
-            const img = document.getElementById('globalSigImg');
-
-            if (!box.classList.contains('hidden') && img.dataset.currentSrc === source+index+type) {
-                box.classList.add('hidden');
-                img.src = "";
-                img.dataset.currentSrc = "";
-                return;
-            }
-
-            let base64 = "";
-            if (source === 'inv') {
-                base64 = type === 'aunt' ? invFiltered[index].signature : invFiltered[index].doubleSignature;
-            } else if (source === 'hist') {
-                base64 = type === 'aunt' ? window.invHistoryRecords[index].signature : window.invHistoryRecords[index].doubleSignature;
-            } else if (source === 'log') {
-                base64 = type === 'driver' ? logFiltered[index].driverSig : logFiltered[index].clientSig;
-            }
-
-            if (!base64) return;
-
-            img.src = base64;
-            img.dataset.currentSrc = source+index+type;
-            box.classList.remove('hidden');
-
-            let x = e.clientX || (e.touches && e.touches[0].clientX) || 0;
-            let y = e.clientY || (e.touches && e.touches[0].clientY) || 0;
-
-            x += 15; y += 15;
-            if (y + 180 > window.innerHeight) y = window.innerHeight - 190;
-            if (x + 260 > window.innerWidth) x = window.innerWidth - 270;
-
-            box.style.left = x + 'px'; box.style.top = y + 'px';
-        };
-
-        document.addEventListener('click', function(e) {
-            const box = document.getElementById('globalSigPreview');
-            if (!box.classList.contains('hidden') && !box.contains(e.target)) {
-                box.classList.add('hidden');
-                document.getElementById('globalSigImg').src = "";
-                document.getElementById('globalSigImg').dataset.currentSrc = "";
-            }
-        });
-
         function showToast(msg = "資料已自動儲存更新！") {
             document.getElementById('toastMsg').innerText = msg;
             const toast = document.getElementById('toast');
@@ -923,7 +424,7 @@
             setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
         }
 
-        function switchMainTab(tab) {
+        window.switchMainTab = function(tab) {
             if (tab === 'inventory') {
                 document.getElementById('sectionInventory').style.display = 'block';
                 document.getElementById('sectionLogistics').style.display = 'none';
@@ -935,9 +436,9 @@
                 document.getElementById('tabInventory').className = 'excel-tab';
                 document.getElementById('tabLogistics').className = 'excel-tab active-green';
             }
-        }
+        };
 
-        function switchInvView(view) {
+        window.switchInvView = function(view) {
             if (view === 'main') {
                 document.getElementById('viewInvMain').style.display = 'flex';
                 document.getElementById('viewInvHistory').style.display = 'none';
@@ -949,14 +450,27 @@
                 document.getElementById('btnViewInvMain').classList.remove('active');
                 document.getElementById('btnViewInvHistory').classList.add('active');
             }
-        }
+        };
 
-        async function loadInvData() {
+        // 全選 / 勾選控制
+        window.toggleSelectAllInv = function(checked) {
+            document.querySelectorAll('.chk-inv-item').forEach(cb => cb.checked = checked);
+        };
+        window.toggleSelectAllLog = function(checked) {
+            document.querySelectorAll('.chk-log-item').forEach(cb => cb.checked = checked);
+        };
+
+        // ===============================================
+        // 👑 盤點明細載入 (支援指定飯店以省讀取量)
+        // ===============================================
+        window.loadInvData = async function() {
             const startDate = document.getElementById('invStartDate').value;
             const endDate = document.getElementById('invEndDate').value;
+            const hotelKey = document.getElementById('invFetchHotel').value.trim();
 
-            if (lastInvFetchRange.start === startDate && lastInvFetchRange.end === endDate && invRecords.length > 0) {
-                showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
+            const currentKey = `${startDate}_${endDate}_${hotelKey}`;
+            if (lastInvFetchKey === currentKey && invRecords.length > 0) {
+                showToast("🔄 已顯示最新快取資料");
                 applyInvFilters();
                 return;
             }
@@ -964,32 +478,38 @@
             const tbody = document.getElementById('invTableBody');
             const btn = document.getElementById('invLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
-            
+            tbody.innerHTML = `<tr class="main-row"><td colspan="11" class="p-10 text-center text-gray-500 font-bold">讀取資料中...</td></tr>`;
+
             try {
-                await ensureMasterData(); 
+                await ensureMasterData();
 
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                let qStandard, qUnpad;
+                if (hotelKey) {
+                    // 若有輸入特定飯店，直接以該飯店條件查詢，節省 Firebase 讀取費用
+                    qStandard = query(collection(db, "inventory_records"), where("hotel", "==", hotelKey), where("date", ">=", startDate), where("date", "<=", endDate));
+                    qUnpad = query(collection(db, "inventory_records"), where("hotel", "==", hotelKey), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                } else {
+                    qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                    qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                }
 
                 const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
-                
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 invRecords = [];
                 uniqueDocs.forEach((docSnap) => {
-                    const data = docSnap.data(); 
+                    const data = docSnap.data();
                     let dDate = standardizeDate(data.date);
                     if (dDate >= startDate && dDate <= endDate) {
-                        data.docId = docSnap.id; 
-                        data.date = dDate; 
+                        data.docId = docSnap.id;
+                        data.date = dDate;
                         invRecords.push(data);
                     }
                 });
@@ -997,30 +517,25 @@
                 invRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
                     if (a.hotel < b.hotel) return -1; if (a.hotel > b.hotel) return 1;
-                    
                     let indexA = getItemSortIndex(a.hotel, a.item);
                     let indexB = getItemSortIndex(b.hotel, b.item);
-                    
                     if (indexA !== indexB) return indexA - indexB;
                     return (a.item < b.item) ? -1 : 1;
                 });
 
                 populateInvDropdowns();
                 applyInvFilters();
-                
-                lastInvFetchRange = { start: startDate, end: endDate };
-
+                lastInvFetchKey = currentKey;
             } catch (error) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr class="main-row"><td colspan="11" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
             } finally {
                 btn.innerHTML = `下載明細`; btn.disabled = false;
             }
-        }
+        };
 
         function populateInvDropdowns() {
             const dates = [...new Set(invRecords.map(r => r.date || ""))].filter(v=>v).sort();
             const hotels = [...new Set(invRecords.map(r => r.hotel || ""))].filter(v=>v).sort();
-            
             let items = [...new Set(invRecords.map(r => r.item || ""))].filter(v=>v);
             items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
@@ -1034,7 +549,7 @@
             if (dates.includes(pD)) fD.value = pD; if (hotels.includes(pH)) fH.value = pH; if (items.includes(pI)) fI.value = pI;
         }
 
-        function applyInvFilters() {
+        window.applyInvFilters = function() {
             const fDate = document.getElementById('fltInvDate').value;
             const fHotel = document.getElementById('fltInvHotel').value;
             const fItem = document.getElementById('fltInvItem').value;
@@ -1043,21 +558,26 @@
             });
             document.getElementById('invRecordCount').innerText = invFiltered.length;
             renderInvTable(invFiltered);
-        }
+            const chkAll = document.getElementById('invSelectAll');
+            if (chkAll) chkAll.checked = false;
+        };
 
         function renderInvTable(data) {
             const tbody = document.getElementById('invTableBody');
             if (data.length === 0) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="10" class="p-16 text-center text-gray-500 font-bold">沒有符合紀錄</td></tr>`; return;
+                tbody.innerHTML = `<tr class="main-row"><td colspan="11" class="p-16 text-center text-gray-500 font-bold">沒有符合紀錄</td></tr>`; return;
             }
             
             tbody.innerHTML = data.map((r, index) => {
-                let aSig = r.signature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'aunt')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100 active:bg-blue-200">👁️ 查看簽名</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
-                let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100 active:bg-green-200">👁️ 查看簽名</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
+                let aSig = r.signature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'aunt')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100">👁️ 查看</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
+                let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'inv', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100">👁️ 查看</button>` : `<span class="text-xs text-gray-400 font-bold">未簽名</span>`;
                 return `
                     <tr class="main-row">
                         <td class="text-center">
-                            <input type="date" value="${r.date || ''}" class="clean-input font-mono cursor-pointer" onchange="changeInventoryDate('${r.docId}', '${r.date}', this.value, '${r.hotel}', '${r.item}', this)" title="點擊修改盤點日期">
+                            <input type="checkbox" class="chk-inv-item w-4 h-4 cursor-pointer" data-id="${r.docId}">
+                        </td>
+                        <td class="text-center">
+                            <input type="date" value="${r.date || ''}" class="clean-input font-mono cursor-pointer" onchange="changeInventoryDate('${r.docId}', '${r.date}', this.value, '${r.hotel}', '${r.item}', this)">
                         </td>
                         <td class="font-bold text-gray-800">${r.hotel}</td>
                         <td class="text-blue-700 font-bold">${r.item}</td>
@@ -1068,149 +588,75 @@
                         </td>
                         <td class="text-center"><div class="sig-container">${dSig}</div></td>
                         <td>
-                            <div class="flex items-center gap-2">
-                                <input type="text" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px]" placeholder="尚未記錄" onblur="updateInvField('${r.docId}', 'doubleSignDate', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')">
-                            </div>
+                            <input type="text" value="${r.doubleSignDate || ''}" class="clean-input font-mono text-[13px]" placeholder="尚未記錄" onblur="updateInvField('${r.docId}', 'doubleSignDate', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')">
                         </td>
                         <td><input type="text" value="${r.note || ''}" class="clean-input" placeholder="可輸入備註..." onblur="updateInvField('${r.docId}', 'note', this.value, this, '${r.hotel}', '${r.item}', '${r.date}')"></td>
                         <td class="text-center flex justify-center items-center gap-2">
-                            <button onclick="forceSyncToLogistics('${r.docId}', '${r.hotel}', '${r.item}', '${r.date}', event)" class="text-xs bg-red-600 text-white px-2 py-1 rounded shadow-sm font-bold hover:bg-red-700 active:bg-red-800 transition-colors" title="強制將此數量同步覆寫至物流系統中">強制同步</button>
-                            <button onclick="deleteRecord('inventory_records', '${r.docId}', event, '${r.hotel}', '${r.item}', '${r.date}')" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
+                            <button onclick="forceSyncToLogistics('${r.docId}', '${r.hotel}', '${r.item}', '${r.date}', event)" class="text-xs bg-red-600 text-white px-2 py-1 rounded shadow-sm font-bold hover:bg-red-700 transition-colors">強制同步</button>
+                            <button onclick="deleteRecord('inventory_records', '${r.docId}', event, '${r.hotel}', '${r.item}', '${r.date}')" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 transition-colors">刪除</button>
                         </td>
                     </tr>
                 `;
             }).join('');
         }
 
-        async function updateInvField(docId, field, newValue, inputEl, category, item, dateStr) {
-            const record = invRecords.find(r => r.docId === docId);
-            if (!record || record[field] === newValue.trim()) return; 
-            
-            inputEl.style.opacity = '0.5';
-            const cleanVal = newValue.trim();
+        // 盤點後台：批量修改日期
+        window.batchChangeInventoryDate = async function() {
+            const selectedCheckboxes = document.querySelectorAll('.chk-inv-item:checked');
+            if (selectedCheckboxes.length === 0) {
+                await customAlert("⚠️ 請先勾選要修改日期的盤點項目！");
+                return;
+            }
+
+            const newDate = await customPrompt(`請輸入新日期 (格式: YYYY-MM-DD)\n共選取 ${selectedCheckboxes.length} 筆單據：`, getLocalDateString(new Date()));
+            if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                if (newDate) await customAlert("⚠️ 日期格式不正確！");
+                return;
+            }
+
+            const ok = await customConfirm(`確定要將選取的 ${selectedCheckboxes.length} 筆盤點單據搬移至【${newDate}】嗎？`);
+            if (!ok) return;
+
+            showToast(`⏳ 正在批量搬移 ${selectedCheckboxes.length} 筆單據...`);
 
             try {
-                // 1. 更新盤點區 (藍色)
-                await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: getLocalTimeString(new Date()) }, { merge: true });
-                
-                // 2. 自動穿透到物流區 (綠色)
-                if (field === 'doubleCount' || field === 'count' || field === 'note') {
-                    try {
-                        let hotelKeyword = category;
-                        let deptName = "房務";
-                        let catParts = category.split(' ');
-                        if (catParts.length > 1) {
-                            deptName = catParts.pop();
-                            hotelKeyword = catParts.join(' ');
-                        }
-                        
-                        let targetCat = masterData.find(d => d.hotel === category);
-                        if (targetCat) {
-                            hotelKeyword = targetCat.baseName;
-                            deptName = targetCat.deptName || "房務";
-                        }
+                for (let cb of selectedCheckboxes) {
+                    const docId = cb.dataset.id;
+                    const r = invRecords.find(item => item.docId === docId);
+                    if (!r) continue;
 
-                        const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
-                        const logDocRef = doc(db, 'logistics_records', logDocId);
-                        const logSnap = await getDoc(logDocRef);
-
-                        if (logSnap.exists()) {
-                            let logData = logSnap.data();
-                            let logItems = logData.items || [];
-                            let itemIndex = logItems.findIndex(i => i.itemName === item);
-                            
-                            let finalQty = field === 'doubleCount' ? cleanVal : (record.doubleCount !== "" ? record.doubleCount : cleanVal);
-
-                            if (itemIndex > -1) {
-                                if (field === 'doubleCount' || field === 'count') {
-                                    logItems[itemIndex].originalQty = String(finalQty);
-                                }
-                                if (field === 'note') {
-                                    logItems[itemIndex].auntNote = cleanVal;
-                                }
-                            } else {
-                                if (!item || String(item).trim() === "" || String(item) === "undefined" || String(item) === "null") {
-                                    console.warn("略過無效品項同步:", item);
-                                } else {
-                                    logItems.push({
-                                        itemName: item,
-                                        originalQty: String(finalQty),
-                                        actualQty: String(finalQty),
-                                        auntNote: field === 'note' ? cleanVal : (record.note || ""),
-                                        driverNote: "後台強制新增"
-                                    });
-                                }
-                            }
-                            await setDoc(logDocRef, { items: logItems }, { merge: true });
-                        }
-                    } catch (syncErr) {
-                        console.warn("連動更新物流單失敗", syncErr);
+                    const oldDocRef = doc(db, 'inventory_records', docId);
+                    const oldSnap = await getDoc(oldDocRef);
+                    if (oldSnap.exists()) {
+                        let data = oldSnap.data();
+                        data.date = newDate;
+                        const safeItem = r.item.replace(/\//g, '-');
+                        const newDocId = `${newDate}_${r.hotel}_${safeItem}`;
+                        await setDoc(doc(db, 'inventory_records', newDocId), data);
+                        await deleteDoc(oldDocRef);
+                        r.date = newDate;
+                        r.docId = newDocId;
                     }
                 }
-
-                record[field] = cleanVal; 
-                inputEl.style.opacity = '1'; 
-                showToast("✅ 資料已同步至物流與財務系統！");
-            } catch (e) {
-                inputEl.style.color = 'red'; 
-                await customAlert("更新失敗！");
+                showToast("✅ 批量修改日期完成！");
+                applyInvFilters();
+            } catch (err) {
+                console.error(err);
+                await customAlert("批量修改過程發生錯誤：" + err.message);
             }
-        }
+        };
 
-        async function loadInvHistory() {
-            const targetDate = document.getElementById('invHistoryDate').value;
-            const tbody = document.getElementById('invHistoryBody');
-            const btn = document.getElementById('invHistoryBtn');
-            
-            if (!targetDate) { await customAlert("請先選擇查詢日期！"); return; }
-            
-            btn.innerHTML = `查詢中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
-            try {
-                const datesToQuery = getPossibleDates(targetDate);
-                const q = query(collection(db, "history_logs"), where("date", "in", datesToQuery));
-                const snap = await getDocs(q);
-                
-                window.invHistoryRecords = []; 
-                snap.forEach(d => {
-                    let data = d.data();
-                    data.docId = d.id; 
-                    window.invHistoryRecords.push(data);
-                });
-                window.invHistoryRecords.sort((a, b) => b.timestamp - a.timestamp);
-
-                if (window.invHistoryRecords.length === 0) { tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-400">這一天無盤點紀錄</td></tr>`; return; }
-
-                tbody.innerHTML = window.invHistoryRecords.map((r, index) => {
-                    let aSig = r.signature ? `<button onclick="toggleSigPreview(event, 'hist', ${index}, 'aunt')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100 active:bg-blue-200">👁️ 點擊查看</button>` : `<span class="text-xs text-gray-400 font-bold">無</span>`;
-                    let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'hist', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100 active:bg-green-200">👁️ 點擊查看</button>` : `<span class="text-xs text-gray-400 font-bold">無</span>`;
-                    
-                    return `
-                    <tr>
-                        <td class="font-mono text-gray-700">${r.actionTime || r.timeString || '-'}</td>
-                        <td class="font-bold text-gray-800">${r.hotel}</td>
-                        <td class="text-blue-700 font-bold">${r.item}</td>
-                        <td class="text-center font-bold">${r.count || '-'}</td>
-                        <td class="text-center"><div class="sig-container">${aSig}</div></td>
-                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
-                        <td class="text-center"><div class="sig-container">${dSig}</div></td>
-                        <td class="text-gray-600">${r.note || '-'}</td>
-                        <td class="text-center">
-                            <button onclick="deleteRecord('history_logs', '${r.docId}', event)" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100 active:bg-red-200 transition-colors">刪除</button>
-                        </td>
-                    </tr>`
-                }).join('');
-            } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
-            } finally { btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; }
-        }
-
-        async function loadLogData() {
+        // ===============================================
+        // 📦 物流簽收後台載入 (支援指定飯店 + 顯示未簽名單據)
+        // ===============================================
+        window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
+            const hotelKey = document.getElementById('logFetchHotel').value.trim();
 
-            if (lastLogFetchRange.start === startDate && lastLogFetchRange.end === endDate && logRecords.length > 0) {
-                showToast("🔄 已顯示目前區間的最新資料 (無須重新下載)");
+            const currentKey = `${startDate}_${endDate}_${hotelKey}`;
+            if (lastLogFetchKey === currentKey && logRecords.length > 0) {
+                showToast("🔄 已顯示最新快取資料");
                 applyLogFilters();
                 return;
             }
@@ -1218,27 +664,31 @@
             const tbody = document.getElementById('logTableBody');
             const btn = document.getElementById('logLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流與盤點資料庫...</td></tr>`;
-            
+            tbody.innerHTML = `<tr class="main-row"><td colspan="5" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流與盤點資料庫...</td></tr>`;
+
             try {
-                await ensureMasterData(); 
+                await ensureMasterData();
 
                 let startParts = startDate.split('-');
                 let endParts = endDate.split('-');
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                // 1. 抓取物流資料庫
-                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                let qStandard, qUnpad;
+                if (hotelKey) {
+                    qStandard = query(collection(db, "logistics_records"), where("hotelKeyword", "==", hotelKey), where("date", ">=", startDate), where("date", "<=", endDate));
+                    qUnpad = query(collection(db, "logistics_records"), where("hotelKeyword", "==", hotelKey), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                } else {
+                    qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                    qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
+                }
 
-                // 2. 抓取盤點資料庫 (真實對照組)
+                // 盤點對照組查詢
                 const qInvStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qInvUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
                 const [snapStandard, snapUnpad, snapInvStandard, snapInvUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qInvStandard), getDocs(qInvUnpad)]);
-                
-                // 建立真實盤點數量的對照表
+
                 let invMap = {};
                 const processInv = (docSnap) => {
                     let d = docSnap.data();
@@ -1259,57 +709,65 @@
 
                 uniqueDocs.forEach((docSnap) => {
                     const d = docSnap.data();
-                    let dDate = standardizeDate(d.date); 
-                    
+                    let dDate = standardizeDate(d.date);
+
                     if (dDate >= startDate && dDate <= endDate) {
                         let hotelName = d.hotelKeyword;
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-                        let hasIssue = (!d.driverSig || !d.clientSig);
-                        let validItems = [];
+                        let hasQtyModified = false;
+                        let isSigned = !!(d.driverSig && d.clientSig);
 
+                        let validItems = [];
                         (d.items || []).forEach(item => {
                             let orig = item.originalQty || "0";
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.itemName || "").trim();
-                            
-                            // 強迫去盤點表抓取「真實」盤點量
+
                             let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
-                            if (trueOrig === undefined) trueOrig = orig; // 容錯機制：盤點表沒有的，才採信物流舊資料
+                            if (trueOrig === undefined) trueOrig = orig;
 
                             let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : trueOrig;
-                            
-                            if (trueOrig === "0" && actual === "0") return; 
-                            if (String(actual) !== String(trueOrig)) hasIssue = true; 
-                            
+
+                            if (trueOrig === "0" && actual === "0") return;
+                            if (String(actual) !== String(trueOrig)) {
+                                hasQtyModified = true;
+                            }
+
                             validItems.push({
                                 itemName: item.itemName,
-                                bqQty: trueOrig, 
+                                bqQty: trueOrig,
                                 actualQty: actual
                             });
                         });
 
-                        if (validItems.length > 0) {
-                            validItems.sort((a, b) => {
-                                let indexA = getItemSortIndex(hotelName, a.itemName);
-                                let indexB = getItemSortIndex(hotelName, b.itemName);
-                                if (indexA !== indexB) return indexA - indexB;
-                                return (a.itemName < b.itemName) ? -1 : 1;
-                            });
-
-                            logRecords.push({
-                                id: docSnap.id,
-                                date: dDate,
-                                hotelKeyword: d.hotelKeyword, 
-                                deptName: d.deptName,         
-                                hotel: hotelName,
-                                items: validItems,
-                                driverSig: d.driverSig || "",
-                                clientSig: d.clientSig || "",
-                                signDate: d.timestamp || "",
-                                hasIssue: hasIssue
-                            });
+                        // 判斷狀態：修改數量(red) > 未簽名(yellow) > 正常(green)
+                        let status = "green";
+                        if (hasQtyModified) {
+                            status = "red";
+                        } else if (!isSigned) {
+                            status = "yellow";
                         }
+
+                        validItems.sort((a, b) => {
+                            let indexA = getItemSortIndex(hotelName, a.itemName);
+                            let indexB = getItemSortIndex(hotelName, b.itemName);
+                            if (indexA !== indexB) return indexA - indexB;
+                            return (a.itemName < b.itemName) ? -1 : 1;
+                        });
+
+                        logRecords.push({
+                            id: docSnap.id,
+                            date: dDate,
+                            hotelKeyword: d.hotelKeyword,
+                            deptName: d.deptName,
+                            hotel: hotelName,
+                            items: validItems,
+                            driverSig: d.driverSig || "",
+                            clientSig: d.clientSig || "",
+                            signDate: d.timestamp || "",
+                            status: status
+                        });
                     }
                 });
 
@@ -1319,32 +777,27 @@
                     return 0;
                 });
 
-                populateLogDropdowns(); 
+                populateLogDropdowns();
                 applyLogFilters();
-
-                lastLogFetchRange = { start: startDate, end: endDate };
-
+                lastLogFetchKey = currentKey;
             } catch (error) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr class="main-row"><td colspan="5" class="p-10 text-center text-red-500 font-bold">讀取失敗：${error.message}</td></tr>`;
             } finally {
                 btn.innerHTML = `載入物流單據`; btn.disabled = false;
             }
-        }
+        };
 
         function populateLogDropdowns() {
             const dates = [...new Set(logRecords.map(r => r.date))].sort();
             const hotels = [...new Set(logRecords.map(r => r.hotel))].sort();
-            
             let allItems = [];
             logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));
-            
             let items = [...new Set(allItems)];
             items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
             const fD = document.getElementById('fltLogDate'); 
             const fH = document.getElementById('fltLogHotel'); 
             const fI = document.getElementById('fltLogItem');
-
             const pD = fD.value; const pH = fH.value; const pI = fI.value;
 
             fD.innerHTML = `<option value="">單據日期 ▾</option>` + dates.map(v => `<option value="${v}">${v}</option>`).join('');
@@ -1356,7 +809,7 @@
             if (items.includes(pI)) fI.value = pI;
         }
 
-        function applyLogFilters() {
+        window.applyLogFilters = function() {
             const fDate = document.getElementById('fltLogDate').value;
             const fHotel = document.getElementById('fltLogHotel').value;
             const fItem = document.getElementById('fltLogItem').value;
@@ -1370,88 +823,35 @@
 
             document.getElementById('logRecordCount').innerText = logFiltered.length;
             renderLogTable(logFiltered);
-        }
-
-        function toggleLogDetail(id) {
-            const el = document.getElementById(id);
-            const icon = document.getElementById('icon_' + id);
-            if(el.classList.contains('hidden')) {
-                el.classList.remove('hidden');
-                icon.innerText = '▲ 收起明細';
-            } else {
-                el.classList.add('hidden');
-                icon.innerText = '▼ 展開明細';
-            }
-        }
-
-        async function updateLogQty(docId, itemName, newValue, inputElement, bqQty) {
-            const finalNewValue = String(newValue).trim();
-            if (finalNewValue === "") return; 
-            
-            inputElement.style.opacity = '0.5';
-
-            try {
-                const docRef = doc(db, 'logistics_records', docId);
-                const docSnap = await getDoc(docRef);
-                
-                if (docSnap.exists()) {
-                    let data = docSnap.data();
-                    let items = data.items || [];
-                    let itemFound = false;
-                    
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].itemName === itemName) {
-                            items[i].actualQty = finalNewValue;
-                            itemFound = true;
-                            break;
-                        }
-                    }
-                    
-                    if (itemFound) {
-                        await setDoc(docRef, { items: items }, { merge: true });
-                        showToast("物流實收數量已更新！(財務將自動連動)");
-                        
-                        let localRecord = logRecords.find(r => r.id === docId);
-                        if(localRecord) {
-                           let localItem = localRecord.items.find(i => i.itemName === itemName);
-                           if(localItem) localItem.actualQty = finalNewValue;
-                        }
-
-                        if (finalNewValue !== String(bqQty)) {
-                            inputElement.className = "w-20 text-center py-1 rounded outline-none text-orange-600 bg-orange-50 font-black border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
-                        } else {
-                            inputElement.className = "w-20 text-center py-1 rounded outline-none text-emerald-700 font-bold bg-transparent border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error("更新物流數量失敗:", err);
-                await customAlert("更新失敗，請檢查網路！");
-            } finally {
-                inputElement.style.opacity = '1';
-            }
-        }
+            const chkAll = document.getElementById('logSelectAll');
+            if (chkAll) chkAll.checked = false;
+        };
 
         function renderLogTable(data) {
             const tbody = document.getElementById('logTableBody');
             if (data.length === 0) {
-                tbody.innerHTML = `<tr class="main-row"><td colspan="4" class="p-16 text-center text-gray-500 font-bold text-base">目前區間內沒有符合出貨紀錄。</td></tr>`; 
+                tbody.innerHTML = `<tr class="main-row"><td colspan="5" class="p-16 text-center text-gray-500 font-bold text-base">目前區間內沒有符合出貨紀錄。</td></tr>`; 
                 return;
             }
 
             tbody.innerHTML = data.map((r, index) => {
-                let statusDot = r.hasIssue 
-                    ? `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="有數量更改或未簽名"></span>` 
-                    : `<span class="w-3 h-3 rounded-full bg-green-500 inline-block shadow-sm" title="已完成且無修改"></span>`;
+                // 三色標籤與圓點
+                let statusBadge = '';
+                if (r.status === 'red') {
+                    statusBadge = `<span class="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold border border-red-200"><span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>修改數量</span>`;
+                } else if (r.status === 'yellow') {
+                    statusBadge = `<span class="inline-flex items-center gap-1 bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-bold border border-yellow-200"><span class="w-2 h-2 rounded-full bg-yellow-400"></span>未簽名</span>`;
+                } else {
+                    statusBadge = `<span class="inline-flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold border border-green-200"><span class="w-2 h-2 rounded-full bg-green-500"></span>正常</span>`;
+                }
                 
-                let dSig = r.driverSig ? `<button onclick="toggleSigPreview(event, 'log', ${index}, 'driver')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100 active:bg-blue-200">👁️ 司機簽名</button>` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
-                let cSig = r.clientSig ? `<button onclick="toggleSigPreview(event, 'log', ${index}, 'client')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100 active:bg-green-200">👁️ 飯店簽名</button>` : `<span class="text-xs text-red-500 font-bold">未簽收</span>`;
+                let dSig = r.driverSig ? `<button onclick="toggleSigPreview(event, 'log', ${index}, 'driver')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100">👁️ 司機簽名</button>` : `<span class="text-xs text-amber-600 font-bold">未簽收</span>`;
+                let cSig = r.clientSig ? `<button onclick="toggleSigPreview(event, 'log', ${index}, 'client')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100">👁️ 飯店簽名</button>` : `<span class="text-xs text-amber-600 font-bold">未簽收</span>`;
                 let timeDisplay = r.signDate ? r.signDate : '<span class="text-gray-400 italic">尚未簽收</span>';
 
                 let itemsHtml = r.items.map(i => {
                     let isMismatch = String(i.actualQty) !== String(i.bqQty);
-                    let qtyClass = isMismatch ? 'text-orange-600 bg-orange-50 font-black' : 'text-emerald-700 font-bold bg-transparent';
-                    
+                    let qtyClass = isMismatch ? 'text-red-600 bg-red-50 font-black' : 'text-emerald-700 font-bold bg-transparent';
                     return `
                     <tr class="border-b border-emerald-100/50 last:border-0 hover:bg-emerald-50/50">
                         <td class="py-2 px-4 text-emerald-800 font-bold">${i.itemName}</td>
@@ -1467,25 +867,31 @@
 
                 return `
                     <tr class="main-row border-b border-gray-200" onclick="toggleLogDetail('log_detail_${index}')">
-                        <td class="font-mono text-gray-700 text-base flex items-center gap-3">
-                            ${statusDot} ${r.date}
+                        <td class="text-center" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="chk-log-item w-4 h-4 cursor-pointer" data-id="${r.id}">
+                        </td>
+                        <td class="font-mono text-gray-700 text-sm">
+                            <div class="flex items-center gap-2">
+                                ${statusBadge}
+                                <span class="font-bold text-gray-800">${r.date}</span>
+                            </div>
                         </td>
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
-                        <td class="text-right pr-6 text-emerald-600 font-bold">
+                        <td class="text-right pr-6 text-emerald-600 font-bold" onclick="event.stopPropagation()">
                             <button onclick="changeLogisticsDate('${r.id}', '${r.date}', '${r.hotelKeyword}', '${r.deptName}', event)" class="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 transition-colors mr-2">📅 改日期</button>
                             <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
-                            <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer">▼ 展開明細</span>
+                            <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer" onclick="toggleLogDetail('log_detail_${index}')">▼ 展開明細</span>
                         </td>
                     </tr>
                     <tr id="log_detail_${index}" class="hidden bg-gray-50 shadow-inner">
-                        <td colspan="4" class="p-0 border-b-4 border-gray-200">
+                        <td colspan="5" class="p-0 border-b-4 border-gray-200">
                             <div class="p-6 bg-emerald-50/30">
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                     <div>
                                         <div class="flex justify-between items-end mb-3 border-b-2 border-emerald-200 pb-2">
                                             <h4 class="font-bold text-emerald-800">📦 點交數量明細</h4>
-                                            <span class="text-xs font-bold text-emerald-600">💡 點擊「實收數量」格子即可強制修改</span>
+                                            <span class="text-xs font-bold text-emerald-600">💡 點擊「實收數量」格子即可直接修改</span>
                                         </div>
                                         <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                                             <table class="w-full text-sm">
@@ -1521,8 +927,491 @@
             }).join('');
         }
 
+        // 物流後台：批量修改日期
+        window.batchChangeLogisticsDate = async function() {
+            const selectedCheckboxes = document.querySelectorAll('.chk-log-item:checked');
+            if (selectedCheckboxes.length === 0) {
+                await customAlert("⚠️ 請先勾選要修改日期的物流單據！");
+                return;
+            }
+
+            const newDate = await customPrompt(`請輸入新日期 (格式: YYYY-MM-DD)\n共選取 ${selectedCheckboxes.length} 張單據：`, getLocalDateString(new Date()));
+            if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                if (newDate) await customAlert("⚠️ 日期格式不正確！");
+                return;
+            }
+
+            const ok = await customConfirm(`確定要將選取的 ${selectedCheckboxes.length} 張物流單據搬移至【${newDate}】嗎？`);
+            if (!ok) return;
+
+            showToast(`⏳ 正在批量搬移 ${selectedCheckboxes.length} 張物流單據...`);
+
+            try {
+                for (let cb of selectedCheckboxes) {
+                    const docId = cb.dataset.id;
+                    const r = logRecords.find(item => item.id === docId);
+                    if (!r) continue;
+
+                    const oldDocRef = doc(db, 'logistics_records', docId);
+                    const oldSnap = await getDoc(oldDocRef);
+                    if (oldSnap.exists()) {
+                        let data = oldSnap.data();
+                        data.date = newDate;
+                        const newDocId = `${newDate}_${r.hotelKeyword}_${r.deptName || '房務'}`;
+                        await setDoc(doc(db, 'logistics_records', newDocId), data);
+                        await deleteDoc(oldDocRef);
+                        r.date = newDate;
+                        r.id = newDocId;
+                    }
+                }
+                showToast("✅ 批量修改物流日期完成！");
+                applyLogFilters();
+            } catch (err) {
+                console.error(err);
+                await customAlert("批量修改物流日期失敗：" + err.message);
+            }
+        };
+
+        window.toggleLogDetail = function(id) {
+            const el = document.getElementById(id);
+            const icon = document.getElementById('icon_' + id);
+            if(el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                if (icon) icon.innerText = '▲ 收起明細';
+            } else {
+                el.classList.add('hidden');
+                if (icon) icon.innerText = '▼ 展開明細';
+            }
+        };
+
+        window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
+            if(e) e.stopPropagation();
+            const newDate = await customPrompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
+            if (!newDate || newDate.trim() === "" || newDate === oldDate) return;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                await customAlert("⚠️ 日期格式錯誤，請輸入類似 2026-08-10 的格式。");
+                return;
+            }
+
+            const confirmChange = await customConfirm(`⚠️ 確定要將此單據日期從 ${oldDate} 改為 ${newDate} 嗎？`);
+            if (!confirmChange) return;
+
+            try {
+                showToast("⏳ 正在搬移單據...");
+                const oldDocRef = doc(db, 'logistics_records', docId);
+                const oldDocSnap = await getDoc(oldDocRef);
+                if (!oldDocSnap.exists()) {
+                    await customAlert("找不到舊單據資料，可能已被刪除。");
+                    return;
+                }
+                let data = oldDocSnap.data();
+                data.date = newDate;
+                const newDocId = `${newDate}_${hotelKeyword}_${deptName || '房務'}`;
+                await setDoc(doc(db, 'logistics_records', newDocId), data);
+                await deleteDoc(oldDocRef);
+                showToast("✅ 單據日期已成功修改！");
+
+                const localLogRecord = logRecords.find(r => r.id === docId);
+                if (localLogRecord) {
+                    localLogRecord.date = newDate;
+                    localLogRecord.id = newDocId;
+                }
+                applyLogFilters();
+            } catch (error) {
+                console.error("修改日期失敗:", error);
+                await customAlert("修改失敗，請檢查網路連線：" + error.message);
+            }
+        };
+
+        window.changeInventoryDate = async function(docId, oldDate, newDate, hotel, item, inputEl) {
+            if (!newDate || newDate === oldDate) {
+                inputEl.value = oldDate; return;
+            }
+            const confirmChange = await customConfirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
+            if (!confirmChange) {
+                inputEl.value = oldDate; return;
+            }
+
+            try {
+                showToast("⏳ 正在搬移單據...");
+                inputEl.style.opacity = '0.5';
+                const oldDocRef = doc(db, 'inventory_records', docId);
+                const oldDocSnap = await getDoc(oldDocRef);
+                if (!oldDocSnap.exists()) {
+                    await customAlert("找不到舊單據資料，可能已被刪除。");
+                    return;
+                }
+                let data = oldDocSnap.data();
+                data.date = newDate;
+                const safeItem = item.replace(/\//g, '-');
+                const newDocId = `${newDate}_${hotel}_${safeItem}`;
+                await setDoc(doc(db, 'inventory_records', newDocId), data);
+                await deleteDoc(oldDocRef);
+
+                showToast("✅ 盤點日期已成功修改！");
+                const localRecord = invRecords.find(r => r.docId === docId);
+                if (localRecord) {
+                    localRecord.date = newDate;
+                    localRecord.docId = newDocId;
+                }
+                applyInvFilters();
+            } catch (error) {
+                console.error("修改日期失敗:", error);
+                await customAlert("修改失敗，請檢查網路連線：" + error.message);
+                inputEl.style.opacity = '1';
+                inputEl.value = oldDate;
+            }
+        };
+
+        window.updateLogQty = async function(docId, itemName, newValue, inputElement, bqQty) {
+            const finalNewValue = String(newValue).trim();
+            if (finalNewValue === "") return;
+            inputElement.style.opacity = '0.5';
+
+            try {
+                const docRef = doc(db, 'logistics_records', docId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    let data = docSnap.data();
+                    let items = data.items || [];
+                    let itemFound = false;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].itemName === itemName) {
+                            items[i].actualQty = finalNewValue;
+                            itemFound = true;
+                            break;
+                        }
+                    }
+                    if (itemFound) {
+                        await setDoc(docRef, { items: items }, { merge: true });
+                        showToast("物流實收數量已更新！(財務將自動連動)");
+                        let localRecord = logRecords.find(r => r.id === docId);
+                        if(localRecord) {
+                           let localItem = localRecord.items.find(i => i.itemName === itemName);
+                           if(localItem) localItem.actualQty = finalNewValue;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("更新物流數量失敗:", err);
+                await customAlert("更新失敗，請檢查網路！");
+            } finally {
+                inputElement.style.opacity = '1';
+                applyLogFilters();
+            }
+        };
+
+        window.updateInvField = async function(docId, field, newValue, inputEl, category, item, dateStr) {
+            const record = invRecords.find(r => r.docId === docId);
+            if (!record || record[field] === newValue.trim()) return;
+            inputEl.style.opacity = '0.5';
+            const cleanVal = newValue.trim();
+
+            try {
+                await setDoc(doc(db, 'inventory_records', docId), { [field]: cleanVal, timestamp: getLocalTimeString(new Date()) }, { merge: true });
+                record[field] = cleanVal;
+                inputEl.style.opacity = '1';
+                showToast("✅ 資料已成功儲存！");
+            } catch (e) {
+                inputEl.style.color = 'red';
+                await customAlert("更新失敗！");
+            }
+        };
+
+        window.forceSyncToLogistics = async function(docId, category, item, dateStr, e) {
+            if(e) e.stopPropagation();
+            const btn = e.currentTarget;
+            const originalHtml = btn.innerHTML;
+            const confirmSync = await customConfirm(`⚠️ 確定要將【${category} - ${item}】的數量\n強制覆寫到物流與財務系統中嗎？`);
+            if (!confirmSync) return;
+
+            try {
+                btn.innerHTML = `<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+                btn.disabled = true;
+
+                const record = invRecords.find(r => r.docId === docId);
+                if (!record) throw new Error("找不到本地端暫存資料");
+
+                let qtyToSync = (record.doubleCount !== undefined && record.doubleCount !== null && record.doubleCount !== "") ? record.doubleCount : record.count;
+                if (!qtyToSync) qtyToSync = "0";
+
+                let hotelKeyword = category;
+                let deptName = "房務";
+                let catParts = category.split(' ');
+                if (catParts.length > 1) {
+                    deptName = catParts.pop();
+                    hotelKeyword = catParts.join(' ');
+                }
+
+                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                const logDocRef = doc(db, 'logistics_records', logDocId);
+                const logSnap = await getDoc(logDocRef);
+
+                if (logSnap.exists()) {
+                    let logData = logSnap.data();
+                    let logItems = logData.items || [];
+                    let itemIndex = logItems.findIndex(i => i.itemName === item);
+                    if (itemIndex > -1) {
+                        logItems[itemIndex].originalQty = String(qtyToSync);
+                        logItems[itemIndex].actualQty = String(qtyToSync);
+                        logItems[itemIndex].driverNote = "後台強制同步覆寫";
+                    } else {
+                        logItems.push({
+                            itemName: item,
+                            originalQty: String(qtyToSync),
+                            actualQty: String(qtyToSync),
+                            auntNote: record.note || "",
+                            driverNote: "後台強制同步新增"
+                        });
+                    }
+                    await setDoc(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
+                } else {
+                    await setDoc(logDocRef, {
+                        date: dateStr,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        forcedSync: true,
+                        items: [{
+                            itemName: item,
+                            originalQty: String(qtyToSync),
+                            actualQty: String(qtyToSync),
+                            auntNote: record.note || "",
+                            driverNote: "後台強制同步新增"
+                        }]
+                    });
+                }
+                showToast("✅ 強制同步成功，財務系統現可讀取此筆數量！");
+                btn.innerHTML = `<span class="text-green-500">✅ 已同步</span>`;
+                setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
+            } catch (err) {
+                console.error(err);
+                await customAlert("同步失敗：" + err.message);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        };
+
+        window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
+            if(e) e.stopPropagation();
+            const confirmDelete = await customConfirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！`);
+            if (!confirmDelete) return;
+
+            try {
+                await deleteDoc(doc(db, collectionName, docId));
+                showToast("🗑️ 紀錄已成功刪除！");
+                if (collectionName === 'inventory_records') {
+                    invRecords = invRecords.filter(r => r.docId !== docId);
+                    applyInvFilters();
+                } else if (collectionName === 'logistics_records') {
+                    logRecords = logRecords.filter(r => r.id !== docId);
+                    applyLogFilters();
+                }
+            } catch (error) {
+                await customAlert("刪除失敗：" + error.message);
+            }
+        };
+
+        window.loadInvHistory = async function() {
+            const targetDate = document.getElementById('invHistoryDate').value;
+            const tbody = document.getElementById('invHistoryBody');
+            const btn = document.getElementById('invHistoryBtn');
+            if (!targetDate) { await customAlert("請先選擇查詢日期！"); return; }
+
+            btn.innerHTML = `查詢中...`; btn.disabled = true;
+            tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-500">讀取中...</td></tr>`;
+            try {
+                const datesToQuery = getPossibleDates(targetDate);
+                const q = query(collection(db, "history_logs"), where("date", "in", datesToQuery));
+                const snap = await getDocs(q);
+                window.invHistoryRecords = [];
+                snap.forEach(d => {
+                    let data = d.data();
+                    data.docId = d.id;
+                    window.invHistoryRecords.push(data);
+                });
+                window.invHistoryRecords.sort((a, b) => b.timestamp - a.timestamp);
+
+                if (window.invHistoryRecords.length === 0) { 
+                    tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center font-bold text-gray-400">這一天無盤點紀錄</td></tr>`; 
+                    return; 
+                }
+
+                tbody.innerHTML = window.invHistoryRecords.map((r, index) => {
+                    let aSig = r.signature ? `<button onclick="toggleSigPreview(event, 'hist', ${index}, 'aunt')" class="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded shadow-sm border border-blue-200 font-bold hover:bg-blue-100">👁️ 查看</button>` : `<span class="text-xs text-gray-400 font-bold">無</span>`;
+                    let dSig = r.doubleSignature ? `<button onclick="toggleSigPreview(event, 'hist', ${index}, 'sup')" class="text-xs bg-green-50 text-green-700 px-3 py-1.5 rounded shadow-sm border border-green-200 font-bold hover:bg-green-100">👁️ 查看</button>` : `<span class="text-xs text-gray-400 font-bold">無</span>`;
+                    return `
+                    <tr>
+                        <td class="font-mono text-gray-700">${r.actionTime || r.timeString || '-'}</td>
+                        <td class="font-bold text-gray-800">${r.hotel}</td>
+                        <td class="text-blue-700 font-bold">${r.item}</td>
+                        <td class="text-center font-bold">${r.count || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${aSig}</div></td>
+                        <td class="text-center font-bold text-blue-700">${r.doubleCount || '-'}</td>
+                        <td class="text-center"><div class="sig-container">${dSig}</div></td>
+                        <td class="text-gray-600">${r.note || '-'}</td>
+                        <td class="text-center">
+                            <button onclick="deleteRecord('history_logs', '${r.docId}', event)" class="text-xs bg-red-50 text-red-500 border border-red-200 px-2 py-1 rounded shadow-sm font-bold hover:bg-red-100">刪除</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-red-500 font-bold text-center">失敗: ${e.message}</td></tr>`;
+            } finally { 
+                btn.innerHTML = `查詢盤點流水帳`; btn.disabled = false; 
+            }
+        };
+
+        // 歷史補單
+        window.openManualEntryModal = function() {
+            document.getElementById('manualDate').value = getLocalDateString(new Date());
+            document.getElementById('manualHotel').value = "";
+            document.getElementById('manualDept').value = "房務";
+            document.getElementById('manualItemsContainer').innerHTML = "";
+            addManualEntryRow();
+            document.getElementById('manualEntryModal').classList.remove('hidden');
+        };
+
+        window.closeManualEntryModal = function() {
+            document.getElementById('manualEntryModal').classList.add('hidden');
+        };
+
+        window.addManualEntryRow = function() {
+            const container = document.getElementById('manualItemsContainer');
+            const row = document.createElement('div');
+            row.className = "flex gap-2 items-center manual-item-row";
+            row.innerHTML = `
+                <input type="text" placeholder="品項名稱 (如: 浴巾)" class="flex-1 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none item-name">
+                <input type="number" placeholder="數量" class="w-24 border border-gray-300 p-2 rounded-lg font-bold focus:border-emerald-500 outline-none text-center item-qty">
+                <button onclick="this.parentElement.remove()" class="bg-red-50 text-red-500 px-3 py-2 rounded-lg font-bold hover:bg-red-100 border border-red-200">✖</button>
+            `;
+            container.appendChild(row);
+        };
+
+        window.saveManualEntry = async function() {
+            const dateStr = document.getElementById('manualDate').value;
+            const hotelKeyword = document.getElementById('manualHotel').value.trim();
+            let deptName = document.getElementById('manualDept').value.trim() || "房務";
+
+            if (!dateStr || !hotelKeyword) {
+                await customAlert("⚠️ 日期與飯店關鍵字為必填！"); return;
+            }
+
+            const rowElements = document.querySelectorAll('.manual-item-row');
+            let itemsToAdd = [];
+            rowElements.forEach(row => {
+                const name = row.querySelector('.item-name').value.trim();
+                const qty = row.querySelector('.item-qty').value.trim();
+                if (name && qty) {
+                    itemsToAdd.push({
+                        itemName: name,
+                        originalQty: String(qty),
+                        actualQty: String(qty),
+                        auntNote: "",
+                        driverNote: "後台歷史補單"
+                    });
+                }
+            });
+
+            if (itemsToAdd.length === 0) {
+                await customAlert("⚠️ 請至少輸入一個品項與數量！"); return;
+            }
+
+            const btn = document.getElementById('manualSaveBtn');
+            btn.innerHTML = "儲存中..."; btn.disabled = true;
+
+            try {
+                const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
+                const logDocRef = doc(db, 'logistics_records', logDocId);
+                const logSnap = await getDoc(logDocRef);
+
+                let finalItems = [];
+                if (logSnap.exists()) {
+                    finalItems = logSnap.data().items || [];
+                    itemsToAdd.forEach(newItem => {
+                        let existingItemIdx = finalItems.findIndex(i => i.itemName === newItem.itemName);
+                        if (existingItemIdx > -1) {
+                            finalItems[existingItemIdx].originalQty = newItem.originalQty;
+                            finalItems[existingItemIdx].actualQty = newItem.actualQty;
+                        } else {
+                            finalItems.push(newItem);
+                        }
+                    });
+                    await setDoc(logDocRef, { items: finalItems, forcedSync: true }, { merge: true });
+                } else {
+                    await setDoc(logDocRef, {
+                        date: dateStr,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        forcedSync: true,
+                        items: itemsToAdd
+                    });
+                }
+
+                showToast("✅ 歷史單據已成功補入！");
+                closeManualEntryModal();
+                lastLogFetchKey = "";
+                loadLogData();
+            } catch (e) {
+                console.error(e);
+                await customAlert("儲存失敗：" + e.message);
+            } finally {
+                btn.innerHTML = "💾 儲存單據";
+                btn.disabled = false;
+            }
+        };
+
+        // 簽名懸浮放大預覽
+        window.toggleSigPreview = function(e, source, index, type) {
+            e.stopPropagation();
+            const box = document.getElementById('globalSigPreview');
+            const img = document.getElementById('globalSigImg');
+
+            if (!box.classList.contains('hidden') && img.dataset.currentSrc === source+index+type) {
+                box.classList.add('hidden');
+                img.src = "";
+                img.dataset.currentSrc = "";
+                return;
+            }
+
+            let base64 = "";
+            if (source === 'inv') {
+                base64 = type === 'aunt' ? invFiltered[index].signature : invFiltered[index].doubleSignature;
+            } else if (source === 'hist') {
+                base64 = type === 'aunt' ? window.invHistoryRecords[index].signature : window.invHistoryRecords[index].doubleSignature;
+            } else if (source === 'log') {
+                base64 = type === 'driver' ? logFiltered[index].driverSig : logFiltered[index].clientSig;
+            }
+
+            if (!base64) return;
+
+            img.src = base64;
+            img.dataset.currentSrc = source+index+type;
+            box.classList.remove('hidden');
+
+            let x = e.clientX || 0;
+            let y = e.clientY || 0;
+            x += 15; y += 15;
+            if (y + 180 > window.innerHeight) y = window.innerHeight - 190;
+            if (x + 260 > window.innerWidth) x = window.innerWidth - 270;
+            box.style.left = x + 'px'; box.style.top = y + 'px';
+        };
+
+        document.addEventListener('click', function(e) {
+            const box = document.getElementById('globalSigPreview');
+            if (!box.classList.contains('hidden') && !box.contains(e.target)) {
+                box.classList.add('hidden');
+                document.getElementById('globalSigImg').src = "";
+                document.getElementById('globalSigImg').dataset.currentSrc = "";
+            }
+        });
+
         switchMainTab('inventory');
     </script>
 </body>
 </html>
-```eof
