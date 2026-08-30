@@ -461,7 +461,7 @@
         };
 
         // ===============================================
-        // 👑 盤點明細載入 (支援指定飯店以省讀取量)
+        // 👑 盤點明細載入 (支援關鍵字模糊搜尋)
         // ===============================================
         window.loadInvData = async function() {
             const startDate = document.getElementById('invStartDate').value;
@@ -488,15 +488,9 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                let qStandard, qUnpad;
-                if (hotelKey) {
-                    // 若有輸入特定飯店，直接以該飯店條件查詢，節省 Firebase 讀取費用
-                    qStandard = query(collection(db, "inventory_records"), where("hotel", "==", hotelKey), where("date", ">=", startDate), where("date", "<=", endDate));
-                    qUnpad = query(collection(db, "inventory_records"), where("hotel", "==", hotelKey), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                } else {
-                    qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                    qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                }
+                // 移除資料庫的精準要求，只過濾日期省流量
+                const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
                 const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
                 let uniqueDocs = new Map();
@@ -507,7 +501,12 @@
                 uniqueDocs.forEach((docSnap) => {
                     const data = docSnap.data();
                     let dDate = standardizeDate(data.date);
+                    let hName = data.hotel || "";
+                    
                     if (dDate >= startDate && dDate <= endDate) {
+                        // ★ 網頁端進行「關鍵字模糊比對」
+                        if (hotelKey && !hName.includes(hotelKey)) return; 
+
                         data.docId = docSnap.id;
                         data.date = dDate;
                         invRecords.push(data);
@@ -647,7 +646,7 @@
         };
 
         // ===============================================
-        // 📦 物流簽收後台載入 (支援指定飯店 + 顯示未簽名單據)
+        // 📦 物流簽收後台載入 (支援關鍵字模糊搜尋)
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -674,16 +673,10 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                let qStandard, qUnpad;
-                if (hotelKey) {
-                    qStandard = query(collection(db, "logistics_records"), where("hotelKeyword", "==", hotelKey), where("date", ">=", startDate), where("date", "<=", endDate));
-                    qUnpad = query(collection(db, "logistics_records"), where("hotelKeyword", "==", hotelKey), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                } else {
-                    qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                    qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-                }
+                // 移除資料庫的精準要求，只過濾日期省流量
+                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
+                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
-                // 盤點對照組查詢
                 const qInvStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qInvUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -712,8 +705,11 @@
                     let dDate = standardizeDate(d.date);
 
                     if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword;
+                        let hotelName = d.hotelKeyword || "";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+
+                        // ★ 網頁端進行「關鍵字模糊比對」
+                        if (hotelKey && !hotelName.includes(hotelKey)) return;
 
                         let hasQtyModified = false;
                         let isSigned = !!(d.driverSig && d.clientSig);
@@ -741,7 +737,6 @@
                             });
                         });
 
-                        // 判斷狀態：修改數量(red) > 未簽名(yellow) > 正常(green)
                         let status = "green";
                         if (hasQtyModified) {
                             status = "red";
