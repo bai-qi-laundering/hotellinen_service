@@ -46,7 +46,7 @@
                 <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">
             </div>
             <p class="text-center text-sm text-gray-400 font-bold">點擊上方可回溯查詢歷史點交紀錄</p>
-            <!-- 🌟 新增的資料修復按鈕 -->
+            <!-- 資料修復按鈕 -->
             <div class="text-center mt-1">
                 <button onclick="resetCurrentDateData()" class="text-xs text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-200 active:bg-red-100">🛠️ 資料異常？點此重置本日紀錄</button>
             </div>
@@ -89,8 +89,10 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // ★ 引入 deleteDoc，用於修復功能
-        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // 🌟 引入記憶體快取 (memoryLocalCache)
+        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, memoryLocalCache } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        // 🌟 引入 Firebase Storage 模組
+        import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -103,9 +105,12 @@
         };
 
         const app = initializeApp(firebaseConfig);
+        // 🌟 優化 1：使用 memoryLocalCache() 解決月底資料肥大導致卡頓的問題
         const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+            localCache: memoryLocalCache()
         });
+        // 🌟 啟動 Storage 服務
+        const storage = getStorage(app);
         
         let currentHotel = "";
         let currentDate = "";
@@ -128,7 +133,21 @@
         window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
         window.addNewItem = addNewItem; window.fetchData = fetchData;
 
-        // 🌟 新增的重置修復腳本
+        // 🌟 新增：將 Base64 圖片上傳至 Firebase Storage，並回傳短短的圖片網址
+        async function uploadSignatureToStorage(base64Data, fileName) {
+            if (!base64Data || base64Data.startsWith('http')) return base64Data;
+            
+            try {
+                const storageRef = ref(storage, `signatures/${currentDate}/${fileName}.jpg`);
+                await uploadString(storageRef, base64Data, 'data_url');
+                const downloadUrl = await getDownloadURL(storageRef);
+                return downloadUrl;
+            } catch (error) {
+                console.error("圖片上傳失敗:", error);
+                throw new Error("圖片上傳失敗");
+            }
+        }
+
         window.resetCurrentDateData = async function() {
             if(!confirm(`⚠️ 警告：確定要重置 ${currentDate} 的點交紀錄嗎？\n這將會刪除當天的所有簽名與修改，並完全恢復為出貨原始數量！\n\n(僅建議在數量被系統異常覆蓋時使用)`)) return;
 
@@ -141,7 +160,7 @@
                 }
                 await Promise.all(deletePromises);
                 showToastMsg("✅ 資料已成功還原！重新載入中...");
-                fetchData(false, true); // 強制從伺服器抓最新原始資料
+                fetchData(false, true); 
             } catch(e) {
                 console.error(e);
                 showToastMsg("⚠️ 重置失敗：" + e.message, true);
@@ -221,11 +240,11 @@
             let parts = dateStr.split('-');
             if (parts.length !== 3) return false;
             let lockDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            // 🌟 修復 2 天結單：原本 + 3 改為 + 2
             lockDate.setDate(lockDate.getDate() + 2);
             return new Date() >= lockDate;
         }
 
+        // 🌟 優化 3：確保先載入排序 Template，再抓單據資料
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -252,8 +271,9 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            // 平行載入 Template
-            getDoc(doc(db, 'inventory_config', 'master_template')).then(templateDoc => {
+            // 確保先取得 Template
+            try {
+                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterTemplate = templateDoc.data().items;
                     globalItemOrder = {};
@@ -261,7 +281,9 @@
                         if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                     });
                 }
-            }).catch(e => console.error("Template load error:", e));
+            } catch(e) {
+                console.error("Template load error:", e);
+            }
 
             fetchData(false);
         }
@@ -293,7 +315,6 @@
             </div>`;
 
         async function fetchData(isBackground = false, forceServer = false) {
-            // 🌟 核心修復：記下開始抓資料時的日期
             const fetchTargetDate = currentDate;
 
             if (!isBackground) {
@@ -316,9 +337,8 @@
 
                 const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), fetchMethod(logQ)]);
 
-                // 🌟 核心修復：如果下載回來發現日期已經變了，立刻終止，避免張冠李戴！
                 if (currentDate !== fetchTargetDate) {
-                    console.warn(`🔄 日期已從 ${fetchTargetDate} 切換為 ${currentDate}，捨棄舊請求防止資料覆寫`);
+                    console.warn(`🔄 日期已切換，捨棄舊請求防止資料覆寫`);
                     return; 
                 }
 
@@ -570,7 +590,6 @@
                         let docRef = doc(db, 'logistics_records', `${currentDate}_${currentHotel}_${dept}`);
                         let p = setDoc(docRef, {
                             date: currentDate, hotelKeyword: currentHotel, deptName: dept, items: safeItemsForDatabase, clientSig: "", driverSig: "", 
-                            // 🌟 明確標示後台顯示的時間戳記來源
                             timestamp: new Date().toLocaleString() + " (逾期系統自動結單)", isAutoSynced: true
                         }, { merge: true }).then(() => { groupedData[dept].isSynced = true; });
                         autoSyncPromises.push(p);
@@ -708,8 +727,19 @@
                     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200);
                 });
                 
-                if(existClient) { let img = new Image(); img.onload = ()=> clientCtx.drawImage(img,0,0); img.src = existClient; }
-                if(existDriver) { let img = new Image(); img.onload = ()=> driverCtx.drawImage(img,0,0); img.src = existDriver; }
+                // 🌟 新增 crossOrigin 處理，避免從 Storage 載入圖片時被瀏覽器擋下
+                if(existClient) { 
+                    let img = new Image(); 
+                    img.crossOrigin = "anonymous";
+                    img.onload = ()=> clientCtx.drawImage(img,0,0); 
+                    img.src = existClient; 
+                }
+                if(existDriver) { 
+                    let img = new Image(); 
+                    img.crossOrigin = "anonymous";
+                    img.onload = ()=> driverCtx.drawImage(img,0,0); 
+                    img.src = existDriver; 
+                }
             });
         }
         
@@ -736,41 +766,46 @@
             }
 
             const btn = document.getElementById('submitBtn');
-            btn.innerText = "傳送中..."; btn.disabled = true;
+            btn.innerText = "圖片上傳與傳送中..."; // 🌟 讓司機知道正在上傳圖片
+            btn.disabled = true;
 
-            let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
-            let payloads = []; let syncDepts = [];
+            try {
+                // 🌟 將 Base64 上傳並獲取短短的 URL 網址
+                let clientSigUrl = await uploadSignatureToStorage(cBase64, `${currentHotel}_${activeDeptKey}_client_${Date.now()}`);
+                let driverSigUrl = await uploadSignatureToStorage(dBase64, `${currentHotel}_driver_${Date.now()}`);
 
-            let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
-                deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
-            }));
+                let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && driverSigUrl !== ""; 
+                let payloads = []; let syncDepts = [];
 
-            payloads.push({
-                date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
-                items: safeItemsForDatabase, clientSig: cBase64, driverSig: dBase64
-            });
+                let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
+                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                    auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
+                }));
 
-            if (isNewDriverSig) {
-                for (let dept in groupedData) {
-                    if (dept !== activeDeptKey) {
-                        let existOtherDriver = groupedData[dept].driverSig;
-                        if (!existOtherDriver) {
-                            let deptItemsSafe = groupedData[dept].items.map(item => ({
-                                deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                                auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
-                            }));
-                            payloads.push({
-                                date: currentDate, hotelKeyword: currentHotel, deptName: dept,
-                                items: deptItemsSafe, clientSig: groupedData[dept].clientSig || "", driverSig: dBase64 
-                            });
-                            syncDepts.push(dept);
+                payloads.push({
+                    date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
+                    items: safeItemsForDatabase, clientSig: clientSigUrl, driverSig: driverSigUrl // 🌟 存入的變成短短的 URL 了
+                });
+
+                if (isNewDriverSig) {
+                    for (let dept in groupedData) {
+                        if (dept !== activeDeptKey) {
+                            let existOtherDriver = groupedData[dept].driverSig;
+                            if (!existOtherDriver) {
+                                let deptItemsSafe = groupedData[dept].items.map(item => ({
+                                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                                    auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
+                                }));
+                                payloads.push({
+                                    date: currentDate, hotelKeyword: currentHotel, deptName: dept,
+                                    items: deptItemsSafe, clientSig: groupedData[dept].clientSig || "", driverSig: driverSigUrl // 🌟 存入 URL
+                                });
+                                syncDepts.push(dept);
+                            }
                         }
                     }
                 }
-            }
 
-            try {
                 const savePromises = payloads.map(p => {
                     const docId = `${p.date}_${p.hotelKeyword}_${p.deptName}`;
                     const docRef = doc(db, 'logistics_records', docId);
@@ -791,12 +826,12 @@
                 await Promise.all(savePromises);
 
                 btn.innerText = "確認送出"; btn.disabled = false;
-                groupedData[activeDeptKey].clientSig = cBase64; groupedData[activeDeptKey].driverSig = dBase64;
+                groupedData[activeDeptKey].clientSig = clientSigUrl; groupedData[activeDeptKey].driverSig = driverSigUrl;
                 groupedData[activeDeptKey].isSynced = true; 
                 
                 if (isNewDriverSig && syncDepts.length > 0) {
                     syncDepts.forEach(dept => {
-                        groupedData[dept].driverSig = dBase64; groupedData[dept].isSynced = true; 
+                        groupedData[dept].driverSig = driverSigUrl; groupedData[dept].isSynced = true; 
                     });
                 }
 
