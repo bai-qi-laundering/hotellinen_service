@@ -763,7 +763,7 @@
             });
         }
 
-        // ★ 非同步確認簽名函數 (因為需要上傳圖片等待)
+        // ★ 非同步確認簽名函數 -> 改為「背景上傳，畫面秒切」
         async function confirmSignature() {
             if (canvas.isLocked) return showMessage("🔒 您尚未重新簽名！\n👉 請先點擊右上角的【清除重寫】並簽上新名字。");
             
@@ -780,43 +780,46 @@
             const sigBase64 = canvas.toDataURL('image/jpeg', 0.4); 
             const dateStr = document.getElementById('datePicker').value; 
 
-            const cancelBtn = document.getElementById('signCancelBtn');
-            const confirmBtn = document.getElementById('signConfirmBtn');
-            const uploadStatus = document.getElementById('signUploadStatus');
+            // 【極速優化】：不要讓畫面卡住等待上傳。直接把圖片塞給畫面預覽，立刻打開計算機
+            const currentCat = activeCategory;
+            const currentItm = activeItem;
+            const currentRol = activeRole;
+            const cBaseHotel = currentBaseHotel;
 
-            // 鎖定按鈕，顯示上傳中
-            cancelBtn.disabled = true;
-            confirmBtn.disabled = true;
-            confirmBtn.innerText = "處理中...";
-            uploadStatus.classList.remove('hidden');
-
-            try {
-                // 將 Base64 轉換為網址
-                let sigUrl = await window.uploadSignatureToStorage(sigBase64, `inventory_${currentBaseHotel}_${activeItem}_${activeRole}_${Date.now()}`);
-
-                if (activeRole === 'aunt') { 
-                    handleInput(dateStr, activeCategory, activeItem, 'signature', sigUrl); // 存入 URL
-                    handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); 
-                } else { 
-                    handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigUrl); // 存入 URL
-                    handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); 
-                    handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); 
-                }
-                
-                handleInput(dateStr, activeCategory, activeItem, 'isSubmitted', false); handleInput(dateStr, activeCategory, activeItem, 'saveError', false);
-                
-                closeSign(); 
-                renderItems(true); 
-                openCalc(activeCategory, activeItem, activeRole);
-                
-            } catch (error) {
-                console.error("簽名上傳失敗", error);
-                showMessage("⚠️ 圖片上傳失敗，請檢查網路連線後重試。");
-                cancelBtn.disabled = false;
-                confirmBtn.disabled = false;
-                confirmBtn.innerText = "確認簽名";
-                uploadStatus.classList.add('hidden');
+            if (currentRol === 'aunt') { 
+                handleInput(dateStr, currentCat, currentItm, 'signature', sigBase64); 
+                handleInput(dateStr, currentCat, currentItm, 'hasSigned', true); 
+            } else { 
+                handleInput(dateStr, currentCat, currentItm, 'doubleSignature', sigBase64); 
+                handleInput(dateStr, currentCat, currentItm, 'doubleHasSigned', true); 
+                handleInput(dateStr, currentCat, currentItm, 'doubleSignDate', getLocalTimeString(new Date())); 
             }
+            
+            handleInput(dateStr, currentCat, currentItm, 'isSubmitted', false); 
+            handleInput(dateStr, currentCat, currentItm, 'saveError', false);
+            
+            closeSign(); 
+            renderItems(true); 
+            openCalc(currentCat, currentItm, currentRol);
+
+            // 【極速優化】：在背景默默上傳圖片，阿姨完全感覺不到。把任務存起來，寫入資料庫時再檢查即可。
+            if (!window.uploadPromises) window.uploadPromises = {};
+            const sigKey = `${currentCat}_${currentItm}_${currentRol}`;
+
+            window.uploadPromises[sigKey] = window.uploadSignatureToStorage(sigBase64, `inventory_${cBaseHotel}_${currentItm}_${currentRol}_${Date.now()}`)
+                .then(url => {
+                    // 上傳成功後，悄悄把長長的 Base64 替換成短短的 URL 網址
+                    if (currentRol === 'aunt') {
+                        handleInput(dateStr, currentCat, currentItm, 'signature', url);
+                    } else {
+                        handleInput(dateStr, currentCat, currentItm, 'doubleSignature', url);
+                    }
+                    delete window.uploadPromises[sigKey];
+                })
+                .catch(err => {
+                    console.error("背景上傳失敗，已轉為備用模式", err);
+                    delete window.uploadPromises[sigKey];
+                });
         }
 
         function openCalc(hotel, item, role) {
@@ -1030,6 +1033,15 @@
                 window.firebaseSubmit = async function(category, item) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
+
+                    // 【極速優化】：等一下背景上傳任務（如果有在傳的話，通常阿姨打完數字早就傳完了，所以這邊是秒過）
+                    if (window.uploadPromises) {
+                        const auntKey = `${category}_${item}_aunt`;
+                        const supKey = `${category}_${item}_sup`;
+                        if (window.uploadPromises[auntKey]) await window.uploadPromises[auntKey];
+                        if (window.uploadPromises[supKey]) await window.uploadPromises[supKey];
+                    }
+
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
