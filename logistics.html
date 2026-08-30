@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     
-    <title>百麒物流 - 飯店點收簽單</title>
+    <title>百麒物流 - 飯店點收簽單 (極速版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #f8fafc; touch-action: manipulation; }
@@ -88,9 +88,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // 🌟 優化 1：引入 memoryLocalCache 取代原本的 persistentLocalCache 解決月底卡頓
-        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, memoryLocalCache } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        // 🌟 新增 Storage 模組
+        // 🌟 終極優化：換回 persistentLocalCache，享受「秒開」載入速度！
+        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
         const firebaseConfig = {
@@ -105,12 +104,11 @@
 
         const app = initializeApp(firebaseConfig);
         
-        // 🌟 使用記憶體快取，不讓肥大資料累積在手機
+        // 🌟 恢復永久快取設定，因為有了 Storage 短網址，快取不會再塞爆了！
         const db = initializeFirestore(app, {
-            localCache: memoryLocalCache()
+            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
         });
         
-        // 🌟 啟動 Storage 服務
         const storage = getStorage(app);
         
         let currentHotel = "";
@@ -134,20 +132,16 @@
         window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
         window.addNewItem = addNewItem; window.fetchData = fetchData;
 
-        // 🌟 新增：將 Base64 圖片上傳至 Firebase Storage，並回傳短網址
+        // 🌟 圖片上傳至 Storage
         async function uploadSignatureToStorage(base64Data, fileName) {
-            // 如果沒有簽名，或是已經是短網址了，就直接回傳
             if (!base64Data || base64Data.startsWith('http')) return base64Data;
-            
             try {
-                // 將圖片存放在 signatures/日期/檔名.jpg
                 const storageRef = ref(storage, `signatures/${currentDate}/${fileName}.jpg`);
                 await uploadString(storageRef, base64Data, 'data_url');
                 const downloadUrl = await getDownloadURL(storageRef);
                 return downloadUrl;
             } catch (error) {
                 console.error("圖片上傳失敗:", error);
-                // 把更明確的錯誤訊息往外傳
                 throw new Error(error.message || "Storage 權限或設定異常");
             }
         }
@@ -274,7 +268,6 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            // 確保 Template 順序設定先載入完畢，避免順序錯亂
             try {
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
@@ -332,7 +325,6 @@
 
             try {
                 let rawData = [];
-                // 為了避免漏掉合併部門的寫法（如 漢來大飯店房務部），保留原有的資料篩選法，確保資料完整
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
@@ -579,7 +571,7 @@
                 if (isCompleted) {
                     actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex flex-col items-center justify-center gap-2">
                         <div class="flex items-center justify-center gap-2"><span>✅ 已點收完畢</span><button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-2">查看簽名</button></div>
-                        <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手動同步至財務系統</button>
+                        <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手持同步至財務系統</button>
                     </div>`;
                 } else if (isSystemLocked) {
                     if (!isSynced) {
@@ -731,7 +723,6 @@
                     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200);
                 });
                 
-                // 🌟 設定 crossOrigin 以免讀取 Cloud Storage 圖片時發生跨域錯誤
                 if(existClient) { 
                     let img = new Image(); 
                     img.crossOrigin = "anonymous";
@@ -749,6 +740,7 @@
         
         function closeSignModal() { document.getElementById('signModal').classList.add('hidden'); }
 
+        // 🌟 終極優化：背景默默上傳 (Optimistic UI) 版，按下按鈕瞬間完成不卡頓
         async function submitVerify() {
             let existClient = groupedData[activeDeptKey].clientSig;
             let existDriver = groupedData[activeDeptKey].driverSig;
@@ -769,17 +761,34 @@
                  showToastMsg("⚠️ 請至少一方完成簽名！(司機或飯店)", true); return;
             }
 
-            const btn = document.getElementById('submitBtn');
-            btn.innerText = "上傳圖片與傳送中..."; // 🌟 提示狀態
-            btn.disabled = true;
+            // 1. 立刻關閉視窗，讓司機覺得「瞬間秒存」
+            closeSignModal();
+            showToastMsg("🔄 背景儲存中，您可以繼續作業...");
 
+            // 2. 先用本地的圖片暫時顯示在畫面上，讓司機安心
+            groupedData[activeDeptKey].clientSig = cBase64; 
+            groupedData[activeDeptKey].driverSig = dBase64;
+            
+            let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
+            let syncDepts = [];
+
+            if (isNewDriverSig) {
+                for (let dept in groupedData) {
+                    if (dept !== activeDeptKey && !groupedData[dept].driverSig) {
+                        groupedData[dept].driverSig = dBase64;
+                        syncDepts.push(dept);
+                    }
+                }
+            }
+            // 立刻刷新畫面，司機會馬上看到自己簽好的名
+            renderDepartments(); 
+
+            // 3. 背景默默執行上傳與寫入資料庫，不卡住畫面
             try {
-                // 🌟 將 Base64 上傳並獲取短短的 URL 網址
                 let clientSigUrl = await uploadSignatureToStorage(cBase64, `${currentHotel}_${activeDeptKey}_client_${Date.now()}`);
                 let driverSigUrl = await uploadSignatureToStorage(dBase64, `${currentHotel}_driver_${Date.now()}`);
 
-                let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && driverSigUrl !== ""; 
-                let payloads = []; let syncDepts = [];
+                let payloads = []; 
 
                 let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
                     deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
@@ -789,28 +798,22 @@
                 payloads.push({
                     date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
                     items: safeItemsForDatabase, 
-                    clientSig: clientSigUrl, // 🌟 存入的變成短短的 URL
-                    driverSig: driverSigUrl  // 🌟 存入的變成短短的 URL
+                    clientSig: clientSigUrl, // 存入短網址
+                    driverSig: driverSigUrl  // 存入短網址
                 });
 
                 if (isNewDriverSig) {
-                    for (let dept in groupedData) {
-                        if (dept !== activeDeptKey) {
-                            let existOtherDriver = groupedData[dept].driverSig;
-                            if (!existOtherDriver) {
-                                let deptItemsSafe = groupedData[dept].items.map(item => ({
-                                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                                    auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
-                                }));
-                                payloads.push({
-                                    date: currentDate, hotelKeyword: currentHotel, deptName: dept,
-                                    items: deptItemsSafe, 
-                                    clientSig: groupedData[dept].clientSig || "", 
-                                    driverSig: driverSigUrl // 🌟 同步 URL
-                                });
-                                syncDepts.push(dept);
-                            }
-                        }
+                    for (let dept of syncDepts) {
+                        let deptItemsSafe = groupedData[dept].items.map(item => ({
+                            deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
+                            auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
+                        }));
+                        payloads.push({
+                            date: currentDate, hotelKeyword: currentHotel, deptName: dept,
+                            items: deptItemsSafe, 
+                            clientSig: groupedData[dept].clientSig || "", 
+                            driverSig: driverSigUrl 
+                        });
                     }
                 }
 
@@ -833,8 +836,9 @@
 
                 await Promise.all(savePromises);
 
-                btn.innerText = "確認送出"; btn.disabled = false;
-                groupedData[activeDeptKey].clientSig = clientSigUrl; groupedData[activeDeptKey].driverSig = driverSigUrl;
+                // 上傳完成後，把畫面背後的資料偷偷換成正式的網址
+                groupedData[activeDeptKey].clientSig = clientSigUrl; 
+                groupedData[activeDeptKey].driverSig = driverSigUrl;
                 groupedData[activeDeptKey].isSynced = true; 
                 
                 if (isNewDriverSig && syncDepts.length > 0) {
@@ -843,8 +847,7 @@
                     });
                 }
 
-                closeSignModal();
-                fetchData(true);
+                fetchData(true); // 背景安靜地刷新一次
                 
                 if (isNewDriverSig && syncDepts.length > 0) {
                     showToastMsg(`✅ 已點收，並同步簽名至 ${syncDepts.length + 1} 個部門！`);
@@ -853,9 +856,7 @@
                 }
             } catch (e) {
                 console.error(e);
-                btn.innerText = "確認送出"; btn.disabled = false;
-                // 顯示精確的錯誤訊息，幫助除錯
-                showToastMsg("⚠️ 儲存失敗：" + e.message, true);
+                showToastMsg("⚠️ 背景上傳失敗：" + e.message, true);
             }
         }
 
