@@ -46,7 +46,6 @@
                 <input type="date" id="datePicker" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="dateChanged()">
             </div>
             <p class="text-center text-sm text-gray-400 font-bold">點擊上方可回溯查詢歷史點交紀錄</p>
-            <!-- 資料修復按鈕 -->
             <div class="text-center mt-1">
                 <button onclick="resetCurrentDateData()" class="text-xs text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-200 active:bg-red-100">🛠️ 資料異常？點此重置本日紀錄</button>
             </div>
@@ -89,9 +88,9 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        // 🌟 引入記憶體快取 (memoryLocalCache)
+        // 🌟 優化 1：引入 memoryLocalCache 取代原本的 persistentLocalCache 解決月底卡頓
         import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, memoryLocalCache } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        // 🌟 引入 Firebase Storage 模組
+        // 🌟 新增 Storage 模組
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
         const firebaseConfig = {
@@ -105,10 +104,12 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        // 🌟 優化 1：使用 memoryLocalCache() 解決月底資料肥大導致卡頓的問題
+        
+        // 🌟 使用記憶體快取，不讓肥大資料累積在手機
         const db = initializeFirestore(app, {
             localCache: memoryLocalCache()
         });
+        
         // 🌟 啟動 Storage 服務
         const storage = getStorage(app);
         
@@ -133,18 +134,20 @@
         window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
         window.addNewItem = addNewItem; window.fetchData = fetchData;
 
-        // 🌟 新增：將 Base64 圖片上傳至 Firebase Storage，並回傳短短的圖片網址
+        // 🌟 新增：將 Base64 圖片上傳至 Firebase Storage，並回傳短網址
         async function uploadSignatureToStorage(base64Data, fileName) {
+            // 如果沒有簽名，或是已經是短網址了，就直接回傳
             if (!base64Data || base64Data.startsWith('http')) return base64Data;
             
             try {
+                // 將圖片存放在 signatures/日期/檔名.jpg
                 const storageRef = ref(storage, `signatures/${currentDate}/${fileName}.jpg`);
                 await uploadString(storageRef, base64Data, 'data_url');
                 const downloadUrl = await getDownloadURL(storageRef);
                 return downloadUrl;
             } catch (error) {
                 console.error("圖片上傳失敗:", error);
-                throw new Error("圖片上傳失敗");
+                throw new Error("圖片上傳失敗，請確認網路或 Storage 設定");
             }
         }
 
@@ -244,7 +247,6 @@
             return new Date() >= lockDate;
         }
 
-        // 🌟 優化 3：確保先載入排序 Template，再抓單據資料
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -271,7 +273,7 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            // 確保先取得 Template
+            // 確保 Template 順序設定先載入完畢，避免順序錯亂
             try {
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
@@ -329,6 +331,7 @@
 
             try {
                 let rawData = [];
+                // 為了避免漏掉合併部門的寫法（如 漢來大飯店房務部），保留原有的資料篩選法，確保資料完整
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
@@ -338,7 +341,7 @@
                 const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), fetchMethod(logQ)]);
 
                 if (currentDate !== fetchTargetDate) {
-                    console.warn(`🔄 日期已切換，捨棄舊請求防止資料覆寫`);
+                    console.warn(`🔄 日期已從 ${fetchTargetDate} 切換為 ${currentDate}，捨棄舊請求防止資料覆寫`);
                     return; 
                 }
 
@@ -727,7 +730,7 @@
                     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 500, 200);
                 });
                 
-                // 🌟 新增 crossOrigin 處理，避免從 Storage 載入圖片時被瀏覽器擋下
+                // 🌟 設定 crossOrigin 以免讀取 Cloud Storage 圖片時發生跨域錯誤
                 if(existClient) { 
                     let img = new Image(); 
                     img.crossOrigin = "anonymous";
@@ -766,7 +769,7 @@
             }
 
             const btn = document.getElementById('submitBtn');
-            btn.innerText = "圖片上傳與傳送中..."; // 🌟 讓司機知道正在上傳圖片
+            btn.innerText = "上傳圖片與傳送中..."; // 🌟 提示狀態
             btn.disabled = true;
 
             try {
@@ -784,7 +787,9 @@
 
                 payloads.push({
                     date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
-                    items: safeItemsForDatabase, clientSig: clientSigUrl, driverSig: driverSigUrl // 🌟 存入的變成短短的 URL 了
+                    items: safeItemsForDatabase, 
+                    clientSig: clientSigUrl, // 🌟 存入的變成短短的 URL
+                    driverSig: driverSigUrl  // 🌟 存入的變成短短的 URL
                 });
 
                 if (isNewDriverSig) {
@@ -798,7 +803,9 @@
                                 }));
                                 payloads.push({
                                     date: currentDate, hotelKeyword: currentHotel, deptName: dept,
-                                    items: deptItemsSafe, clientSig: groupedData[dept].clientSig || "", driverSig: driverSigUrl // 🌟 存入 URL
+                                    items: deptItemsSafe, 
+                                    clientSig: groupedData[dept].clientSig || "", 
+                                    driverSig: driverSigUrl // 🌟 同步 URL
                                 });
                                 syncDepts.push(dept);
                             }
@@ -846,7 +853,7 @@
             } catch (e) {
                 console.error(e);
                 btn.innerText = "確認送出"; btn.disabled = false;
-                showToastMsg("⚠️ 網路傳送失敗，請確認網路連線！", true);
+                showToastMsg("⚠️ 網路傳送或圖片上傳失敗，請確認網路！", true);
             }
         }
 
