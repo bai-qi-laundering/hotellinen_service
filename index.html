@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- ★ 強制瀏覽器每次都抓最新網頁 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
     <title>飯店布品盤點系統 (極速版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -154,9 +159,14 @@
                 <button onclick="clearCanvas()" class="text-sm text-red-500 font-bold px-3 py-2 rounded-lg bg-red-50 border border-red-200 shadow-sm active:bg-red-100">清除重寫</button>
             </div>
             <canvas id="signCanvas"></canvas>
+            <!-- ★ 新增上傳進度提示 -->
+            <div id="signUploadStatus" class="hidden text-center text-sm font-bold text-blue-600 mt-2">
+                <svg class="animate-spin h-4 w-4 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                圖片上傳中...
+            </div>
             <div class="mt-4 flex gap-2">
-                <button onclick="closeSign()" class="flex-1 py-4 bg-gray-200 text-gray-700 rounded-xl font-bold text-xl">取消</button>
-                <button onclick="confirmSignature()" class="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold text-xl shadow-md active:bg-blue-700">確認簽名</button>
+                <button id="signCancelBtn" onclick="closeSign()" class="flex-1 py-4 bg-gray-200 text-gray-700 rounded-xl font-bold text-xl">取消</button>
+                <button id="signConfirmBtn" onclick="confirmSignature()" class="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold text-xl shadow-md active:bg-blue-700">確認簽名</button>
             </div>
         </div>
     </div>
@@ -707,7 +717,16 @@
             titleEl.className = "text-lg font-black text-blue-800"; 
         }
 
-        function closeSign() { document.getElementById('signModal').classList.add('hidden'); }
+        function closeSign() { 
+            document.getElementById('signModal').classList.add('hidden'); 
+            // 復原上傳按鈕狀態
+            const cancelBtn = document.getElementById('signCancelBtn');
+            const confirmBtn = document.getElementById('signConfirmBtn');
+            const uploadStatus = document.getElementById('signUploadStatus');
+            if(cancelBtn) cancelBtn.disabled = false;
+            if(confirmBtn) { confirmBtn.disabled = false; confirmBtn.innerText = "確認簽名"; }
+            if(uploadStatus) uploadStatus.classList.add('hidden');
+        }
         
         function openSign(category, item, role) { 
             activeCategory = category; activeItem = item; activeRole = role; document.getElementById('signModal').classList.remove('hidden'); 
@@ -735,6 +754,8 @@
                         ctx.fillText('載入中或已歸檔...', canvas.width/2, canvas.height/2);
                     } else {
                         let img = new Image(); 
+                        // ★ 跨域解鎖，確保從 Storage 讀取的圖片不會污染畫布
+                        img.crossOrigin = "anonymous";
                         img.onload = () => ctx.drawImage(img, 0, 0); 
                         img.src = existingSig; 
                     }
@@ -742,7 +763,8 @@
             });
         }
 
-        function confirmSignature() {
+        // ★ 非同步確認簽名函數 (因為需要上傳圖片等待)
+        async function confirmSignature() {
             if (canvas.isLocked) return showMessage("🔒 您尚未重新簽名！\n👉 請先點擊右上角的【清除重寫】並簽上新名字。");
             
             const imgData = ctx.getImageData(0,0,canvas.width,canvas.height).data;
@@ -757,17 +779,44 @@
 
             const sigBase64 = canvas.toDataURL('image/jpeg', 0.4); 
             const dateStr = document.getElementById('datePicker').value; 
-            
-            if (activeRole === 'aunt') { 
-                handleInput(dateStr, activeCategory, activeItem, 'signature', sigBase64); 
-                handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); 
-            } else { 
-                handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigBase64); 
-                handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); 
-                handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); 
+
+            const cancelBtn = document.getElementById('signCancelBtn');
+            const confirmBtn = document.getElementById('signConfirmBtn');
+            const uploadStatus = document.getElementById('signUploadStatus');
+
+            // 鎖定按鈕，顯示上傳中
+            cancelBtn.disabled = true;
+            confirmBtn.disabled = true;
+            confirmBtn.innerText = "處理中...";
+            uploadStatus.classList.remove('hidden');
+
+            try {
+                // 將 Base64 轉換為網址
+                let sigUrl = await window.uploadSignatureToStorage(sigBase64, `inventory_${currentBaseHotel}_${activeItem}_${activeRole}_${Date.now()}`);
+
+                if (activeRole === 'aunt') { 
+                    handleInput(dateStr, activeCategory, activeItem, 'signature', sigUrl); // 存入 URL
+                    handleInput(dateStr, activeCategory, activeItem, 'hasSigned', true); 
+                } else { 
+                    handleInput(dateStr, activeCategory, activeItem, 'doubleSignature', sigUrl); // 存入 URL
+                    handleInput(dateStr, activeCategory, activeItem, 'doubleHasSigned', true); 
+                    handleInput(dateStr, activeCategory, activeItem, 'doubleSignDate', getLocalTimeString(new Date())); 
+                }
+                
+                handleInput(dateStr, activeCategory, activeItem, 'isSubmitted', false); handleInput(dateStr, activeCategory, activeItem, 'saveError', false);
+                
+                closeSign(); 
+                renderItems(true); 
+                openCalc(activeCategory, activeItem, activeRole);
+                
+            } catch (error) {
+                console.error("簽名上傳失敗", error);
+                showMessage("⚠️ 圖片上傳失敗，請檢查網路連線後重試。");
+                cancelBtn.disabled = false;
+                confirmBtn.disabled = false;
+                confirmBtn.innerText = "確認簽名";
+                uploadStatus.classList.add('hidden');
             }
-            handleInput(dateStr, activeCategory, activeItem, 'isSubmitted', false); handleInput(dateStr, activeCategory, activeItem, 'saveError', false);
-            closeSign(); renderItems(true); openCalc(activeCategory, activeItem, activeRole); 
         }
 
         function openCalc(hotel, item, role) {
@@ -823,13 +872,17 @@
 
     <script type="module">
         let db;
+        let storage; // ★ 新增 storage 變數
         let isFirebaseLoaded = false;
         let currentSnapshotUnsubscribe = null; 
 
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                // ★ 改用 memoryLocalCache
+                const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                // ★ 匯入 Storage
+                const { getStorage, ref, uploadString, getDownloadURL } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js");
 
                 const firebaseConfig = {
                     apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4", authDomain: "hotel-inventory-3a1ad.firebaseapp.com",
@@ -838,10 +891,30 @@
                 };
 
                 const app = initializeApp(firebaseConfig);
+                
+                // ★ 初始化改為記憶體快取
                 db = initializeFirestore(app, {
-                    localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+                    localCache: memoryLocalCache()
                 });
+                
+                // ★ 初始化 Storage
+                storage = getStorage(app);
                 isFirebaseLoaded = true;
+
+                // ★ 新增：上傳圖片到 Storage 的專用函數
+                window.uploadSignatureToStorage = async function(base64Data, fileName) {
+                    if (!base64Data || base64Data.startsWith('http')) return base64Data;
+                    try {
+                        const dateStr = document.getElementById('datePicker').value;
+                        const storageRef = ref(storage, `inventory_signatures/${dateStr}/${fileName}.jpg`);
+                        await uploadString(storageRef, base64Data, 'data_url');
+                        const downloadUrl = await getDownloadURL(storageRef);
+                        return downloadUrl;
+                    } catch (error) {
+                        console.error("圖片上傳失敗:", error);
+                        throw new Error(error.message || "Storage 權限異常");
+                    }
+                };
 
                 window.firebaseSetBorder = async function(dateStr, hotel, isBorder) {
                     if (!isFirebaseLoaded || !db) return;
@@ -859,7 +932,6 @@
                     buildHotelStructure();
                 }
 
-                // ★ 修改 2：監聽範圍為精準的 4 天 (-2 到 +1)
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
                     if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
@@ -868,7 +940,6 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    // 最精準完美的黃金比例：往前兩天，往後一天，共包含儀表板自己是 4 天
                     for(let i = -2; i <= 1; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
@@ -884,7 +955,6 @@
                             const r = change.doc.data();
                             let dDate = String(r.date || "").replace(/\//g, '-').trim();
 
-                            // ★ 新增：當上帝視角(後台)刪除紀錄時，同步抹除手機上的暫存
                             if (change.type === "removed") {
                                 if (r.item === '_MANUAL_BORDER_') {
                                     if(userInputs[dDate] && userInputs[dDate]['_MANUAL_STATES_']) {
@@ -896,12 +966,11 @@
                                     }
                                 } else {
                                     if(userInputs[dDate] && userInputs[dDate][r.hotel] && userInputs[dDate][r.hotel][r.item]) {
-                                        delete userInputs[dDate][r.hotel][r.item]; // 徹底刪除該品項記憶
+                                        delete userInputs[dDate][r.hotel][r.item]; 
                                         dataChanged = true;
                                     }
                                 }
                             } 
-                            // 原本的新增與修改邏輯
                             else if (change.type === "added" || change.type === "modified") {
                                 if (r.item === '_MANUAL_BORDER_') {
                                     if(!userInputs[dDate]) userInputs[dDate] = {};
@@ -1069,11 +1138,10 @@
                     finally { btn.innerHTML = originalText; btn.disabled = false; }
                 };
 
-                // ★ 升級：深度清理暫存機制
                 window.manualRefresh = function() {
                     if (confirm("這將會清除手機上的頑固暫存，並重新從雲端下載最乾淨的資料。\n(若您在後台有刪除紀錄，請點擊確定以同步)\n\n確定要重載嗎？")) {
-                        localStorage.removeItem('inventory_userInputs'); // 殺掉舊記憶
-                        location.reload(); // 重新向雲端索取
+                        localStorage.removeItem('inventory_userInputs');
+                        location.reload(); 
                     }
                 };
 
