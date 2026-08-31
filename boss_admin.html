@@ -461,7 +461,7 @@
         };
 
         // ===============================================
-        // 👑 盤點明細載入 (支援關鍵字模糊搜尋)
+        // 👑 盤點明細載入 
         // ===============================================
         window.loadInvData = async function() {
             const startDate = document.getElementById('invStartDate').value;
@@ -488,7 +488,6 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                // 移除資料庫的精準要求，只過濾日期省流量
                 const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -504,9 +503,7 @@
                     let hName = data.hotel || "";
                     
                     if (dDate >= startDate && dDate <= endDate) {
-                        // ★ 網頁端進行「關鍵字模糊比對」
                         if (hotelKey && !hName.includes(hotelKey)) return; 
-
                         data.docId = docSnap.id;
                         data.date = dDate;
                         invRecords.push(data);
@@ -646,7 +643,7 @@
         };
 
         // ===============================================
-        // 📦 物流簽收後台載入 (支援關鍵字模糊搜尋)
+        // 📦 物流簽收後台載入 (深度合併：盤點若有數量自動產生虛擬物流單)
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -673,7 +670,6 @@
                 let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
                 let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
 
-                // 移除資料庫的精準要求，只過濾日期省流量
                 const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
                 const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
 
@@ -682,88 +678,128 @@
 
                 const [snapStandard, snapUnpad, snapInvStandard, snapInvUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qInvStandard), getDocs(qInvUnpad)]);
 
-                let invMap = {};
-                const processInv = (docSnap) => {
-                    let d = docSnap.data();
-                    let dDate = standardizeDate(d.date);
-                    let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
-                    let cleanHotel = (d.hotel || "").replace(/\s+/g, '');
-                    let cleanItem = (d.item || "").trim();
-                    invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
-                };
-                snapInvStandard.forEach(processInv);
-                snapInvUnpad.forEach(processInv);
+                let combinedMap = new Map();
 
+                const ensureGroup = (date, hKeyword, dName) => {
+                    let hName = hKeyword || "";
+                    if (dName && dName !== hKeyword) hName += ` ${dName}`;
+                    let key = `${date}_${hName}`;
+                    if (!combinedMap.has(key)) {
+                        combinedMap.set(key, {
+                            docId: `${date}_${hKeyword}_${dName}`,
+                            date: date,
+                            hotelKeyword: hKeyword,
+                            deptName: dName,
+                            hotelName: hName,
+                            itemsMap: new Map(),
+                            driverSig: "",
+                            clientSig: "",
+                            signDate: ""
+                        });
+                    }
+                    return combinedMap.get(key);
+                };
+
+                // 1. 處理已經存在於物流資料庫的單據
                 let uniqueDocs = new Map();
                 snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
 
-                logRecords = [];
-
                 uniqueDocs.forEach((docSnap) => {
                     const d = docSnap.data();
                     let dDate = standardizeDate(d.date);
-
                     if (dDate >= startDate && dDate <= endDate) {
-                        let hotelName = d.hotelKeyword || "";
-                        if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+                        let group = ensureGroup(dDate, d.hotelKeyword || "", d.deptName || "房務");
+                        group.driverSig = d.driverSig || "";
+                        group.clientSig = d.clientSig || "";
+                        group.signDate = d.timestamp || "";
+                        group.docId = docSnap.id; 
 
-                        // ★ 網頁端進行「關鍵字模糊比對」
-                        if (hotelKey && !hotelName.includes(hotelKey)) return;
-
-                        let hasQtyModified = false;
-                        let isSigned = !!(d.driverSig && d.clientSig);
-
-                        let validItems = [];
                         (d.items || []).forEach(item => {
-                            let orig = item.originalQty || "0";
-                            let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.itemName || "").trim();
-
-                            let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
-                            if (trueOrig === undefined) trueOrig = orig;
-
-                            let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : trueOrig;
-
-                            if (trueOrig === "0" && actual === "0") return;
-                            if (String(actual) !== String(trueOrig)) {
-                                hasQtyModified = true;
+                            if (!group.itemsMap.has(cleanItemName)) {
+                                group.itemsMap.set(cleanItemName, { logOrig: item.originalQty || "0", logAct: item.actualQty });
+                            } else {
+                                let existing = group.itemsMap.get(cleanItemName);
+                                existing.logOrig = item.originalQty || "0";
+                                existing.logAct = item.actualQty;
                             }
-
-                            validItems.push({
-                                itemName: item.itemName,
-                                bqQty: trueOrig,
-                                actualQty: actual
-                            });
-                        });
-
-                        let status = "green";
-                        if (hasQtyModified) {
-                            status = "red";
-                        } else if (!isSigned) {
-                            status = "yellow";
-                        }
-
-                        validItems.sort((a, b) => {
-                            let indexA = getItemSortIndex(hotelName, a.itemName);
-                            let indexB = getItemSortIndex(hotelName, b.itemName);
-                            if (indexA !== indexB) return indexA - indexB;
-                            return (a.itemName < b.itemName) ? -1 : 1;
-                        });
-
-                        logRecords.push({
-                            id: docSnap.id,
-                            date: dDate,
-                            hotelKeyword: d.hotelKeyword,
-                            deptName: d.deptName,
-                            hotel: hotelName,
-                            items: validItems,
-                            driverSig: d.driverSig || "",
-                            clientSig: d.clientSig || "",
-                            signDate: d.timestamp || "",
-                            status: status
                         });
                     }
+                });
+
+                // 2. 處理盤點資料庫的單據 (即使物流還沒有建立這張單，也會自動在這邊補上)
+                const processInv = (docSnap) => {
+                    let d = docSnap.data();
+                    let dDate = standardizeDate(d.date);
+                    if (dDate >= startDate && dDate <= endDate) {
+                        let hotelName = d.hotel || "";
+                        let hKeyword = hotelName;
+                        let dName = "房務";
+                        let parts = hotelName.split(' ');
+                        if (parts.length > 1) {
+                            dName = parts.pop();
+                            hKeyword = parts.join(' ');
+                        }
+
+                        let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
+                        let cleanItem = (d.item || "").trim();
+                        
+                        let group = ensureGroup(dDate, hKeyword, dName);
+                        if (!group.itemsMap.has(cleanItem)) {
+                            group.itemsMap.set(cleanItem, { invQty: qty });
+                        } else {
+                            group.itemsMap.get(cleanItem).invQty = qty;
+                        }
+                    }
+                };
+                snapInvStandard.forEach(processInv);
+                snapInvUnpad.forEach(processInv);
+
+                // 3. 把合併好的資料轉換成陣列並過濾
+                logRecords = [];
+                combinedMap.forEach((group) => {
+                    if (hotelKey && !group.hotelName.includes(hotelKey)) return;
+
+                    let hasQtyModified = false;
+                    let isSigned = !!(group.driverSig && group.clientSig);
+                    let validItems = [];
+
+                    group.itemsMap.forEach((val, itemName) => {
+                        let bqQty = val.invQty !== undefined ? val.invQty : (val.logOrig || "0");
+                        let actual = (val.logAct !== undefined && val.logAct !== null && val.logAct !== "") ? String(val.logAct) : bqQty;
+
+                        if (bqQty === "0" && actual === "0") return;
+                        if (String(actual) !== String(bqQty)) hasQtyModified = true;
+
+                        validItems.push({ itemName: itemName, bqQty: bqQty, actualQty: actual });
+                    });
+
+                    if (validItems.length === 0) return;
+
+                    let status = "green";
+                    if (hasQtyModified) status = "red";
+                    else if (!isSigned) status = "yellow";
+
+                    validItems.sort((a, b) => {
+                        let indexA = getItemSortIndex(group.hotelName, a.itemName);
+                        let indexB = getItemSortIndex(group.hotelName, b.itemName);
+                        if (indexA !== indexB) return indexA - indexB;
+                        return (a.itemName < b.itemName) ? -1 : 1;
+                    });
+
+                    logRecords.push({
+                        id: group.docId,
+                        date: group.date,
+                        hotelKeyword: group.hotelKeyword,
+                        deptName: group.deptName,
+                        hotel: group.hotelName,
+                        items: validItems,
+                        driverSig: group.driverSig,
+                        clientSig: group.clientSig,
+                        signDate: group.signDate,
+                        status: status
+                    });
                 });
 
                 logRecords.sort((a, b) => {
@@ -830,7 +866,6 @@
             }
 
             tbody.innerHTML = data.map((r, index) => {
-                // 三色標籤與圓點 (純圓點樣式)
                 let statusBadge = '';
                 if (r.status === 'red') {
                     statusBadge = `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="修改數量"></span>`;
@@ -922,7 +957,7 @@
             }).join('');
         }
 
-        // 物流後台：批量修改日期
+        // 物流後台：批量修改日期 (支援處理虛擬單據)
         window.batchChangeLogisticsDate = async function() {
             const selectedCheckboxes = document.querySelectorAll('.chk-log-item:checked');
             if (selectedCheckboxes.length === 0) {
@@ -949,15 +984,29 @@
 
                     const oldDocRef = doc(db, 'logistics_records', docId);
                     const oldSnap = await getDoc(oldDocRef);
+                    
+                    let data;
                     if (oldSnap.exists()) {
-                        let data = oldSnap.data();
-                        data.date = newDate;
-                        const newDocId = `${newDate}_${r.hotelKeyword}_${r.deptName || '房務'}`;
-                        await setDoc(doc(db, 'logistics_records', newDocId), data);
-                        await deleteDoc(oldDocRef);
-                        r.date = newDate;
-                        r.id = newDocId;
+                        data = oldSnap.data();
+                    } else {
+                        data = {
+                            date: r.date,
+                            hotelKeyword: r.hotelKeyword,
+                            deptName: r.deptName,
+                            clientSig: "",
+                            driverSig: "",
+                            timestamp: getLocalTimeString(new Date()),
+                            items: r.items.map(i => ({ itemName: i.itemName, originalQty: i.bqQty, actualQty: i.actualQty }))
+                        };
                     }
+                    
+                    data.date = newDate;
+                    const newDocId = `${newDate}_${r.hotelKeyword}_${r.deptName || '房務'}`;
+                    await setDoc(doc(db, 'logistics_records', newDocId), data);
+                    if (oldSnap.exists()) await deleteDoc(oldDocRef);
+                    
+                    r.date = newDate;
+                    r.id = newDocId;
                 }
                 showToast("✅ 批量修改物流日期完成！");
                 applyLogFilters();
@@ -979,6 +1028,7 @@
             }
         };
 
+        // 修改日期 (支援處理虛擬單據)
         window.changeLogisticsDate = async function(docId, oldDate, hotelKeyword, deptName, e) {
             if(e) e.stopPropagation();
             const newDate = await customPrompt(`請輸入新的日期 (格式: YYYY-MM-DD)\n目前日期為：${oldDate}`, oldDate);
@@ -995,21 +1045,34 @@
                 showToast("⏳ 正在搬移單據...");
                 const oldDocRef = doc(db, 'logistics_records', docId);
                 const oldDocSnap = await getDoc(oldDocRef);
-                if (!oldDocSnap.exists()) {
-                    await customAlert("找不到舊單據資料，可能已被刪除。");
-                    return;
+                
+                let data;
+                let r = logRecords.find(item => item.id === docId);
+                if (oldDocSnap.exists()) {
+                    data = oldDocSnap.data();
+                } else {
+                    if (!r) { await customAlert("找不到單據資料"); return; }
+                    data = {
+                        date: oldDate,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        items: r.items.map(i => ({ itemName: i.itemName, originalQty: i.bqQty, actualQty: i.actualQty }))
+                    };
                 }
-                let data = oldDocSnap.data();
+                
                 data.date = newDate;
                 const newDocId = `${newDate}_${hotelKeyword}_${deptName || '房務'}`;
                 await setDoc(doc(db, 'logistics_records', newDocId), data);
-                await deleteDoc(oldDocRef);
+                if (oldDocSnap.exists()) await deleteDoc(oldDocRef);
+                
                 showToast("✅ 單據日期已成功修改！");
 
-                const localLogRecord = logRecords.find(r => r.id === docId);
-                if (localLogRecord) {
-                    localLogRecord.date = newDate;
-                    localLogRecord.id = newDocId;
+                if (r) {
+                    r.date = newDate;
+                    r.id = newDocId;
                 }
                 applyLogFilters();
             } catch (error) {
@@ -1058,6 +1121,7 @@
             }
         };
 
+        // 更新物流數量 (支援處理虛擬單據)
         window.updateLogQty = async function(docId, itemName, newValue, inputElement, bqQty) {
             const finalNewValue = String(newValue).trim();
             if (finalNewValue === "") return;
@@ -1066,26 +1130,62 @@
             try {
                 const docRef = doc(db, 'logistics_records', docId);
                 const docSnap = await getDoc(docRef);
+                
+                let data = {};
+                let items = [];
+                
                 if (docSnap.exists()) {
-                    let data = docSnap.data();
-                    let items = data.items || [];
-                    let itemFound = false;
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].itemName === itemName) {
-                            items[i].actualQty = finalNewValue;
-                            itemFound = true;
-                            break;
-                        }
+                    data = docSnap.data();
+                    items = data.items || [];
+                } else {
+                    let localRecord = logRecords.find(r => r.id === docId);
+                    if (!localRecord) throw new Error("無對照資料");
+                    data = {
+                        date: localRecord.date,
+                        hotelKeyword: localRecord.hotelKeyword,
+                        deptName: localRecord.deptName,
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date())
+                    };
+                    items = localRecord.items.map(i => ({
+                        itemName: i.itemName,
+                        originalQty: i.bqQty,
+                        actualQty: i.actualQty
+                    }));
+                }
+
+                let itemFound = false;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].itemName === itemName) {
+                        items[i].actualQty = finalNewValue;
+                        itemFound = true;
+                        break;
                     }
-                    if (itemFound) {
-                        await setDoc(docRef, { items: items }, { merge: true });
-                        showToast("物流實收數量已更新！(財務將自動連動)");
-                        let localRecord = logRecords.find(r => r.id === docId);
-                        if(localRecord) {
-                           let localItem = localRecord.items.find(i => i.itemName === itemName);
-                           if(localItem) localItem.actualQty = finalNewValue;
-                        }
-                    }
+                }
+                if (!itemFound) {
+                    items.push({
+                        itemName: itemName,
+                        originalQty: String(bqQty),
+                        actualQty: finalNewValue
+                    });
+                }
+                
+                data.items = items;
+                await setDoc(docRef, data, { merge: true });
+
+                showToast("物流實收數量已更新！(財務將自動連動)");
+                let localRecord = logRecords.find(r => r.id === docId);
+                if(localRecord) {
+                   let localItem = localRecord.items.find(i => i.itemName === itemName);
+                   if(localItem) localItem.actualQty = finalNewValue;
+                   
+                   // 視覺狀態立即反饋
+                   if (finalNewValue !== String(bqQty)) {
+                       inputElement.className = "w-20 text-center py-1 rounded outline-none text-red-600 bg-red-50 font-black border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
+                   } else {
+                       inputElement.className = "w-20 text-center py-1 rounded outline-none text-emerald-700 font-bold bg-transparent border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors";
+                   }
                 }
             } catch (err) {
                 console.error("更新物流數量失敗:", err);
