@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>百麒物流 - 總管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 SheetJS 供 Excel 匯出使用 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding-bottom: 70px; }
         
@@ -250,6 +252,9 @@
                 </div>
 
                 <div class="flex ml-auto gap-2">
+                    <button onclick="exportLogisticsToExcel()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
+                        📊 匯出 Excel
+                    </button>
                     <button onclick="batchChangeLogisticsDate()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
                         📅 批量改日期
                     </button>
@@ -1449,6 +1454,57 @@
             }
         };
 
+        // 匯出 Excel 功能
+        window.exportLogisticsToExcel = function() {
+            if (!logFiltered || logFiltered.length === 0) {
+                customAlert("⚠️ 目前沒有可匯出的物流單據！請先載入或調整篩選條件。");
+                return;
+            }
+
+            const exportData = [];
+            logFiltered.forEach(r => {
+                if (r.items && r.items.length > 0) {
+                    r.items.forEach(item => {
+                        exportData.push({
+                            "日期": r.date,
+                            "飯店/部門": r.hotel,
+                            "品項": item.itemName,
+                            "百麒數量": item.bqQty || 0,
+                            "實收數量": item.actualQty || 0
+                        });
+                    });
+                }
+            });
+
+            if (exportData.length === 0) {
+                customAlert("⚠️ 單據中沒有任何品項明細可供匯出！");
+                return;
+            }
+
+            try {
+                const ws = XLSX.utils.json_to_sheet(exportData);
+                ws['!cols'] = [
+                    { wch: 15 },
+                    { wch: 25 },
+                    { wch: 15 },
+                    { wch: 12 },
+                    { wch: 12 }
+                ];
+
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "物流點交明細");
+
+                const todayStr = getLocalDateString(new Date());
+                const filename = `物流點交明細_${todayStr}.xlsx`;
+
+                XLSX.writeFile(wb, filename);
+                showToast("✅ Excel 匯出成功！");
+            } catch (err) {
+                console.error("匯出失敗:", err);
+                customAlert("匯出 Excel 發生錯誤，請重試！");
+            }
+        };
+
         // 簽名懸浮放大預覽
         window.toggleSigPreview = function(e, source, index, type) {
             e.stopPropagation();
@@ -1497,3 +1553,4 @@
         switchMainTab('inventory');
     </script>
 </body>
+</html>
