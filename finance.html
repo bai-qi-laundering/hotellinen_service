@@ -631,7 +631,7 @@ function recalculateFinanceUI() {
 }
 
 async function syncMasterDataFromSheet() {
-if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
+if(!GAS_API_URL || GAS_API_URL.includes("https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec")) {
 document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
 document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
 return;
