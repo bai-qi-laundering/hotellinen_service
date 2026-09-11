@@ -289,7 +289,7 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 <div class="p-6">
 <div class="mb-4">
-<label class="block text-gray-700 font-bold mb-2">1. 選擇請款母公司 (發票抬頭)</label>
+<label class="block text-gray-700 font-bold mb-2">1. 選擇飯店對象 (將自動帶入對應的發票抬頭)</label>
 <select id="invoiceTargetCompany" onchange="loadClientProfile()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
 <option value="">-- 請先載入預覽帳目 --</option>
 </select>
@@ -657,11 +657,13 @@ sheetClients = {};
 if(json.clients) {
 json.clients.forEach((row, index) => {
 if(index === 0) return;
-let companyName = String(row[0]).trim();
-if(companyName) {
-sheetClients[companyName] = {
-name: companyName, taxId: String(row[1] || ""), contact: String(row[2] || ""),
-phone: String(row[3] || ""), address: String(row[4] || ""), terms: String(row[5] || "月結 30 天"), method: String(row[6] || "銀行匯款 / 支票")
+// 💡 修改：A欄(0)為飯店名稱，B欄(1)為發票抬頭。並修正出貨地址為 I欄(8)
+let hotelName = String(row[0]).trim();
+let invoiceTitle = String(row[1]).trim();
+if(hotelName) {
+sheetClients[hotelName] = {
+name: invoiceTitle, taxId: String(row[2] || ""), contact: String(row[3] || ""),
+phone: String(row[4] || ""), address: String(row[8] || ""), terms: String(row[6] || "月結 30 天"), method: String(row[7] || "銀行匯款 / 支票")
 };
 }
 });
@@ -773,7 +775,7 @@ container.innerHTML = Array.from(hotels).sort().map(h => `
 `).join('');
 
 const compSelect = document.getElementById('invoiceTargetCompany');
-// 💡 【變更點】直接讀取試算表中的所有客戶抬頭名稱作為選項
+// 💡 選單選項改為顯示我們剛剛建立好的「飯店名稱」
 compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` +
 Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
 
