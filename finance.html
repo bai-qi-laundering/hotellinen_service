@@ -289,7 +289,7 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 <div class="p-6">
 <div class="mb-4">
-<label class="block text-gray-700 font-bold mb-2">1. 選擇請款母公司 (需於試算表【客戶資料表】建檔)</label>
+<label class="block text-gray-700 font-bold mb-2">1. 選擇請款母公司 (發票抬頭)</label>
 <select id="invoiceTargetCompany" onchange="loadClientProfile()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
 <option value="">-- 請先載入預覽帳目 --</option>
 </select>
@@ -444,7 +444,6 @@ window.selectAllVisible = selectAllVisible;
 window.quickSelectGroup = quickSelectGroup;
 window.calculateDriverPerformance = calculateDriverPerformance;
 window.showDriverDetails = showDriverDetails;
-
 
 // ★ 處理待儲存清單 (共用)
 function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice) {
@@ -631,7 +630,6 @@ function recalculateFinanceUI() {
     if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
 }
 
-
 async function syncMasterDataFromSheet() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
 document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
@@ -754,8 +752,12 @@ let dDate = standardizeDate(d.date);
 if (dDate >= startDate && dDate <= endDate) {
 let h = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
+
+// 💡 修正：過濾掉名稱或部門包含「回洗」的選項，這樣就不會出現在畫面上了
+if (!h.includes("回洗") && !(d.deptName && d.deptName.includes("回洗"))) {
 hotels.add(h);
 if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword);
+}
 }
 });
 if(hotels.size === 0) {
@@ -771,8 +773,9 @@ container.innerHTML = Array.from(hotels).sort().map(h => `
 `).join('');
 
 const compSelect = document.getElementById('invoiceTargetCompany');
+// 💡 【變更點】直接讀取試算表中的所有客戶抬頭名稱作為選項
 compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` +
-Array.from(uniqueCompanies).sort().map(c => `<option value="${c}">${c} (含旗下全部分支)</option>`).join('');
+Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
 
 } catch (e) {
 container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded">載入失敗: ${e.message}</div>`;
@@ -837,7 +840,8 @@ async function fetchRecordsForSelectedHotels() {
                     }
                     let actual = Number(actualVal) || 0;
 
-                    if (actual > 0) {
+                    // 💡 【變更點】加上 !String(item.itemName).includes("回洗") 隱藏回洗品項不計費
+                    if (actual > 0 && !String(item.itemName).includes("回洗")) {
                         results.push({
                             docId: docSnap.id,  
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
@@ -1093,8 +1097,9 @@ address: document.getElementById('ciAddress').value, terms: document.getElementB
 method: document.getElementById('ciMethod').value
 };
 
-let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
-if(invoiceData.length === 0) { alert("此區間內該公司無任何出貨明細！"); return; }
+// 💡 【變更點】不再使用 parentCompany 過濾，直接使用使用者勾選後載入的所有資料
+let invoiceData = rawLogisticsData; 
+if(invoiceData.length === 0) { alert("無任何出貨明細可產生對帳單！"); return; }
 
 const yymm = document.getElementById('endDate').value.replace(/-/g, '').substring(2, 6);
 const invoiceNo = `BQ${yymm}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`;
@@ -1187,7 +1192,8 @@ document.getElementById('printControls').classList.replace('hidden', 'flex');
 
 function exportToExcel() {
 const comp = document.getElementById('invoiceTargetCompany').value;
-let invoiceData = rawLogisticsData.filter(r => r.parentCompany === comp);
+// 💡 【變更點】不使用 parentCompany，直接抓全部畫面上有的資料
+let invoiceData = rawLogisticsData; 
 let deptsData = {}; let grandTotal = 0;
 invoiceData.forEach(r => {
 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
@@ -1252,6 +1258,10 @@ let dDate = standardizeDate(d.date);
 if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+
+// 💡 修正：計算司機業績時，也直接跳過包含「回洗」的部門/飯店
+if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
+
 let cleanHotelName = hotelName.replace(/\s+/g, '').toLowerCase();
 
 let assignedRoute = "未分類路線";
@@ -1272,7 +1282,8 @@ if (actualVal === null || actualVal === undefined || actualVal === "") {
 }
 let actual = Number(actualVal) || 0;
 
-if (actual > 0) {
+// 💡 修正：司機的各別出貨明細中，也過濾掉「回洗」品項
+if (actual > 0 && !String(item.itemName).includes("回洗")) {
 let price = item.price !== undefined ? item.price : (getPrice(hotelName, item.itemName) || 0);
 let amt = actual * price;
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt, route: assignedRoute };
