@@ -631,7 +631,7 @@ function recalculateFinanceUI() {
 }
 
 async function syncMasterDataFromSheet() {
-if(!GAS_API_URL || GAS_API_URL.includes("https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec")) {
+if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
 document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
 document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
 return;
@@ -696,6 +696,13 @@ try {
 const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
 if (priceDoc.exists() && priceDoc.data().prices) customPrices = priceDoc.data().prices;
 } catch(err) { console.warn("載入自訂價格失敗", err); }
+
+// 💡 新增：等待大腦資料全部抓回來後，再建立對帳單的下拉選單！
+const compSelect = document.getElementById('invoiceTargetCompany');
+if (compSelect) {
+    compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` +
+    Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
+}
 
 document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
 document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
@@ -773,11 +780,6 @@ container.innerHTML = Array.from(hotels).sort().map(h => `
 <span class="text-sm font-bold text-gray-700">${h}</span>
 </label>
 `).join('');
-
-const compSelect = document.getElementById('invoiceTargetCompany');
-// 💡 選單選項改為顯示我們剛剛建立好的「飯店名稱」
-compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` +
-Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
 
 } catch (e) {
 container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded">載入失敗: ${e.message}</div>`;
