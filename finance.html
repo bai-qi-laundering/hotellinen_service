@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>百麒物流 - 財務多維結帳系統</title>
+<title>百麒國際 - 財務多維結帳系統</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -74,7 +74,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="app-container no-print">
 <div class="flex justify-between items-center mb-4 border-b border-gray-300 pb-4">
 <h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
-百麒物流 <span class="text-amber-700">💼</span> 多維財務結帳大腦
+百麒國際 <span class="text-amber-700">💼</span> 多維財務結帳大腦
 </h1>
 <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
 </div>
@@ -1021,7 +1021,7 @@ function exportBossExcel() {
     let wb = XLSX.utils.book_new();
 
     let ws1_data = [
-        ["百麒物流 - 老闆業績戰情報表"],
+        ["百麒國際 - 老闆業績戰情報表"],
         ["統計區間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`],
         [],
         ["飯店名稱", "結算總計 (未稅)"]
@@ -1094,7 +1094,7 @@ itemSummary[r.item] += r.qty;
 
 let html = `
 <div class="invoice-header">
-<div><div class="invoice-title">百麒物流企業行</div><div style="color:#64748b; font-size:12px; margin-top:4px;">Bai-Qi Logistics Co., Ltd.</div></div>
+<div><div class="invoice-title">百麒國際(股)有限公司</div><div style="color:#64748b; font-size:12px; margin-top:4px;">Bai-Qi Logistics Co., Ltd.</div></div>
 <div class="invoice-meta"><div style="font-size: 20px; font-weight:900; color:#1e3a8a; margin-bottom:8px;">客 戶 對 帳 單<br><span style="font-size:10px; color:#94a3b8; letter-spacing:1px;">ACCOUNT STATEMENT</span></div>對帳單編號：${invoiceNo}<br>製表日期：${printDate}<br>頁碼：1 / ${Object.keys(deptsData).length + 1}</div>
 </div>
 <div class="info-boxes">
@@ -1117,7 +1117,7 @@ html += `
 <div class="footer-notes">備註事項：<br>1. 本對帳單僅供雙方核對交易紀錄，實際金額以本公司稅務憑證為準。<br>2. 逾期未提出異議者，視同確認本對帳單內容無誤。</div>
 <div class="signature-area">
 <div class="sign-box"><div class="sign-title">客戶確認 (請簽章)</div><div style="height:60px;"></div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>確認人：</span><span>日期： / / </span></div></div>
-<div class="sign-box"><div class="sign-title">百麒物流 公司確認</div><div style="height:60px; font-weight:bold; color:#1e3a8a; text-align:center;">百麒物流 結算部</div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>經辦人：</span><span>日期：${printDate.replace(/-/g,'/')}</span></div></div>
+<div class="sign-box"><div class="sign-title">百麒國際 公司確認</div><div style="height:60px; font-weight:bold; color:#1e3a8a; text-align:center;">百麒物流 結算部</div><div style="font-size:11px; display:flex; justify-content:space-between; color:#64748b;"><span>經辦人：</span><span>日期：${printDate.replace(/-/g,'/')}</span></div></div>
 </div>
 </div>
 <div class="main-right">
@@ -1175,7 +1175,7 @@ let amt = r.qty * price; grandTotal += amt;
 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
 });
 let wb = XLSX.utils.book_new();
-let ws1_data = [ ["百麒物流 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
+let ws1_data = [ ["百麒國際 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
 for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
 ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", grandTotal]); ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
