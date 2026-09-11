@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>百麒物流 - 財務多維結帳系統</title>
+<title>百麒國際股份有限公司 - 財務多維結帳系統</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -74,7 +74,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="app-container no-print">
 <div class="flex justify-between items-center mb-4 border-b border-gray-300 pb-4">
 <h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
-百麒物流 <span class="text-amber-700">💼</span> 多維財務結帳大腦
+百麒國際股份有限公司 <span class="text-amber-700">💼</span> 多維財務結帳大腦
 </h1>
 <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
 </div>
@@ -1021,7 +1021,7 @@ function exportBossExcel() {
     let wb = XLSX.utils.book_new();
 
     let ws1_data = [
-        ["百麒物流 - 老闆業績戰情報表"],
+        ["百麒國際股份有限公司 - 老闆業績戰情報表"],
         ["統計區間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`],
         [],
         ["飯店名稱", "結算總計 (未稅)"]
@@ -1087,8 +1087,9 @@ let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
 let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
 let amt = r.qty * price; grandTotal += amt;
 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
-if(!itemSummary[r.item]) itemSummary[r.item] = 0;
-itemSummary[r.item] += r.qty;
+if(!itemSummary[r.item]) itemSummary[r.item] = { qty: 0, price: price, amt: 0 };
+itemSummary[r.item].qty += r.qty;
+itemSummary[r.item].amt += amt;
 });
 
 let html = `
@@ -1116,11 +1117,17 @@ html += `
 <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px;">
     <!-- 左側：品項數量統計 (縮小行高以節省空間) -->
     <div class="summary-box" style="flex: 1; margin-bottom: 0;">
-        <div class="summary-box-title" style="text-align: left; padding-left: 15px;">品項總數量統計</div>
+        <div class="summary-box-title" style="text-align: left; padding-left: 15px;">品項統計明細</div>
         <table class="summary-table">
+            <tr style="background-color: #f1f5f9; font-weight: bold; text-align: center;">
+                <td style="padding: 4px 15px; text-align: left;">品項名稱</td>
+                <td style="padding: 4px 15px;">總數量</td>
+                <td style="padding: 4px 15px;">單價</td>
+                <td style="padding: 4px 15px; text-align: right;">總金額</td>
+            </tr>
 `;
-for (let [itemName, totalQty] of Object.entries(itemSummary)) { 
-    html += `<tr><td style="padding: 4px 15px;">${itemName}</td><td style="padding: 4px 15px;">${totalQty.toLocaleString()}</td></tr>`; 
+for (let [itemName, data] of Object.entries(itemSummary)) { 
+    html += `<tr><td style="padding: 4px 15px;">${itemName}</td><td style="padding: 4px 15px; text-align: center;">${data.qty.toLocaleString()}</td><td style="padding: 4px 15px; text-align: center;">$${data.price.toLocaleString()}</td><td style="padding: 4px 15px; text-align: right;">$${data.amt.toLocaleString()}</td></tr>`; 
 }
 html += `
         </table>
@@ -1177,7 +1184,7 @@ let amt = r.qty * price; grandTotal += amt;
 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
 });
 let wb = XLSX.utils.book_new();
-let ws1_data = [ ["百麒物流 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
+let ws1_data = [ ["百麒國際股份有限公司 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
 for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
 ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", grandTotal]); ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
@@ -1194,7 +1201,7 @@ ws_data.push([dDisplay, r.item, r.qty, r.price, r.amt]);
 ws_data.push([]); ws_data.push(["", "", "", "部門小計", sum]);
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws_data), deptName.substring(0, 31));
 }
-XLSX.writeFile(wb, `百麒對帳單_${comp}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+XLSX.writeFile(wb, `百麒國際股份有限公司對帳單_${comp}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
 }
 
 // ==========================================
