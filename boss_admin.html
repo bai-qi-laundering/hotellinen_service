@@ -672,7 +672,7 @@
         };
 
         // ===============================================
-        // 📦 物流簽收後台載入 (修復空白鍵導致重複空單的問題)
+        // 📦 物流簽收後台載入 (完美修復空白鍵導致無法配對的問題)
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -718,7 +718,6 @@
                     let cleanItem = (d.item || "").trim();
                     invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
 
-                    // 清除多餘空白，確保配對準確
                     let hotelName = (d.hotel || "").trim();
                     let hotelKeyword = hotelName;
                     let deptName = "房務";
@@ -733,10 +732,11 @@
                         deptName = (targetCat.deptName || deptName).trim();
                     }
 
-                    // 產生標準化的比對 Key (去除所有空格)
+                    // 產生標準化的比對 Key (去除所有空格，並完全黏合)
                     let safeHotelKeyForMatch = hotelKeyword.replace(/\s+/g, '');
                     let safeDeptKeyForMatch = deptName.replace(/\s+/g, '');
-                    let matchKey = `${dDate}_${safeHotelKeyForMatch}_${safeDeptKeyForMatch}`;
+                    // ㊙️ 關鍵修改：將飯店與部門完全黏合比對，消除切割邏輯差異
+                    let matchKey = `${dDate}_${safeHotelKeyForMatch}${safeDeptKeyForMatch}`;
                     
                     if (!invRawDataMap[matchKey]) {
                         invRawDataMap[matchKey] = {
@@ -760,7 +760,7 @@
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 logRecords = [];
-                let processedLogKeys = new Set(); // ★ 紀錄已經處理過的單據 Key，防止重複
+                let processedLogKeys = new Set(); 
 
                 // 1. 處理已存在的物流單據
                 uniqueDocs.forEach((docSnap) => {
@@ -770,16 +770,17 @@
                     if (dDate >= startDate && dDate <= endDate) {
                         let logHotelKey = (d.hotelKeyword || "").replace(/\s+/g, '');
                         let logDeptKey = (d.deptName || "房務").replace(/\s+/g, '');
-                        let matchKey = `${dDate}_${logHotelKey}_${logDeptKey}`;
                         
+                        // ㊙️ 關鍵修改：與上方呼應，完全黏合
+                        let matchKey = `${dDate}_${logHotelKey}${logDeptKey}`;
                         processedLogKeys.add(matchKey); // 記錄這個組合已經有真實單據了
                         processedLogKeys.add(docSnap.id); // 雙重防呆
 
                         let hotelName = d.hotelKeyword || "";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-                        // 網頁端關鍵字模糊比對
-                        if (hotelKey && !hotelName.includes(hotelKey)) return;
+                        // 網頁端關鍵字模糊比對 (忽略空白，容錯率更高)
+                        if (hotelKey && !hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) return;
 
                         let hasQtyModified = false;
                         let isSigned = !!(d.driverSig && d.clientSig);
@@ -829,7 +830,7 @@
                                 deptName: d.deptName,
                                 hotel: hotelName,
                                 items: validItems,
-                                assignedDriver: d.assignedDriver || "", // ★ 加入司機欄位
+                                assignedDriver: d.assignedDriver || "",
                                 driverSig: d.driverSig || "",
                                 clientSig: d.clientSig || "",
                                 signDate: d.timestamp || "",
@@ -839,13 +840,12 @@
                     }
                 });
 
-                // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據 (無視空格)
+                // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據
                 for (const [matchKey, data] of Object.entries(invRawDataMap)) {
                      let standardId = `${data.date}_${data.hotelKeyword}_${data.deptName}`;
                      
-                     // 確保這個 matchKey 剛剛沒有被處理過
                      if (!processedLogKeys.has(matchKey) && !processedLogKeys.has(standardId)) {
-                         if (hotelKey && !data.hotelName.includes(hotelKey)) continue;
+                         if (hotelKey && !data.hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) continue;
 
                          let validItems = [];
                          data.items.forEach(item => {
@@ -853,7 +853,7 @@
                              validItems.push({
                                  itemName: item.itemName,
                                  bqQty: item.qty,
-                                 actualQty: item.qty // 預設實際數量等於百麒數量
+                                 actualQty: item.qty 
                              });
                          });
 
@@ -872,7 +872,7 @@
                                 deptName: data.deptName,
                                 hotel: data.hotelName,
                                 items: validItems,
-                                assignedDriver: "", // ★ 預設未指派司機
+                                assignedDriver: "",
                                 driverSig: "",
                                 clientSig: "",
                                 signDate: "",
