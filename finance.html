@@ -642,13 +642,23 @@ const json = await res.json();
 if(json.success) {
 sheetPrices = {};
 if(json.prices) {
-json.prices.forEach((row, index) => {
-if(index === 0) return;
-let hotelKeyword = String(row[0]).trim();
-let item = String(row[2]).trim();
-let price = Number(row[3]) || 0;
-if(hotelKeyword && item) sheetPrices[`${hotelKeyword}_${item}`] = price;
-});
+    json.prices.forEach((row, index) => {
+        if(index === 0) return;
+        let hotelKeyword = String(row[0]).trim();
+        let deptKeyword = String(row[1] || "").trim(); // 讀取 B 欄：部門分類
+        let item = String(row[2]).trim();
+        let price = Number(row[3]) || 0;
+        
+        // 組合飯店與部門，跟結帳畫面的格式統一 (例如: "然一 客衣")
+        let combinedHotel = hotelKeyword;
+        if (deptKeyword && deptKeyword !== hotelKeyword) {
+            combinedHotel += ` ${deptKeyword}`;
+        }
+        
+        if (combinedHotel && item) {
+            sheetPrices[`${combinedHotel}_${item}`] = price;
+        }
+    });
 }
 
 sheetClients = {};
