@@ -686,11 +686,25 @@ document.getElementById('syncStatus').className = "text-sm font-bold text-red-60
 }
 }
 
+// ----------------------------------------------------
+// ★ 更新後的 getPrice：加入「統一折扣」降級搜尋機制
+// ----------------------------------------------------
 function getPrice(hotelName, item) {
-let exactKey = `${hotelName}_${item}`;
-if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
-if (sheetPrices[exactKey] !== undefined) return sheetPrices[exactKey];
-return null;
+    // 1. 原本的精準比對 (尋找特定的飯店+品項)
+    let exactKey = `${hotelName}_${item}`;
+    if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
+    if (sheetPrices[exactKey] !== undefined) return sheetPrices[exactKey];
+
+    // 2. 新增：部門統一價格/折數比對
+    // 如果找不到特定單號的價格，系統會自動找該部門的「統一折扣」
+    let unifiedKey = `${hotelName}_統一折扣`;
+    if (customPrices[unifiedKey] !== undefined && customPrices[unifiedKey] !== "") return Number(customPrices[unifiedKey]);
+    if (sheetPrices[unifiedKey] !== undefined) return sheetPrices[unifiedKey];
+    
+    // 如果你要針對特定部門寫死邏輯也可以這樣加：
+    // if (hotelName.includes("客衣")) { return 0.8; }
+
+    return null; // 如果都沒有，才回傳 null 提示「請輸入單價」
 }
 
 function showToast(msg = "資料已自動儲存更新！") {
