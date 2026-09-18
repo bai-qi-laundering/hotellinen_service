@@ -159,7 +159,6 @@
                 <button onclick="clearCanvas()" class="text-sm text-red-500 font-bold px-3 py-2 rounded-lg bg-red-50 border border-red-200 shadow-sm active:bg-red-100">清除重寫</button>
             </div>
             <canvas id="signCanvas"></canvas>
-            <!-- ★ 新增上傳進度提示 -->
             <div id="signUploadStatus" class="hidden text-center text-sm font-bold text-blue-600 mt-2">
                 <svg class="animate-spin h-4 w-4 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                 圖片上傳中...
@@ -587,6 +586,9 @@
                 const auntCompleted = hasSigned || hasAuntSignature;
                 const supCompleted = doubleHasSigned || hasSupSignature;
 
+                // ★ 確保複點要有簽名 AND 有填寫數量（0也算），才算是 100% 完成
+                const isSupFullyDone = hasSupSignature && doubleCount !== "";
+
                 const isSaving = u.isSaving || false; 
                 const saveError = u.saveError || false;
                 const loadingSvg = `<svg class="animate-spin h-4 w-4 text-gray-500 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
@@ -626,14 +628,15 @@
                     supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
                 }
 
-                let cardClass = hasSupSignature ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
+                // ★ 卡片變成粉紅色的條件，改為：【有簽名 && 有輸入數量】
+                let cardClass = isSupFullyDone ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
 
                 if (needsRebuild) {
                     htmlContent += `
                     <div id="card_${safeId}" class="${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300">
                         <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">${itemName}</div>
                         <div class="flex gap-2 mb-4 relative z-20">
-                            <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${hasSupSignature ? 'opacity-60' : ''}">
+                            <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}">
                                 <div class="text-sm font-bold text-gray-500 mb-2 text-center">現場數量</div>
                                 <div id="aunt_box_${safeId}" onclick="handleItemClick('${itemName}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}">${auntText}</div>
                                 <div id="aunt_action_${safeId}">${auntActionButton}</div>
@@ -648,7 +651,7 @@
                     </div>`;
                 } else {
                     document.getElementById(`card_${safeId}`).className = `${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300`;
-                    document.getElementById(`aunt_bg_${safeId}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${hasSupSignature ? 'opacity-60' : ''}`;
+                    document.getElementById(`aunt_bg_${safeId}`).className = `flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}`;
                     
                     document.getElementById(`aunt_box_${safeId}`).className = `px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}`;
                     document.getElementById(`aunt_box_${safeId}`).innerHTML = auntText;
@@ -719,7 +722,6 @@
 
         function closeSign() { 
             document.getElementById('signModal').classList.add('hidden'); 
-            // 復原上傳按鈕狀態
             const cancelBtn = document.getElementById('signCancelBtn');
             const confirmBtn = document.getElementById('signConfirmBtn');
             const uploadStatus = document.getElementById('signUploadStatus');
@@ -754,7 +756,6 @@
                         ctx.fillText('載入中或已歸檔...', canvas.width/2, canvas.height/2);
                     } else {
                         let img = new Image(); 
-                        // ★ 跨域解鎖，確保從 Storage 讀取的圖片不會污染畫布
                         img.crossOrigin = "anonymous";
                         img.onload = () => ctx.drawImage(img, 0, 0); 
                         img.src = existingSig; 
@@ -763,7 +764,6 @@
             });
         }
 
-        // ★ 非同步確認簽名函數 -> 改為「背景上傳，畫面秒切」
         async function confirmSignature() {
             if (canvas.isLocked) return showMessage("🔒 您尚未重新簽名！\n👉 請先點擊右上角的【清除重寫】並簽上新名字。");
             
@@ -780,7 +780,6 @@
             const sigBase64 = canvas.toDataURL('image/jpeg', 0.4); 
             const dateStr = document.getElementById('datePicker').value; 
 
-            // 【極速優化】：不要讓畫面卡住等待上傳。直接把圖片塞給畫面預覽，立刻打開計算機
             const currentCat = activeCategory;
             const currentItm = activeItem;
             const currentRol = activeRole;
@@ -802,13 +801,11 @@
             renderItems(true); 
             openCalc(currentCat, currentItm, currentRol);
 
-            // 【極速優化】：在背景默默上傳圖片，阿姨完全感覺不到。把任務存起來，寫入資料庫時再檢查即可。
             if (!window.uploadPromises) window.uploadPromises = {};
             const sigKey = `${currentCat}_${currentItm}_${currentRol}`;
 
             window.uploadPromises[sigKey] = window.uploadSignatureToStorage(sigBase64, `inventory_${cBaseHotel}_${currentItm}_${currentRol}_${Date.now()}`)
                 .then(url => {
-                    // 上傳成功後，悄悄把長長的 Base64 替換成短短的 URL 網址
                     if (currentRol === 'aunt') {
                         handleInput(dateStr, currentCat, currentItm, 'signature', url);
                     } else {
@@ -845,12 +842,19 @@
                 } catch (e) { finalValue = 0; }
             }
             
+            // ★ 確保 0 能被正確轉換為字串存入，不會被當成空值丟失
+            if (finalValue !== "") {
+                finalValue = String(finalValue);
+            }
+            
             const dateStr = document.getElementById('datePicker').value;
             if (activeRole === 'aunt') {
                 handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);
                 const u = (userInputs[dateStr] && userInputs[dateStr][activeCategory] && userInputs[dateStr][activeCategory][activeItem]) || {};
                 if (!u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
-            } else handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+            } else {
+                handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+            }
             closeCalc(); renderItems(true); window.firebaseSubmit(activeCategory, activeItem);
         }
 
@@ -875,16 +879,14 @@
 
     <script type="module">
         let db;
-        let storage; // ★ 新增 storage 變數
+        let storage; 
         let isFirebaseLoaded = false;
         let currentSnapshotUnsubscribe = null; 
 
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                // ★ 改用 memoryLocalCache
                 const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
-                // ★ 匯入 Storage
                 const { getStorage, ref, uploadString, getDownloadURL } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js");
 
                 const firebaseConfig = {
@@ -895,16 +897,13 @@
 
                 const app = initializeApp(firebaseConfig);
                 
-                // ★ 初始化改為記憶體快取
                 db = initializeFirestore(app, {
                     localCache: memoryLocalCache()
                 });
                 
-                // ★ 初始化 Storage
                 storage = getStorage(app);
                 isFirebaseLoaded = true;
 
-                // ★ 新增：上傳圖片到 Storage 的專用函數
                 window.uploadSignatureToStorage = async function(base64Data, fileName) {
                     if (!base64Data || base64Data.startsWith('http')) return base64Data;
                     try {
@@ -995,6 +994,21 @@
                                 let local = userInputs[dDate][r.hotel][r.item];
                                 if (local && local.isSaving) return; 
                                 
+                                // ★ 編輯中防覆蓋保護機制
+                                let isSameDate = (dDate === document.getElementById('datePicker').value);
+                                let isCalcOpen = !document.getElementById('calcModal').classList.contains('translate-y-full');
+                                let isSignOpen = !document.getElementById('signModal').classList.contains('hidden');
+                                
+                                let isCurrentlyEditingThis = (isSameDate && activeItem === r.item && activeCategory === r.hotel && (isCalcOpen || isSignOpen));
+                                
+                                let safeId = window.getSafeId(r.item);
+                                let noteInput = document.getElementById(`note_${safeId}`);
+                                let isNoteFocused = (isSameDate && currentHotelName === r.hotel && noteInput && document.activeElement === noteInput);
+                                
+                                if (local && (isCurrentlyEditingThis || isNoteFocused)) {
+                                    return; 
+                                }
+                                
                                 userInputs[dDate][r.hotel][r.item] = { 
                                     count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
                                     note: r.note || "", 
@@ -1034,7 +1048,6 @@
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
 
-                    // 【極速優化】：等一下背景上傳任務（如果有在傳的話，通常阿姨打完數字早就傳完了，所以這邊是秒過）
                     if (window.uploadPromises) {
                         const auntKey = `${category}_${item}_aunt`;
                         const supKey = `${category}_${item}_sup`;
