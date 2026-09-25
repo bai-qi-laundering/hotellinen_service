@@ -594,11 +594,11 @@ function recalculateFinanceUI() {
         let priceInput = tr.querySelector('.price-input');
         let price = priceInput ? (Number(priceInput.value) || 0) : 0;
         
-        let subtotal = qty * price;
+        let subtotal = qty * price; // ★ 復原：明細小計不四捨五入
         
         let subtotalEl = tr.querySelector('.subtotal-cell');
         if (subtotalEl) {
-            let newText = `$${subtotal.toLocaleString()}`;
+            let newText = `$${subtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
             if (subtotalEl.textContent !== newText) {
                 subtotalEl.textContent = newText;
             }
@@ -612,21 +612,22 @@ function recalculateFinanceUI() {
     document.querySelectorAll('[data-subtotal-id]').forEach(el => {
         let dept = el.getAttribute('data-subtotal-id');
         if (deptSubtotals[dept] !== undefined) {
-            let newDeptText = `$${deptSubtotals[dept].toLocaleString()}`;
+            let newDeptText = `$${deptSubtotals[dept].toLocaleString(undefined, {maximumFractionDigits: 2})}`;
             if (el.textContent !== newDeptText) {
                 el.textContent = newDeptText;
             }
         }
     });
 
-    let tax = Math.round(grandTotal * 0.05);
-    let finalAmount = grandTotal + tax;
+    // ★ 只有最後的總結算才進行四捨五入
+    let roundedGrandTotal = Math.round(grandTotal);
+    let tax = Math.round(roundedGrandTotal * 0.05);
+    let finalAmount = roundedGrandTotal + tax;
 
-    if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${grandTotal.toLocaleString()}`;
+    if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${roundedGrandTotal.toLocaleString()}`;
     if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
     if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
 }
-
 
 async function syncMasterDataFromSheet() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
@@ -922,10 +923,10 @@ async function loadFinanceData() {
                 if (price === null || price === "") {
                     subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
                 } else {
-                    let subtotal = r.qty * price;
+                    let subtotal = r.qty * price; // ★ 復原：明細小計不四捨五入
                     deptSubtotal += subtotal; 
                     grandTotal += subtotal;
-                    subtotalDisplay = `$${subtotal.toLocaleString()}`;
+                    subtotalDisplay = `$${subtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
                 }
 
                 let dateDisplay = (r.date !== lastDate) ? r.date : "";
@@ -940,13 +941,16 @@ async function loadFinanceData() {
                 </tr>`;
             });
 
-            html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg" data-subtotal-id="${String(deptName).replace(/"/g, '&quot;')}">$${deptSubtotal.toLocaleString()}</td></tr>`;
+            html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg" data-subtotal-id="${String(deptName).replace(/"/g, '&quot;')}">$${deptSubtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
         });
 
-        let taxAmount = Math.round(grandTotal * 0.05); let finalAmount = grandTotal + taxAmount;
+        // ★ 只有最後的總結算才進行四捨五入
+        let roundedGrandTotal = Math.round(grandTotal);
+        let taxAmount = Math.round(roundedGrandTotal * 0.05); 
+        let finalAmount = roundedGrandTotal + taxAmount;
 
         html += `
-        <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2" id="financeGrandTotal">$${grandTotal.toLocaleString()}</td></tr>
+        <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2" id="financeGrandTotal">$${roundedGrandTotal.toLocaleString()}</td></tr>
         <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2" id="financeTax">$${taxAmount.toLocaleString()}</td></tr>
         <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6" id="financeFinal">$${finalAmount.toLocaleString()}</td></tr>
         `;
@@ -983,16 +987,18 @@ async function loadBossData() {
             if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
             // ★ 如果以前有輸入過快照價錢就用，沒有才用預設的
             let price = r.savedPrice !== undefined ? r.savedPrice : (getPrice(r.hotel, r.item) || 0);
-            let amt = r.qty * price;
+            let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
             deptsData[r.hotel] += amt;
             grandTotal += amt;
         });
 
-        let taxAmount = Math.round(grandTotal * 0.05); 
-        let finalAmount = grandTotal + taxAmount;
+        // ★ 只有最後的總結算才進行四捨五入
+        let roundedGrandTotal = Math.round(grandTotal);
+        let taxAmount = Math.round(roundedGrandTotal * 0.05); 
+        let finalAmount = roundedGrandTotal + taxAmount;
 
         document.getElementById('bossDateRange').innerText = `${document.getElementById('startDate').value} 至 ${document.getElementById('endDate').value}`;
-        document.getElementById('bossTotalUntaxed').innerText = `$${grandTotal.toLocaleString()}`;
+        document.getElementById('bossTotalUntaxed').innerText = `$${roundedGrandTotal.toLocaleString()}`;
         document.getElementById('bossTotalTax').innerText = `$${taxAmount.toLocaleString()}`;
         document.getElementById('bossTotalFinal').innerText = `$${finalAmount.toLocaleString()}`;
 
@@ -1002,7 +1008,7 @@ async function loadBossData() {
             summaryHtml += `
             <div class="bg-white/10 rounded-lg p-4 border border-white/20 hover:bg-white/20 transition shadow-sm">
                 <div class="text-sm text-emerald-100 font-bold truncate mb-2" title="${deptName}">${deptName}</div>
-                <div class="text-2xl font-black text-white">$${amt.toLocaleString()}</div>
+                <div class="text-2xl font-black text-white">$${amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>
             </div>`;
         });
         document.getElementById('bossStoreGrid').innerHTML = summaryHtml;
@@ -1034,7 +1040,7 @@ function exportBossExcel() {
 
     currentBossData.forEach(r => {
         let price = r.savedPrice !== undefined ? r.savedPrice : (getPrice(r.hotel, r.item) || 0);
-        let amt = r.qty * price;
+        let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
         grandTotal += amt;
         
         if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
@@ -1054,11 +1060,13 @@ function exportBossExcel() {
     const sortedDepts = Object.entries(deptsData).sort((a,b) => b[1] - a[1]); 
     sortedDepts.forEach(([dept, amt]) => { ws1_data.push([dept, amt]); });
     
+    // ★ 只有最後的總結算才進行四捨五入
+    let roundedGrandTotal = Math.round(grandTotal);
     ws1_data.push([]); 
     ws1_data.push(["總計數據"]); 
-    ws1_data.push(["未稅金額", grandTotal]); 
-    ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); 
-    ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
+    ws1_data.push(["未稅金額", roundedGrandTotal]); 
+    ws1_data.push(["稅金 (5%)", Math.round(roundedGrandTotal * 0.05)]); 
+    ws1_data.push(["含稅金額", roundedGrandTotal + Math.round(roundedGrandTotal * 0.05)]);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "各店業績總覽");
 
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailsForExcel), "所有出貨明細");
@@ -1113,7 +1121,7 @@ function generateOfficialInvoice() {
         if(!deptItemSummary[dName]) deptItemSummary[dName] = {}; // 初始化該部門的統計物件
 
         let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
-        let amt = r.qty * price; 
+        let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
         grandTotal += amt;
         
         deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
@@ -1140,10 +1148,13 @@ function generateOfficialInvoice() {
     let idx = 1;
     for (let [deptName, records] of Object.entries(deptsData)) {
         let deptSum = records.reduce((sum, r) => sum + r.amt, 0);
-        html += `<tr><td style="text-align:center;">${idx++}</td><td style="font-weight:bold;">${deptName} 洗滌費結算</td><td style="text-align:right; font-weight:bold;">${deptSum.toLocaleString()}</td></tr>`;
+        html += `<tr><td style="text-align:center;">${idx++}</td><td style="font-weight:bold;">${deptName} 洗滌費結算</td><td style="text-align:right; font-weight:bold;">${deptSum.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
     }
 
-    let tax = Math.round(grandTotal * 0.05); let totalWithTax = grandTotal + tax;
+    // ★ 只有最後的總結算才進行四捨五入
+    let roundedGrandTotal = Math.round(grandTotal);
+    let tax = Math.round(roundedGrandTotal * 0.05); 
+    let totalWithTax = roundedGrandTotal + tax;
     
     html += `
     </tbody></table>
@@ -1169,11 +1180,11 @@ function generateOfficialInvoice() {
         let deptSubtotal = 0;
         for (let [itemName, data] of Object.entries(items)) { 
             // 該部門內的各個品項 (稍微縮排)
-            html += `<tr><td style="padding: 4px 15px; padding-left: 25px;">${itemName}</td><td style="padding: 4px 15px; text-align: center;">${data.qty.toLocaleString()}</td><td style="padding: 4px 15px; text-align: center;">$${data.price.toLocaleString()}</td><td style="padding: 4px 15px; text-align: right;">$${data.amt.toLocaleString()}</td></tr>`; 
+            html += `<tr><td style="padding: 4px 15px; padding-left: 25px;">${itemName}</td><td style="padding: 4px 15px; text-align: center;">${data.qty.toLocaleString()}</td><td style="padding: 4px 15px; text-align: center;">$${data.price.toLocaleString()}</td><td style="padding: 4px 15px; text-align: right;">$${data.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`; 
             deptSubtotal += data.amt;
         }
         // 該部門的小計
-        html += `<tr><td colspan="3" style="padding: 4px 15px; text-align: right; font-size: 12px; color: #64748b;">${deptName} 統計小計</td><td style="padding: 4px 15px; text-align: right; font-weight: bold; color: #1e3a8a; border-bottom: 2px solid #cbd5e1;">$${deptSubtotal.toLocaleString()}</td></tr>`;
+        html += `<tr><td colspan="3" style="padding: 4px 15px; text-align: right; font-size: 12px; color: #64748b;">${deptName} 統計小計</td><td style="padding: 4px 15px; text-align: right; font-weight: bold; color: #1e3a8a; border-bottom: 2px solid #cbd5e1;">$${deptSubtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
     }
     
     html += `
@@ -1183,7 +1194,7 @@ function generateOfficialInvoice() {
         <!-- 右側：稅金與總金額計算 -->
         <div class="tax-box" style="width: 320px; margin-bottom: 0; padding: 15px 20px;">
             <div style="font-weight:bold; color:#1e3a8a; border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-bottom:12px;">結算總計</div>
-            <div class="tax-row"><span>未稅金額</span><span>${grandTotal.toLocaleString()}</span></div>
+            <div class="tax-row"><span>未稅金額</span><span>${roundedGrandTotal.toLocaleString()}</span></div>
             <div class="tax-row"><span>稅金 (5%)</span><span>${tax.toLocaleString()}</span></div>
             <div class="tax-total"><span>含稅金額</span><span>$${totalWithTax.toLocaleString()}</span></div>
         </div>
@@ -1207,9 +1218,9 @@ function generateOfficialInvoice() {
         records.forEach(r => {
             let dateDisplay = (r.date !== lastDate) ? r.date : "";
             lastDate = r.date; deptSum += r.amt;
-            html += `<tr><td class="${dateDisplay ? 'date-col' : ''}">${dateDisplay}</td><td style="text-align:left; padding-left:15px; font-weight:bold;">${r.item}</td><td>${r.qty}</td><td>${r.price}</td><td style="text-align:right; padding-right:15px;">${r.amt.toLocaleString()}</td></tr>`;
+            html += `<tr><td class="${dateDisplay ? 'date-col' : ''}">${dateDisplay}</td><td style="text-align:left; padding-left:15px; font-weight:bold;">${r.item}</td><td>${r.qty}</td><td>${r.price}</td><td style="text-align:right; padding-right:15px;">${r.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
         });
-        html += `<tr class="total-row"><td colspan="4" style="text-align:right; padding-right:15px; font-size:14px;">${deptName} 結算小計：</td><td style="text-align:right; padding-right:15px; font-size:15px; color:#1e3a8a;">${deptSum.toLocaleString()}</td></tr></tbody></table>`;
+        html += `<tr class="total-row"><td colspan="4" style="text-align:right; padding-right:15px; font-size:14px;">${deptName} 結算小計：</td><td style="text-align:right; padding-right:15px; font-size:15px; color:#1e3a8a;">${deptSum.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr></tbody></table>`;
     }
 
     document.getElementById('printArea').innerHTML = html;
@@ -1227,13 +1238,17 @@ let deptsData = {}; let grandTotal = 0;
 invoiceData.forEach(r => {
 let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
 let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
-let amt = r.qty * price; grandTotal += amt;
+let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
+grandTotal += amt;
 deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
 });
 let wb = XLSX.utils.book_new();
 let ws1_data = [ ["百麒國際股份有限公司 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
 for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
-ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", grandTotal]); ws1_data.push(["稅金 (5%)", Math.round(grandTotal*0.05)]); ws1_data.push(["含稅金額", grandTotal + Math.round(grandTotal*0.05)]);
+
+// ★ 只有最後的總結算才進行四捨五入
+let roundedGrandTotal = Math.round(grandTotal);
+ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", roundedGrandTotal]); ws1_data.push(["稅金 (5%)", Math.round(roundedGrandTotal * 0.05)]); ws1_data.push(["含稅金額", roundedGrandTotal + Math.round(roundedGrandTotal * 0.05)]);
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
 
 for (let [deptName, records] of Object.entries(deptsData)) {
@@ -1298,15 +1313,14 @@ let driverName = d.assignedDriver || null;
 
 (d.items || []).forEach(item => {
 let actualVal = item.actualQty;
-// 🌟 修正：如果尚未簽收導致實收數量為 0 或空值，強制帶入原始出貨數量
-if (actualVal === null || actualVal === undefined || actualVal === "" || actualVal === 0 || actualVal === "0") {
+if (actualVal === null || actualVal === undefined || actualVal === "") {
     actualVal = item.originalQty;
 }
 let actual = Number(actualVal) || 0;
 
 if (actual > 0 && !String(item.itemName).includes("回洗")) {
 let price = item.price !== undefined ? item.price : (getPrice(hotelName, item.itemName) || 0);
-let amt = actual * price;
+let amt = actual * price; // ★ 復原：明細小計不四捨五入
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };
 
 if (driverName) {
@@ -1336,13 +1350,15 @@ const unassignedBox = document.getElementById('unassignedBox');
 const unassignedAmt = document.getElementById('unassignedAmount');
 let html = "";
 for (let [driverName, data] of Object.entries(currentDriverStats)) {
-let bonus = Math.round(data.totalAmt * 0.029);
+// ★ 只有最後的總結算才進行四捨五入
+let roundedTotalAmt = Math.round(data.totalAmt);
+let bonus = Math.round(roundedTotalAmt * 0.029);
 html += `
 <div class="bg-white border-2 border-indigo-200 rounded-xl p-5 shadow-sm hover:shadow-md transition transform hover:-translate-y-1">
 <h4 class="text-xl font-black text-indigo-900 mb-3 border-b-2 border-indigo-100 pb-2">🧑‍✈️ ${driverName}</h4>
 <div class="flex justify-between items-center mb-2">
 <span class="text-gray-500 font-bold text-sm">配送總額(未稅)</span>
-<span class="text-gray-800 font-black text-lg">$${data.totalAmt.toLocaleString()}</span>
+<span class="text-gray-800 font-black text-lg">$${roundedTotalAmt.toLocaleString()}</span>
 </div>
 <div class="flex justify-between items-center mb-5 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
 <span class="text-indigo-600 font-black text-sm">業績獎金 (2.9%)</span>
@@ -1358,7 +1374,8 @@ container.innerHTML = html;
 
 if (currentUnassignedStats.details.length > 0) {
 unassignedBox.classList.remove('hidden');
-unassignedAmt.innerText = `$${currentUnassignedStats.totalAmt.toLocaleString()}`;
+let roundedUnassigned = Math.round(currentUnassignedStats.totalAmt);
+unassignedAmt.innerText = `$${roundedUnassigned.toLocaleString()}`;
 } else unassignedBox.classList.add('hidden');
 document.getElementById('driverDetailSection').classList.add('hidden');
 }
@@ -1393,15 +1410,16 @@ html += `
 <td class="text-gray-700 font-bold">${r.item}</td>
 <td class="text-center font-black">${r.qty}</td>
 <td class="text-center">${pDisplay}</td>
-<td class="text-right pr-6 font-bold text-indigo-900">$${r.amt.toLocaleString()}</td>
+<td class="text-right pr-6 font-bold text-indigo-900">$${r.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
 </tr>
 `;
 });
 
+let roundedGrandTotal = Math.round(grandTotal);
 html += `
 <tr class="bg-indigo-100 border-t-4 border-indigo-400">
 <td colspan="5" class="text-right font-black text-indigo-900 py-4 text-lg">明細總計 (未稅)：</td>
-<td class="text-right pr-6 font-black text-indigo-900 text-2xl py-4">$${grandTotal.toLocaleString()}</td>
+<td class="text-right pr-6 font-black text-indigo-900 text-2xl py-4">$${roundedGrandTotal.toLocaleString()}</td>
 </tr>
 `;
 tbody.innerHTML = html;
