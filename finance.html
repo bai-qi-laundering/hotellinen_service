@@ -29,7 +29,7 @@ body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont
 body { background: white; padding: 0; margin: 0; }
 .no-print { display: none !important; }
 .print-only { display: block !important; width: 100%; color: #000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-@page { size: A4 portrait; margin: 12mm; }
+@page { size: A4 portrait; margin: 10mm; }
 .page-break { page-break-before: always; }
 .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 20px; }
 .invoice-title { font-size: 28px; font-weight: 900; color: #1e3a8a; letter-spacing: 2px; }
@@ -67,6 +67,35 @@ body { background: white; padding: 0; margin: 0; }
 .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+
+/* 對帳單列印：僅保留報表正文，移除原有英文副標、頁碼與頁尾備註。 */
+@media print {
+  .report-page { page-break-before: always; break-before: page; width: 100%; }
+  .report-page:first-child { page-break-before: auto; break-before: auto; }
+  .report-page:last-child { page-break-after: auto; }
+  .report-page .invoice-header { align-items:center; margin-bottom:12px; padding-bottom:8px; }
+  .report-page .invoice-title { font-size:20px; letter-spacing:0; }
+  .report-heading { font-size:20px; color:#1e3a8a; font-weight:900; }
+  .report-section-title { font-size:16px; color:#1e3a8a; font-weight:800; margin:12px 0; }
+  .report-dept-meta { display:flex; justify-content:space-between; gap:12px; font-size:13px; margin:0 0 12px; }
+  .report-page .data-table, .report-page .detail-table { margin-bottom:10px; }
+  .report-page .data-table th, .report-page .data-table td { padding:6px; }
+  .report-page .detail-table th, .report-page .detail-table td { padding:5px; }
+  .report-monthly { break-inside:avoid-page; page-break-inside:avoid; }
+  .report-monthly .monthly-table { break-inside:avoid-page; page-break-inside:avoid; font-size:11px; }
+  .report-monthly .monthly-table tr { break-inside:avoid; page-break-inside:avoid; }
+  .report-monthly.dense .monthly-table { font-size:9px; }
+  .report-monthly.dense .monthly-table td, .report-monthly.dense .monthly-table th { padding:3px 4px; }
+  .report-monthly.very-dense .monthly-table { font-size:8px; }
+  .report-monthly.very-dense .monthly-table td, .report-monthly.very-dense .monthly-table th { padding:1px 3px; line-height:1.1; }
+  .report-monthly.very-dense .invoice-header { margin-bottom:6px; }
+  .report-monthly.very-dense .report-dept-meta { margin-bottom:6px; }
+  .report-totals { margin-left:auto; width:290px; border:1px solid #94a3b8; padding:12px; }
+  .report-totals > div { display:flex; justify-content:space-between; padding:6px 0; }
+  .report-totals .report-grand { border-top:2px solid #1e3a8a; font-size:17px; color:#1e3a8a; }
+  .report-detail thead { display:table-header-group; }
+  .report-detail tr { break-inside:avoid; page-break-inside:avoid; }
+}
 </style>
 </head>
 <body>
@@ -324,7 +353,7 @@ body { background: white; padding: 0; margin: 0; }
 <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
 <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
 <button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載對帳 Excel</button>
-<button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
+<button onclick="window.print()" title="列印視窗請取消勾選「頁首及頁尾」，以移除瀏覽器自動加入的網址、日期與頁碼" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
 </div>
 
 <!-- 底部導覽列 -->
@@ -1095,134 +1124,104 @@ document.getElementById('ciAddress').value = p.address; document.getElementById(
 document.getElementById('ciMethod').value = p.method;
 }
 
-function generateOfficialInvoice() {
+// 匯出共用資料：僅取所選客戶，部門數量及金額採用相同資料來源。
+function buildInvoiceReport() {
     const comp = document.getElementById('invoiceTargetCompany').value;
-    if(!comp) { alert("請選擇請款母公司！"); return; }
+    const matches = rawLogisticsData.filter(r => r.parentCompany === comp || r.hotel === comp || r.hotel.startsWith(comp + ' '));
+    const depts = {};
+    let grandTotal = 0;
+    matches.forEach(r => {
+        const name = r.hotel;
+        if (!depts[name]) depts[name] = { records: [], summary: {}, total: 0 };
+        const price = Number(r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) ?? 0)) || 0;
+        const qty = Number(r.qty) || 0;
+        const amount = qty * price;
+        depts[name].records.push({ date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
+        // 同品項若有不同單價，分開列示，避免月總量的單價與金額不一致。
+        const key = JSON.stringify([r.item, price]);
+        if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0 };
+        depts[name].summary[key].qty += qty;
+        depts[name].summary[key].amt += amount;
+        depts[name].total += amount;
+        grandTotal += amount;
+    });
+    Object.values(depts).forEach(dept => dept.records.sort((a,b) => a.date.localeCompare(b.date) || a.receiptOrder - b.receiptOrder));
+    return { comp, depts, grandTotal, rounded: Math.round(grandTotal), tax: Math.round(Math.round(grandTotal) * 0.05) };
+}
+
+function escapeReportHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+}
+function moneyReport(value) { return Number(value).toLocaleString('zh-TW', { maximumFractionDigits: 2 }); }
+
+function generateOfficialInvoice() {
+    const report = buildInvoiceReport();
+    if (!report.comp) { alert('請選擇請款母公司！'); return; }
+    if (!Object.keys(report.depts).length) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
     const profile = {
-        name: document.getElementById('ciName').value, taxId: document.getElementById('ciTaxId').value,
-        contact: document.getElementById('ciContact').value, phone: document.getElementById('ciPhone').value,
-        address: document.getElementById('ciAddress').value, terms: document.getElementById('ciTerms').value,
+        name: document.getElementById('ciName').value || report.comp,
+        taxId: document.getElementById('ciTaxId').value,
+        contact: document.getElementById('ciContact').value,
+        phone: document.getElementById('ciPhone').value,
+        address: document.getElementById('ciAddress').value,
+        terms: document.getElementById('ciTerms').value,
         method: document.getElementById('ciMethod').value
     };
-
-    let invoiceData = rawLogisticsData; 
-    if(invoiceData.length === 0) { alert("無任何出貨明細可產生對帳單！"); return; }
-
-    const printDate = getLocalDateString(new Date());
+    const e = escapeReportHTML;
     const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
+    const deptEntries = Object.entries(report.depts).sort(([a],[b]) => a.localeCompare(b, 'zh-TW'));
+    let html = `<section class="report-page report-overview">
+        <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">客戶對帳單</div></header>
+        <div class="info-boxes">
+          <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tbody>
+          <tr><td>客戶名稱</td><td>${e(profile.name)}</td></tr><tr><td>統一編號</td><td>${e(profile.taxId)}</td></tr>
+          <tr><td>聯絡人</td><td>${e(profile.contact)}</td></tr><tr><td>聯絡電話</td><td>${e(profile.phone)}</td></tr>
+          <tr><td>出貨地址</td><td>${e(profile.address)}</td></tr></tbody></table></div>
+          <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tbody>
+          <tr><td>對帳期間</td><td>${e(period)}</td></tr><tr><td>幣別</td><td>新台幣 (NTD)</td></tr>
+          <tr><td>付款條件</td><td>${e(profile.terms)}</td></tr><tr><td>付款方式</td><td>${e(profile.method)}</td></tr>
+          </tbody></table></div></div>
+        <h2 class="report-section-title">各部門結算總表</h2>
+        <table class="data-table"><thead><tr><th>項次</th><th>部門名稱</th><th>未稅金額</th></tr></thead><tbody>`;
+    deptEntries.forEach(([name, dept], index) => {
+        html += `<tr><td>${index + 1}</td><td style="text-align:left">${e(name)}</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>`;
+    });
+    html += `</tbody></table><div class="report-totals">
+        <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
+        <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
+        <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
+        </div></section>`;
 
-    let deptsData = {}; 
-    let deptItemSummary = {}; // ★ 改變資料結構：改為依「部門」分開統計
-    let grandTotal = 0;
-
-    invoiceData.forEach(r => {
-        let dName = r.hotel; 
-        if(!deptsData[dName]) deptsData[dName] = [];
-        if(!deptItemSummary[dName]) deptItemSummary[dName] = {}; // 初始化該部門的統計物件
-
-        let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
-        let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
-        grandTotal += amt;
-        
-        deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
-        
-        // ★ 依「部門 -> 品項」分別加總數量與金額
-        if(!deptItemSummary[dName][r.item]) deptItemSummary[dName][r.item] = { qty: 0, price: price, amt: 0 };
-        deptItemSummary[dName][r.item].qty += r.qty;
-        deptItemSummary[dName][r.item].amt += amt;
+    // 每個部門的「月總量總結」各自一頁，不再將部門連續串入同一表格。
+    deptEntries.forEach(([name, dept]) => {
+        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
+        const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
+        // 品項多時縮小行高和字體；同一部門仍作為一個不可分割的列印區塊。
+        const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
+        html += `<section class="report-page report-monthly${density}">
+            <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">月總量總結</div></header>
+            <div class="report-dept-meta"><b>部門：${e(name)}</b><span>對帳期間：${e(period)}</span></div>
+            <table class="data-table monthly-table"><thead><tr><th>品項名稱</th><th>總數量</th><th>單價</th><th>未稅金額</th></tr></thead><tbody>`;
+        items.forEach(item => {
+            html += `<tr><td style="text-align:left">${e(item.item)}</td><td>${moneyReport(item.qty)}</td><td>${moneyReport(item.price)}</td><td style="text-align:right">${moneyReport(item.amt)}</td></tr>`;
+        });
+        html += `<tr class="total-row"><td>部門合計</td><td>${moneyReport(totalQty)}</td><td></td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>
+            </tbody></table></section>`;
     });
 
-    let html = `
-    <div class="invoice-header">
-    <div><div class="invoice-title">百麒國際股份有限公司</div><div style="color:#64748b; font-size:12px; margin-top:4px;">Bai-qi International CO., LTD</div></div>
-    <div class="invoice-meta"><div style="font-size: 20px; font-weight:900; color:#1e3a8a; margin-bottom:8px;">客 戶 對 帳 單<br><span style="font-size:10px; color:#94a3b8; letter-spacing:1px;">ACCOUNT STATEMENT</span></div>製表日期：${printDate}<br>頁碼：1 / ${Object.keys(deptsData).length + 1}</div>
-    </div>
-    <div class="info-boxes">
-    <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tr><td>客戶名稱</td><td>${profile.name}</td></tr><tr><td>統一編號</td><td>${profile.taxId}</td></tr><tr><td>聯絡人</td><td>${profile.contact}</td></tr><tr><td>聯絡電話</td><td>${profile.phone}</td></tr><tr><td>出貨地址</td><td>${profile.address}</td></tr></table></div>
-    <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tr><td>對帳期間</td><td>${period}</td></tr><tr><td>幣別</td><td>新台幣 (NTD)</td></tr><tr><td>付款條件</td><td>${profile.terms}</td></tr><tr><td>付款方式</td><td>${profile.method}</td></tr><tr><td>備註</td><td>如有疑義，請於收到對帳單後 7 日內與本公司聯繫。</td></tr></table></div>
-    </div>
-
-    <table class="data-table"><thead><tr><th style="width:100px;">項次</th><th>部門名稱</th><th style="text-align:right; width:150px;">結算總計 (未稅)</th></tr></thead><tbody>
-    `;
-    
-    let idx = 1;
-    for (let [deptName, records] of Object.entries(deptsData)) {
-        let deptSum = records.reduce((sum, r) => sum + r.amt, 0);
-        html += `<tr><td style="text-align:center;">${idx++}</td><td style="font-weight:bold;">${deptName} 洗滌費結算</td><td style="text-align:right; font-weight:bold;">${deptSum.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
-    }
-
-    // ★ 只有最後的總結算才進行四捨五入
-    let roundedGrandTotal = Math.round(grandTotal);
-    let tax = Math.round(roundedGrandTotal * 0.05); 
-    let totalWithTax = roundedGrandTotal + tax;
-    
-    html += `
-    </tbody></table>
-
-    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px;">
-        <!-- 左側：品項數量統計 (改為各部門獨立展開) -->
-        <div class="summary-box" style="flex: 1; margin-bottom: 0;">
-            <div class="summary-box-title" style="text-align: left; padding-left: 15px;">各部門 品項統計明細</div>
-            <table class="summary-table">
-                <tr style="background-color: #f1f5f9; font-weight: bold; text-align: center;">
-                    <td style="padding: 4px 15px; text-align: left;">品項名稱</td>
-                    <td style="padding: 4px 15px;">總數量</td>
-                    <td style="padding: 4px 15px;">單價</td>
-                    <td style="padding: 4px 15px; text-align: right;">總金額</td>
-                </tr>
-    `;
-    
-    // ★ 迴圈渲染：將每個部門標題列出，接著列出其下品項
-    for (let [deptName, items] of Object.entries(deptItemSummary)) {
-        // 部門大標題
-        html += `<tr><td colspan="4" style="background-color: #e2e8f0; color: #1e3a8a; font-weight: bold; padding: 6px 15px;">🏨 ${deptName}</td></tr>`;
-        
-        let deptSubtotal = 0;
-        for (let [itemName, data] of Object.entries(items)) { 
-            // 該部門內的各個品項 (稍微縮排)
-            html += `<tr><td style="padding: 4px 15px; padding-left: 25px;">${itemName}</td><td style="padding: 4px 15px; text-align: center;">${data.qty.toLocaleString()}</td><td style="padding: 4px 15px; text-align: center;">$${data.price.toLocaleString()}</td><td style="padding: 4px 15px; text-align: right;">$${data.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`; 
-            deptSubtotal += data.amt;
-        }
-        // 該部門的小計
-        html += `<tr><td colspan="3" style="padding: 4px 15px; text-align: right; font-size: 12px; color: #64748b;">${deptName} 統計小計</td><td style="padding: 4px 15px; text-align: right; font-weight: bold; color: #1e3a8a; border-bottom: 2px solid #cbd5e1;">$${deptSubtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
-    }
-    
-    html += `
-            </table>
-        </div>
-
-        <!-- 右側：稅金與總金額計算 -->
-        <div class="tax-box" style="width: 320px; margin-bottom: 0; padding: 15px 20px;">
-            <div style="font-weight:bold; color:#1e3a8a; border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-bottom:12px;">結算總計</div>
-            <div class="tax-row"><span>未稅金額</span><span>${roundedGrandTotal.toLocaleString()}</span></div>
-            <div class="tax-row"><span>稅金 (5%)</span><span>${tax.toLocaleString()}</span></div>
-            <div class="tax-total"><span>含稅金額</span><span>$${totalWithTax.toLocaleString()}</span></div>
-        </div>
-    </div>
-
-    <div class="footer-notes">備註事項：<br>1. 本對帳單僅供雙方核對交易紀錄，實際金額以本公司稅務憑證為準。<br>2. 逾期未提出異議者，視同確認本對帳單內容無誤。</div>
-    `;
-
-    let pageNum = 2;
-    for (let [deptName, records] of Object.entries(deptsData)) {
-        records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.receiptOrder - b.receiptOrder; });
-
-        html += `<div class="page-break"></div>
-        <div class="invoice-header" style="border-bottom: 1px solid #94a3b8;">
-        <div><div class="invoice-title" style="font-size:18px;">【附件】交易明細清單</div><div style="font-weight:bold; margin-top:8px;">客戶：${profile.name} ｜ 部門：<span style="color:#b45309;">${deptName}</span></div></div>
-        <div class="invoice-meta">頁碼：${pageNum++} / ${Object.keys(deptsData).length + 1}</div>
-        </div>
-        <table class="detail-table"><thead><tr><th style="width:120px;">日期</th><th>品項名稱</th><th style="width:80px;">數量 (飯店實點)</th><th style="width:80px;">單價</th><th style="width:100px; text-align:right; padding-right:15px;">金額</th></tr></thead><tbody>
-        `;
-        let lastDate = ""; let deptSum = 0;
-        records.forEach(r => {
-            let dateDisplay = (r.date !== lastDate) ? r.date : "";
-            lastDate = r.date; deptSum += r.amt;
-            html += `<tr><td class="${dateDisplay ? 'date-col' : ''}">${dateDisplay}</td><td style="text-align:left; padding-left:15px; font-weight:bold;">${r.item}</td><td>${r.qty}</td><td>${r.price}</td><td style="text-align:right; padding-right:15px;">${r.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
+    deptEntries.forEach(([name, dept]) => {
+        html += `<section class="report-page report-detail">
+            <header class="invoice-header"><div class="invoice-title">交易明細清單</div><div class="report-heading">${e(name)}</div></header>
+            <div class="report-dept-meta"><b>客戶：${e(profile.name)}</b><span>對帳期間：${e(period)}</span></div>
+            <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
+        let previousDate = '';
+        dept.records.forEach(r => {
+            const dateLabel = r.date === previousDate ? '' : r.date;
+            previousDate = r.date;
+            html += `<tr><td>${e(dateLabel)}</td><td style="text-align:left">${e(r.item)}</td><td>${moneyReport(r.qty)}</td><td>${moneyReport(r.price)}</td><td style="text-align:right">${moneyReport(r.amt)}</td></tr>`;
         });
-        html += `<tr class="total-row"><td colspan="4" style="text-align:right; padding-right:15px; font-size:14px;">${deptName} 結算小計：</td><td style="text-align:right; padding-right:15px; font-size:15px; color:#1e3a8a;">${deptSum.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr></tbody></table>`;
-    }
-
+        html += `<tr class="total-row"><td colspan="4" style="text-align:right">部門小計</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr></tbody></table></section>`;
+    });
     document.getElementById('printArea').innerHTML = html;
     closeInvoiceModal();
     document.querySelector('.app-container').classList.add('hidden');
@@ -1232,38 +1231,66 @@ function generateOfficialInvoice() {
 }
 
 function exportToExcel() {
-const comp = document.getElementById('invoiceTargetCompany').value;
-let invoiceData = rawLogisticsData.filter(r => r.hotel === comp || r.hotel.startsWith(comp + " "));
-let deptsData = {}; let grandTotal = 0;
-invoiceData.forEach(r => {
-let dName = r.hotel; if(!deptsData[dName]) deptsData[dName] = [];
-let price = r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) || 0);
-let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
-grandTotal += amt;
-deptsData[dName].push({ date: r.date, item: r.item, qty: r.qty, price: price, amt: amt, receiptOrder: r.receiptOrder });
-});
-let wb = XLSX.utils.book_new();
-let ws1_data = [ ["百麒國際股份有限公司 - 客戶對帳總表"], ["客戶名稱", document.getElementById('ciName').value || comp, "", "對帳期間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`], ["統一編號", document.getElementById('ciTaxId').value], [], ["部門名稱", "結算總計 (未稅)"] ];
-for (let [deptName, records] of Object.entries(deptsData)) { ws1_data.push([deptName, records.reduce((sum, r) => sum + r.amt, 0)]); }
-
-// ★ 只有最後的總結算才進行四捨五入
-let roundedGrandTotal = Math.round(grandTotal);
-ws1_data.push([]); ws1_data.push(["結算總計"]); ws1_data.push(["未稅金額", roundedGrandTotal]); ws1_data.push(["稅金 (5%)", Math.round(roundedGrandTotal * 0.05)]); ws1_data.push(["含稅金額", roundedGrandTotal + Math.round(roundedGrandTotal * 0.05)]);
-XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "結算總表");
-
-for (let [deptName, records] of Object.entries(deptsData)) {
-let ws_data = [ [`【${deptName}】交易明細`], ["日期", "品項名稱", "數量(飯店實點)", "單價", "金額"] ];
-records.sort((a,b) => { if(a.date !== b.date) return a.date < b.date ? -1 : 1; return a.receiptOrder - b.receiptOrder; });
-let lastDate = ""; let sum = 0;
-records.forEach(r => {
-let dDisplay = (r.date !== lastDate) ? r.date : "";
-lastDate = r.date; sum += r.amt;
-ws_data.push([dDisplay, r.item, r.qty, r.price, r.amt]);
-});
-ws_data.push([]); ws_data.push(["", "", "", "部門小計", sum]);
-XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws_data), deptName.substring(0, 31));
-}
-XLSX.writeFile(wb, `百麒國際股份有限公司對帳單_${comp}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+    const report = buildInvoiceReport();
+    if (!report.comp || !Object.keys(report.depts).length) { alert('請先產生對帳單！'); return; }
+    const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
+    const entries = Object.entries(report.depts).sort(([a],[b]) => a.localeCompare(b, 'zh-TW'));
+    const wb = XLSX.utils.book_new();
+    const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱', document.getElementById('ciName').value || report.comp], ['對帳期間', period], [], ['部門名稱', '未稅金額']];
+    entries.forEach(([name, dept]) => totalRows.push([name, dept.total]));
+    totalRows.push([], ['未稅金額', report.rounded], ['營業稅（5%）', report.tax], ['含稅總金額', report.rounded + report.tax]);
+    const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
+    totalSheet['!cols'] = [{wch: 36}, {wch: 22}];
+    totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
+    totalSheet['!print_area'] = `A1:B${totalRows.length}`;
+    totalSheet['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:1};
+    XLSX.utils.book_append_sheet(wb, totalSheet, '結算總表');
+    const usedNames = new Set(['結算總表']);
+    entries.forEach(([name, dept]) => {
+        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
+        const rows = [
+            [`百麒國際股份有限公司｜${name}｜月總量總結`],
+            ['對帳期間', period], [],
+            ['品項名稱', '總數量', '單價', '未稅金額']
+        ];
+        items.forEach(item => rows.push([item.item, item.qty, item.price, item.amt]));
+        rows.push(['部門合計', items.reduce((s, item) => s + item.qty, 0), '', dept.total]);
+        const summaryEndRow = rows.length;
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:34}, {wch:16}, {wch:16}, {wch:20}];
+        ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:3}}];
+        ws['!print_area'] = `A1:D${rows.length}`;
+        ws['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:1};
+        // 部門月總量獨立工作表，列印時不會與其他部門混頁。
+        for (const address of Object.keys(ws)) {
+            if (address[0] !== '!' && typeof ws[address].v === 'number') ws[address].z = '#,##0.##';
+        }
+        const allocateName = raw => {
+            let sheetName = raw.replace(/[\\/?*\[\]:]/g, '_').slice(0,31) || '未命名部門';
+            const base = sheetName;
+            for (let n=2; usedNames.has(sheetName); n++) sheetName = `${base.slice(0, 31-String(n).length-1)}_${n}`;
+            usedNames.add(sheetName);
+            return sheetName;
+        };
+        XLSX.utils.book_append_sheet(wb, ws, allocateName(name + '月總量'));
+        const detailRows = [[`${name}｜交易明細`], ['日期', '品項名稱', '數量', '單價', '金額']];
+        let lastDate = '';
+        dept.records.forEach(r => {
+            detailRows.push([r.date === lastDate ? '' : r.date, r.item, r.qty, r.price, r.amt]);
+            lastDate = r.date;
+        });
+        detailRows.push(['', '', '', '部門小計', dept.total]);
+        const detailSheet = XLSX.utils.aoa_to_sheet(detailRows);
+        detailSheet['!cols'] = [{wch:17}, {wch:34}, {wch:15}, {wch:16}, {wch:20}];
+        detailSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:4}}];
+        detailSheet['!print_area'] = `A1:E${detailRows.length}`;
+        detailSheet['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:0};
+        for (const address of Object.keys(detailSheet)) {
+            if (address[0] !== '!' && typeof detailSheet[address].v === 'number') detailSheet[address].z = '#,##0.##';
+        }
+        XLSX.utils.book_append_sheet(wb, detailSheet, allocateName(name + '明細'));
+    });
+    XLSX.writeFile(wb, `百麒國際股份有限公司對帳單_${report.comp.replace(/[\\/:*?"<>|]/g, '_')}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
 }
 
 // ==========================================
