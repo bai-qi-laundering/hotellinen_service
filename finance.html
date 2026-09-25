@@ -6,6 +6,9 @@
 <title>百麒國際股份有限公司 - 財務多維結帳系統</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700;900&display=swap" rel="stylesheet">
 <style>
 body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding-bottom: 80px; }
 .app-container { max-w-[1400px]; margin: 0 auto; padding: 20px; }
@@ -68,7 +71,7 @@ body { background: white; padding: 0; margin: 0; }
 .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
 
-/* 報表字型：數字使用 Georgia；中文優先使用本機已安裝的華康明體。 */
+/* 報表字型：Georgia 數字 + 思源宋體（Noto Serif TC）中文。 */
 @font-face {
   font-family: 'BaiqiGeorgiaDigits';
   src: local('Georgia');
@@ -100,9 +103,11 @@ body { background: white; padding: 0; margin: 0; }
   .report-overview .data-table .overview-total td:last-child, .report-overview .data-table .overview-grand td:last-child { text-align:right; }
   .report-overview .data-table .overview-total, .report-overview .data-table .overview-grand { break-inside:avoid; page-break-inside:avoid; }
   .report-overview .overview-total-group { break-inside:avoid; page-break-inside:avoid; }
-  .report-page { box-sizing:border-box; width:100%; padding:0; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:auto; break-before:auto; page-break-after:auto; break-after:auto; page-break-inside:auto; break-inside:auto; }
-  .report-page + .report-page { margin-top:15px; }
-  /* 不為部門、月總量或交易明細強制開新頁；有空間就接著排。 */
+  .report-page { box-sizing:border-box; width:100%; padding:0; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','Noto Serif TC','Source Han Serif TC','思源宋體','PMingLiU',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:auto; break-before:auto; page-break-after:auto; break-after:auto; page-break-inside:auto; break-inside:auto; }
+  .report-page + .report-page { margin-top:0; }
+  /* 每個部門開始新頁；部門內月總量與交易明細自然連續，內容過長才續頁。 */
+  .report-department { break-before:page !important; page-break-before:always !important; break-inside:auto; page-break-inside:auto; }
+  /* 不拆開同部門的月總量與明細，僅在換部門時分頁。 */
   .report-page * { text-rendering:optimizeLegibility; }
   .report-page .invoice-header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; border-bottom:2.5px solid #b69b68; padding:0 0 13px; margin:0 0 19px; }
   .report-page .invoice-title { font-size:27px; line-height:1.25; font-weight:900; letter-spacing:1.1px; color:#173c36; }
@@ -122,9 +127,9 @@ body { background: white; padding: 0; margin: 0; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f8f8f2 !important; }
   .report-page .total-row td { background:#eaf0e8 !important; color:#173c36; font-size:15px; font-weight:900; border-top:2px solid #b69b68; }
   .report-page .monthly-table, .report-page .detail-table { font-size:17px; }
-  /* 套用於所有報表文字：數字 Georgia，中文優先華康明體，加粗以平衡數字筆畫。 */
+  /* 所有報表文字：Georgia 數字、思源宋體中文，文字加粗與數字視覺一致。 */
   .report-page, .report-page * {
-    font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif !important;
+    font-family:'BaiqiGeorgiaDigits','Noto Serif TC','Source Han Serif TC','思源宋體','PMingLiU',serif !important;
     font-variant-numeric:lining-nums;
   }
   .report-page .monthly-table td:nth-child(n+2),
@@ -1243,7 +1248,7 @@ function generateOfficialInvoice() {
           <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
         </div></section>`;
 
-    // 同部門在同一區塊：月總量總結緊接交易明細，不再各自成頁。
+    // 每個部門各自從新頁開始；同部門月總量總結緊接交易明細。
     deptEntries.forEach(([name, dept]) => {
         const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
         const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
@@ -1286,7 +1291,7 @@ function exportToExcel() {
     const wb = XLSX.utils.book_new();
     const navy = '173C36', gold = 'B69B68', pale = 'F5F0E5', white = 'FFFFFF', ink = '293D38';
     const style = (fill, bold=false, color=ink, size=11, align='left') => ({
-        font:{name:'華康明體',sz:size,bold:true,color:{rgb:color}},
+        font:{name:'Noto Serif TC',sz:size,bold:true,color:{rgb:color}},
         fill:{fgColor:{rgb:fill}},
         alignment:{horizontal:align,vertical:'center',wrapText:true},
         border:{top:{style:'thin',color:{rgb:'D9DFD8'}},bottom:{style:'thin',color:{rgb:'D9DFD8'}},left:{style:'thin',color:{rgb:'E8E1D4'}},right:{style:'thin',color:{rgb:'E8E1D4'}}}
@@ -1309,7 +1314,7 @@ function exportToExcel() {
             ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
             if (typeof value === 'number' || (typeof value === 'string' && /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*[~～-]\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2})?\s*$/.test(value))) {
                 if (typeof value === 'number') ws[addr].z = numberFormat;
-                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用華康明體。
+                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用思源宋體。
                 ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia'}};
             }
         }));
