@@ -457,6 +457,27 @@ let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
 
+// 與「物流查帳後台」共用同一份 Firestore 品項排序範本。
+let logisticsMasterItems = [];
+async function ensureLogisticsItemOrder() {
+    const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
+    if (!snap.exists() || !Array.isArray(snap.data().items) || !snap.data().items.length) {
+        throw new Error('無法讀取物流查帳後台的品項排序設定（master_template），請稍後重試。');
+    }
+    logisticsMasterItems = snap.data().items;
+}
+// 完全比照 boss_admin.html：先比對該飯店／部門的範本；若無範本，使用全域品項順序。
+function getLogisticsItemSortIndex(hotelName, itemName) {
+    let expectedOrder = logisticsMasterItems.filter(d => d.hotel === hotelName).map(d => d.item);
+    if (expectedOrder.length === 0) expectedOrder = [...new Set(logisticsMasterItems.map(d => d.item))];
+    const index = expectedOrder.indexOf(itemName);
+    return index === -1 ? 99999 : index;
+}
+function compareLogisticsItems(hotelName, itemA, itemB) {
+    const diff = getLogisticsItemSortIndex(hotelName, itemA) - getLogisticsItemSortIndex(hotelName, itemB);
+    return diff || String(itemA).localeCompare(String(itemB), 'zh-TW');
+}
+
 // ★ 待儲存更新陣列 (現在包含品項與價格)
 let pendingUpdatesArray = []; 
 let customPricesDirty = false;
@@ -951,7 +972,7 @@ async function fetchRecordsForSelectedHotels() {
     
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
-    await syncMasterDataFromSheet();
+    await Promise.all([syncMasterDataFromSheet(), ensureLogisticsItemOrder()]);
 
     let startParts = startDate.split('-'); let endParts = endDate.split('-');
     let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
@@ -1236,6 +1257,7 @@ document.getElementById('ciMethod').value = p.method;
 
 // 匯出共用資料：僅取所選客戶，部門數量及金額採用相同資料來源。
 function buildInvoiceReport() {
+    if (!logisticsMasterItems.length) { alert('尚未載入物流後台的品項排序，請重新載入明細。'); return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 }; }
     const comp = document.getElementById('invoiceTargetCompany').value;
     const matches = rawLogisticsData.filter(r => r.parentCompany === comp || r.hotel === comp || r.hotel.startsWith(comp + ' '));
     const depts = {};
@@ -1249,15 +1271,14 @@ function buildInvoiceReport() {
         depts[name].records.push({ date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
         // 同品項若有不同單價，分開列示，避免月總量的單價與金額不一致。
         const key = JSON.stringify([r.item, price]);
-        // 保留物流表單 items 陣列中的品項位置，月總量依此排列，不按品名筆畫排序。
-        if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0, formOrder: r.receiptOrder, firstSeen: depts[name].records.length - 1 };
-        depts[name].summary[key].formOrder = Math.min(depts[name].summary[key].formOrder, r.receiptOrder);
+        // 月總量的排序由物流查帳後台 master_template 決定，不使用每日單據的陣列位置。
+        if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0, firstSeen: depts[name].records.length - 1 };
         depts[name].summary[key].qty += qty;
         depts[name].summary[key].amt += amount;
         depts[name].total += amount;
         grandTotal += amount;
     });
-    Object.values(depts).forEach(dept => dept.records.sort((a,b) => a.date.localeCompare(b.date) || a.receiptOrder - b.receiptOrder));
+    Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || a.receiptOrder - b.receiptOrder));
     return { comp, depts, grandTotal, rounded: Math.round(grandTotal), tax: Math.round(Math.round(grandTotal) * 0.05) };
 }
 
@@ -1308,8 +1329,8 @@ function generateOfficialInvoice() {
 
     // 每個部門各自從新頁開始；同部門月總量總結緊接交易明細。
     deptEntries.forEach(([name, dept]) => {
-        // PDF 月總量：依物流表單的原始品項順序；同順位保留首次出現的次序。
-        const items = Object.values(dept.summary).sort((a,b) => a.formOrder - b.formOrder || a.firstSeen - b.firstSeen);
+        // PDF 月總量：依物流查帳後台 master_template 的品項順序。
+        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
         const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
         const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
         html += `<section class="report-page report-department">
@@ -1400,7 +1421,7 @@ function exportToExcel() {
         return sheetName;
     };
     entries.forEach(([name,dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => a.formOrder - b.formOrder || a.firstSeen - b.firstSeen);
+        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
         const rows = [
           ['百麒國際股份有限公司｜部門對帳明細'],
           ['部門名稱',name],['對帳期間',period],[],
