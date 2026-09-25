@@ -20,7 +20,7 @@ body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont
 .subtotal-row { background-color: #f8f9fa; border-bottom: 3px solid #dee2e6; }
 .total-row { background-color: #eff6ff; }
 .price-display { font-weight: bold; color: #1e3a8a; }
-/* 結帳核對警示：單價為零、空白或與同部門同品項／價目表不符時整列反紅。 */
+/* 結帳核對警示：單價為零、空白或與同部門同品項單價不一致時整列反紅；不比對價目表。 */
 .bank-table tr.main-row.price-warning td,
 .bank-table tr.main-row.price-warning:hover td { background-color:#fee2e2 !important; color:#991b1b !important; border-bottom:1px solid #fca5a5 !important; }
 .bank-table tr.main-row.price-warning .price-input { background:#fff1f2 !important; border:2px solid #dc2626 !important; color:#991b1b !important; }
@@ -691,26 +691,18 @@ function refreshFinancePriceWarnings() {
     });
     groups.forEach(group => {
         const {dept, item} = group[0];
-        // 優先以原始價目表核對，不以手動修改後的 customPrices 當標準。
-        const exactKey = `${dept}_${item}`;
-        const unifiedKey = `${dept}_統一折扣`;
-        const listed = sheetPrices[exactKey] !== undefined ? sheetPrices[exactKey]
-                     : sheetPrices[unifiedKey] !== undefined ? sheetPrices[unifiedKey] : null;
-        const reference = listed !== null && listed !== '' ? normalPrice(listed) : null;
         const freq = new Map();
         group.forEach(({price}) => {
             if (Number.isFinite(price) && price > 0) freq.set(price, (freq.get(price) || 0) + 1);
         });
         const sorted = [...freq.entries()].sort((a,b) => b[1]-a[1]);
         const hasConflict = sorted.length > 1;
-        // 沒有價目表時，以同部門、同品項出現最多的價格作為核對參考；
+        // 僅以同部門、同品項出現最多的價格作為核對參考；
         // 若票數相同，兩種價格都標示待確認，避免任意判定哪個正確。
         const peerReference = sorted.length && (!hasConflict || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
         group.forEach(({tr, input, price}) => {
             const warnings = [];
             if (!Number.isFinite(price) || price <= 0) warnings.push('單價未填或為 0');
-            else if (reference !== null && Number.isFinite(reference) && price !== reference)
-                warnings.push(`與價目表單價 ${reference} 不同`);
             else if (hasConflict && (peerReference === null || price !== peerReference))
                 warnings.push(peerReference === null ? '同部門同品項單價不一致' : `與同部門同品項常用單價 ${peerReference} 不同`);
             tr.classList.toggle('price-warning', warnings.length > 0);
