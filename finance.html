@@ -68,13 +68,19 @@ body { background: white; padding: 0; margin: 0; }
 .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
 
+/* 報表字型：僅 0-9 使用 Georgia，其餘中文字採用 Windows 明體。 */
+@font-face {
+  font-family: 'BaiqiGeorgiaDigits';
+  src: local('Georgia');
+  unicode-range: U+0030-0039;
+}
 /* 精品飯店風：僅調整對帳單匯出與列印外觀，不動結帳資料與運算。 */
 @media print {
   /* 使用完整 A4 可列印區，不額外輸出瀏覽器標題／日期／網址／頁碼。 */
   @page { size:A4 portrait; margin:0; }
   @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
   html, body { margin:0 !important; padding:0 !important; background:white !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .report-page { box-sizing:border-box; width:100%; padding:13mm 12mm 14mm; background:#fffefa; color:#293d38; font-family:'Microsoft JhengHei','Noto Sans TC',Arial,sans-serif; font-size:15px; line-height:1.48; page-break-before:always; break-before:page; }
+  .report-page { box-sizing:border-box; width:100%; padding:13mm 12mm 14mm; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; line-height:1.48; page-break-before:always; break-before:page; }
   .report-page:first-child { page-break-before:auto; break-before:auto; }
   .report-page * { text-rendering:optimizeLegibility; }
   .report-page .invoice-header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; border-bottom:2.5px solid #b69b68; padding:0 0 13px; margin:0 0 19px; }
@@ -95,17 +101,17 @@ body { background: white; padding: 0; margin: 0; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f8f8f2 !important; }
   .report-page .total-row td { background:#eaf0e8 !important; color:#173c36; font-size:15px; font-weight:900; border-top:2px solid #b69b68; }
   .report-page .monthly-table, .report-page .detail-table { font-size:17px; }
-  /* 數字專用字型：Georgia 精品襯線數字，中文維持原本字型。 */
+  /* 套用於所有報表文字：數字 Georgia、中文新細明體／細明體。 */
+  .report-page, .report-page * {
+    font-family:'BaiqiGeorgiaDigits','PMingLiU','MingLiU','Noto Serif TC',serif !important;
+    font-variant-numeric:lining-nums;
+  }
   .report-page .monthly-table td:nth-child(n+2),
   .report-page .detail-table td:first-child,
   .report-page .detail-table td:nth-child(n+3),
-  .report-page .report-overview .data-table td:last-child,
-  .report-page .report-totals b,
-  .report-page .report-dept-meta span {
-    font-family:Georgia, 'Times New Roman', serif;
+  .report-page .report-totals b {
     font-variant-numeric:tabular-nums lining-nums;
-    font-weight:600;
-    letter-spacing:0.25px;
+    letter-spacing:0.2px;
   }
 
   .report-page .monthly-table tr, .report-page .detail-table tr { page-break-inside:avoid; break-inside:avoid; }
@@ -1259,7 +1265,7 @@ function exportToExcel() {
     const wb = XLSX.utils.book_new();
     const navy = '173C36', gold = 'B69B68', pale = 'F5F0E5', white = 'FFFFFF', ink = '293D38';
     const style = (fill, bold=false, color=ink, size=11, align='left') => ({
-        font:{name:'Microsoft JhengHei',sz:size,bold,color:{rgb:color}},
+        font:{name:'PMingLiU',sz:size,bold,color:{rgb:color}},
         fill:{fgColor:{rgb:fill}},
         alignment:{horizontal:align,vertical:'center',wrapText:true},
         border:{top:{style:'thin',color:{rgb:'D9DFD8'}},bottom:{style:'thin',color:{rgb:'D9DFD8'}},left:{style:'thin',color:{rgb:'E8E1D4'}},right:{style:'thin',color:{rgb:'E8E1D4'}}}
@@ -1280,10 +1286,10 @@ function exportToExcel() {
             const isTotal = totals.includes(ri+1), isHeader = headers.includes(ri+1), isSection = sections.includes(ri+1);
             const fill = isTotal ? pale : ri % 2 ? 'F8F8F2' : white;
             ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
-            if (typeof value === 'number') {
-                ws[addr].z = numberFormat;
-                // Excel 數字儲存格使用 Georgia，保留原本的配色、底色與字級。
-                ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia', bold:false}};
+            if (typeof value === 'number' || (typeof value === 'string' && /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*[~～-]\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2})?\s*$/.test(value))) {
+                if (typeof value === 'number') ws[addr].z = numberFormat;
+                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用新細明體。
+                ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia'}};
             }
         }));
         ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 45 : headers.includes(ri+1) || sections.includes(ri+1) ? 37 : totals.includes(ri+1) ? 36 : 33}));
