@@ -29,7 +29,7 @@ body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont
 body { background: white; padding: 0; margin: 0; }
 .no-print { display: none !important; }
 .print-only { display: block !important; width: 100%; color: #000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-@page { size: A4 portrait; margin: 10mm; }
+@page { size: A4 portrait; margin: 0; }
 .page-break { page-break-before: always; }
 .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 20px; }
 .invoice-title { font-size: 28px; font-weight: 900; color: #1e3a8a; letter-spacing: 2px; }
@@ -70,7 +70,10 @@ body { background: white; padding: 0; margin: 0; }
 
 /* 客戶報表：深藍與暖金配色，同一部門總量在明細上方。 */
 @media print {
-  @page { size:A4 portrait; margin:12mm 11mm; }
+  /* 零頁邊距可避免 Chrome 自動加入文件標題、網址、日期及頁碼。 */
+  @page { size:A4 portrait; margin:0; }
+  @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
+  .report-page { box-sizing:border-box; padding:12mm 11mm; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
   body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .report-page { page-break-before:always; break-before:page; width:100%; }
   .report-page:first-child { page-break-before:auto; break-before:auto; }
@@ -356,7 +359,7 @@ body { background: white; padding: 0; margin: 0; }
 <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
 <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
 <button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載對帳 Excel</button>
-<button onclick="window.print()" title="列印視窗請取消勾選「頁首及頁尾」，以移除瀏覽器自動加入的網址、日期與頁碼" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
+<button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
 </div>
 
 <!-- 底部導覽列 -->
