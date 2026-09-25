@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>百麒國際股份有限公司 - 財務多維結帳系統</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
 body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding-bottom: 80px; }
 .app-container { max-w-[1400px]; margin: 0 auto; padding: 20px; }
@@ -68,33 +68,36 @@ body { background: white; padding: 0; margin: 0; }
 .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
 
-/* 對帳單列印：僅保留報表正文，移除原有英文副標、頁碼與頁尾備註。 */
+/* 客戶報表：深藍與暖金配色，同一部門總量在明細上方。 */
 @media print {
-  .report-page { page-break-before: always; break-before: page; width: 100%; }
-  .report-page:first-child { page-break-before: auto; break-before: auto; }
-  .report-page:last-child { page-break-after: auto; }
-  .report-page .invoice-header { align-items:center; margin-bottom:12px; padding-bottom:8px; }
-  .report-page .invoice-title { font-size:20px; letter-spacing:0; }
-  .report-heading { font-size:20px; color:#1e3a8a; font-weight:900; }
-  .report-section-title { font-size:16px; color:#1e3a8a; font-weight:800; margin:12px 0; }
-  .report-dept-meta { display:flex; justify-content:space-between; gap:12px; font-size:13px; margin:0 0 12px; }
-  .report-page .data-table, .report-page .detail-table { margin-bottom:10px; }
-  .report-page .data-table th, .report-page .data-table td { padding:6px; }
-  .report-page .detail-table th, .report-page .detail-table td { padding:5px; }
-  .report-monthly { break-inside:avoid-page; page-break-inside:avoid; }
-  .report-monthly .monthly-table { break-inside:avoid-page; page-break-inside:avoid; font-size:11px; }
-  .report-monthly .monthly-table tr { break-inside:avoid; page-break-inside:avoid; }
-  .report-monthly.dense .monthly-table { font-size:9px; }
-  .report-monthly.dense .monthly-table td, .report-monthly.dense .monthly-table th { padding:3px 4px; }
-  .report-monthly.very-dense .monthly-table { font-size:8px; }
-  .report-monthly.very-dense .monthly-table td, .report-monthly.very-dense .monthly-table th { padding:1px 3px; line-height:1.1; }
-  .report-monthly.very-dense .invoice-header { margin-bottom:6px; }
-  .report-monthly.very-dense .report-dept-meta { margin-bottom:6px; }
-  .report-totals { margin-left:auto; width:290px; border:1px solid #94a3b8; padding:12px; }
+  @page { size:A4 portrait; margin:12mm 11mm; }
+  body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .report-page { page-break-before:always; break-before:page; width:100%; }
+  .report-page:first-child { page-break-before:auto; break-before:auto; }
+  .report-page .invoice-header { align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:3px solid #203b61; }
+  .report-page .invoice-title { font-size:20px; letter-spacing:1px; }
+  .report-heading { font-size:19px; color:#203b61; font-weight:900; }
+  .report-section-title { font-size:15px; color:#203b61; font-weight:800; padding:8px 11px; margin:16px 0 8px; border-left:4px solid #bb935e; background:#f1f5f9; }
+  .report-dept-meta { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#43536b; margin:0 0 12px; }
+  .report-dept-meta b { font-size:14px; color:#203b61; }
+  .report-page table { width:100%; border-collapse:collapse; margin-bottom:12px; }
+  .report-page table th { background:#203b61 !important; color:white !important; padding:7px 6px; font-weight:700; border:1px solid #203b61; }
+  .report-page table td { padding:6px; border:1px solid #d8e0e9; color:#26364b; }
+  .report-page tbody tr:nth-child(even):not(.total-row) { background:#f7f9fc !important; }
+  .report-page .total-row td { background:#e9eff7 !important; color:#17365d; font-weight:800; border-top:2px solid #9bafc9; }
+  .report-page .monthly-table { font-size:11px; }
+  .report-page .detail-table { font-size:11px; }
+  .report-page .monthly-table tr, .report-page .detail-table tr { break-inside:avoid; page-break-inside:avoid; }
+  .report-monthly-block { break-inside:avoid-page; page-break-inside:avoid; }
+  .report-monthly-block.dense .monthly-table { font-size:9px; }
+  .report-monthly-block.dense .monthly-table td, .report-monthly-block.dense .monthly-table th { padding:3px 4px; }
+  .report-monthly-block.very-dense .monthly-table { font-size:8px; }
+  .report-monthly-block.very-dense .monthly-table td, .report-monthly-block.very-dense .monthly-table th { padding:2px 3px; line-height:1.1; }
+  .report-detail-block { break-before:auto; }
+  .report-detail-block thead { display:table-header-group; }
+  .report-totals { margin-left:auto; width:290px; background:#f7f9fc; border:1px solid #c9d4e2; border-radius:5px; padding:12px; }
   .report-totals > div { display:flex; justify-content:space-between; padding:6px 0; }
-  .report-totals .report-grand { border-top:2px solid #1e3a8a; font-size:17px; color:#1e3a8a; }
-  .report-detail thead { display:table-header-group; }
-  .report-detail tr { break-inside:avoid; page-break-inside:avoid; }
+  .report-totals .report-grand { border-top:2px solid #bb935e; font-size:17px; color:#203b61; }
 }
 </style>
 </head>
@@ -1192,35 +1195,32 @@ function generateOfficialInvoice() {
         <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
         </div></section>`;
 
-    // 每個部門的「月總量總結」各自一頁，不再將部門連續串入同一表格。
+    // 同部門在同一區塊：月總量總結緊接交易明細，不再各自成頁。
     deptEntries.forEach(([name, dept]) => {
         const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
         const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
-        // 品項多時縮小行高和字體；同一部門仍作為一個不可分割的列印區塊。
         const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
-        html += `<section class="report-page report-monthly${density}">
-            <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">月總量總結</div></header>
+        html += `<section class="report-page report-department">
+            <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">部門對帳明細</div></header>
             <div class="report-dept-meta"><b>部門：${e(name)}</b><span>對帳期間：${e(period)}</span></div>
-            <table class="data-table monthly-table"><thead><tr><th>品項名稱</th><th>總數量</th><th>單價</th><th>未稅金額</th></tr></thead><tbody>`;
+            <div class="report-monthly-block${density}">
+              <h2 class="report-section-title">01　月總量總結</h2>
+              <table class="data-table monthly-table"><thead><tr><th>品項名稱</th><th>總數量</th><th>單價</th><th>未稅金額</th></tr></thead><tbody>`;
         items.forEach(item => {
             html += `<tr><td style="text-align:left">${e(item.item)}</td><td>${moneyReport(item.qty)}</td><td>${moneyReport(item.price)}</td><td style="text-align:right">${moneyReport(item.amt)}</td></tr>`;
         });
         html += `<tr class="total-row"><td>部門合計</td><td>${moneyReport(totalQty)}</td><td></td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>
-            </tbody></table></section>`;
-    });
-
-    deptEntries.forEach(([name, dept]) => {
-        html += `<section class="report-page report-detail">
-            <header class="invoice-header"><div class="invoice-title">交易明細清單</div><div class="report-heading">${e(name)}</div></header>
-            <div class="report-dept-meta"><b>客戶：${e(profile.name)}</b><span>對帳期間：${e(period)}</span></div>
-            <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
+              </tbody></table></div>
+            <div class="report-detail-block">
+              <h2 class="report-section-title">02　交易明細</h2>
+              <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
         let previousDate = '';
         dept.records.forEach(r => {
             const dateLabel = r.date === previousDate ? '' : r.date;
             previousDate = r.date;
             html += `<tr><td>${e(dateLabel)}</td><td style="text-align:left">${e(r.item)}</td><td>${moneyReport(r.qty)}</td><td>${moneyReport(r.price)}</td><td style="text-align:right">${moneyReport(r.amt)}</td></tr>`;
         });
-        html += `<tr class="total-row"><td colspan="4" style="text-align:right">部門小計</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr></tbody></table></section>`;
+        html += `<tr class="total-row"><td colspan="4" style="text-align:right">部門小計</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr></tbody></table></div></section>`;
     });
     document.getElementById('printArea').innerHTML = html;
     closeInvoiceModal();
@@ -1236,61 +1236,82 @@ function exportToExcel() {
     const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
     const entries = Object.entries(report.depts).sort(([a],[b]) => a.localeCompare(b, 'zh-TW'));
     const wb = XLSX.utils.book_new();
-    const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱', document.getElementById('ciName').value || report.comp], ['對帳期間', period], [], ['部門名稱', '未稅金額']];
-    entries.forEach(([name, dept]) => totalRows.push([name, dept.total]));
-    totalRows.push([], ['未稅金額', report.rounded], ['營業稅（5%）', report.tax], ['含稅總金額', report.rounded + report.tax]);
-    const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch: 36}, {wch: 22}];
-    totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
-    totalSheet['!print_area'] = `A1:B${totalRows.length}`;
-    totalSheet['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:1};
-    XLSX.utils.book_append_sheet(wb, totalSheet, '結算總表');
-    const usedNames = new Set(['結算總表']);
-    entries.forEach(([name, dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
-        const rows = [
-            [`百麒國際股份有限公司｜${name}｜月總量總結`],
-            ['對帳期間', period], [],
-            ['品項名稱', '總數量', '單價', '未稅金額']
-        ];
-        items.forEach(item => rows.push([item.item, item.qty, item.price, item.amt]));
-        rows.push(['部門合計', items.reduce((s, item) => s + item.qty, 0), '', dept.total]);
-        const summaryEndRow = rows.length;
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:34}, {wch:16}, {wch:16}, {wch:20}];
-        ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:3}}];
-        ws['!print_area'] = `A1:D${rows.length}`;
-        ws['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:1};
-        // 部門月總量獨立工作表，列印時不會與其他部門混頁。
-        for (const address of Object.keys(ws)) {
-            if (address[0] !== '!' && typeof ws[address].v === 'number') ws[address].z = '#,##0.##';
-        }
-        const allocateName = raw => {
-            let sheetName = raw.replace(/[\\/?*\[\]:]/g, '_').slice(0,31) || '未命名部門';
-            const base = sheetName;
-            for (let n=2; usedNames.has(sheetName); n++) sheetName = `${base.slice(0, 31-String(n).length-1)}_${n}`;
-            usedNames.add(sheetName);
-            return sheetName;
-        };
-        XLSX.utils.book_append_sheet(wb, ws, allocateName(name + '月總量'));
-        const detailRows = [[`${name}｜交易明細`], ['日期', '品項名稱', '數量', '單價', '金額']];
-        let lastDate = '';
-        dept.records.forEach(r => {
-            detailRows.push([r.date === lastDate ? '' : r.date, r.item, r.qty, r.price, r.amt]);
-            lastDate = r.date;
-        });
-        detailRows.push(['', '', '', '部門小計', dept.total]);
-        const detailSheet = XLSX.utils.aoa_to_sheet(detailRows);
-        detailSheet['!cols'] = [{wch:17}, {wch:34}, {wch:15}, {wch:16}, {wch:20}];
-        detailSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:4}}];
-        detailSheet['!print_area'] = `A1:E${detailRows.length}`;
-        detailSheet['!pageSetup'] = {orientation:'portrait', paperSize:9, fitToWidth:1, fitToHeight:0};
-        for (const address of Object.keys(detailSheet)) {
-            if (address[0] !== '!' && typeof detailSheet[address].v === 'number') detailSheet[address].z = '#,##0.##';
-        }
-        XLSX.utils.book_append_sheet(wb, detailSheet, allocateName(name + '明細'));
+    const navy = '203B61', gold = 'BB935E', pale = 'E9EFF7', white = 'FFFFFF', ink = '26364B';
+    const style = (fill, bold=false, color=ink, size=11, align='left') => ({
+        font:{name:'Microsoft JhengHei',sz:size,bold,color:{rgb:color}},
+        fill:{fgColor:{rgb:fill}},
+        alignment:{horizontal:align,vertical:'center'},
+        border:{bottom:{style:'thin',color:{rgb:'D9E2EC'}}}
     });
-    XLSX.writeFile(wb, `百麒國際股份有限公司對帳單_${report.comp.replace(/[\\/:*?"<>|]/g, '_')}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+    const titleStyle = style(navy,true,white,17);
+    const sectionStyle = style(pale,true,navy,12);
+    const headStyle = style(navy,true,white,10,'center');
+    const totalStyle = style(pale,true,navy,11);
+    const numberFormat = '#,##0.##';
+    const applyStyle = (ws, row, col, cellStyle) => {
+        const addr = XLSX.utils.encode_cell({r:row-1,c:col-1});
+        if (ws[addr]) ws[addr].s = cellStyle;
+    };
+    const formatData = (ws, rows, numericCols, headers, totals, sections) => {
+        rows.forEach((row, ri) => row.forEach((value, ci) => {
+            const addr = XLSX.utils.encode_cell({r:ri,c:ci});
+            if (!ws[addr]) return;
+            const isTotal = totals.includes(ri+1), isHeader = headers.includes(ri+1), isSection = sections.includes(ri+1);
+            const fill = isTotal ? pale : ri % 2 ? 'F7F9FC' : white;
+            ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,10, numericCols.includes(ci) ? 'right' : 'left');
+            if (typeof value === 'number') ws[addr].z = numberFormat;
+        }));
+        ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 31 : headers.includes(ri+1) || sections.includes(ri+1) ? 25 : totals.includes(ri+1) ? 25 : 21}));
+        ws['!margins'] = {left:0.35,right:0.35,top:0.45,bottom:0.45,header:0,footer:0};
+        ws['!pageSetup'] = {orientation:'portrait',paperSize:9,fitToWidth:1,fitToHeight:0};
+        ws['!header'] = ''; ws['!footer'] = '';
+    };
+    const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱',document.getElementById('ciName').value || report.comp], ['對帳期間',period], [], ['部門名稱','未稅金額']];
+    entries.forEach(([name,dept]) => totalRows.push([name,dept.total]));
+    totalRows.push([],['未稅金額',report.rounded],['營業稅（5%）',report.tax],['含稅總金額',report.rounded+report.tax]);
+    const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
+    totalSheet['!cols'] = [{wch:40},{wch:23}];
+    totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
+    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-2,totalRows.length-1,totalRows.length],[]);
+    totalSheet['!print_area'] = `A1:B${totalRows.length}`;
+    XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
+    const usedNames = new Set(['結算總表']);
+    const allocateName = raw => {
+        let sheetName = raw.replace(/[\\/?*\[\]:]/g,'_').slice(0,31) || '未命名部門';
+        const base = sheetName;
+        for(let n=2;usedNames.has(sheetName);n++) sheetName = `${base.slice(0,31-String(n).length-1)}_${n}`;
+        usedNames.add(sheetName);
+        return sheetName;
+    };
+    entries.forEach(([name,dept]) => {
+        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item,'zh-TW'));
+        const rows = [
+          ['百麒國際股份有限公司｜部門對帳明細'],
+          ['部門名稱',name],['對帳期間',period],[],
+          ['01　月總量總結'],
+          ['品項名稱','總數量','單價','未稅金額','']
+        ];
+        items.forEach(item => rows.push([item.item,item.qty,item.price,item.amt]));
+        rows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
+        const monthlyEnd = rows.length;
+        rows.push([],['02　交易明細'],['日期','品項名稱','數量','單價','金額']);
+        const detailHeader = rows.length;
+        let lastDate = '';
+        dept.records.forEach(r => { rows.push([r.date===lastDate?'':r.date,r.item,r.qty,r.price,r.amt]); lastDate=r.date; });
+        rows.push(['','','','部門小計',dept.total]);
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:19},{wch:34},{wch:15},{wch:16},{wch:20}];
+        ws['!merges'] = [
+          {s:{r:0,c:0},e:{r:0,c:4}},
+          {s:{r:4,c:0},e:{r:4,c:4}},
+          {s:{r:monthlyEnd+1,c:0},e:{r:monthlyEnd+1,c:4}}
+        ];
+        formatData(ws,rows,[1,2,3,4],[6,detailHeader],[monthlyEnd,rows.length],[5,monthlyEnd+2]);
+        ws['!print_area'] = `A1:E${rows.length}`;
+        // 一個部門一張工作表：先月總量，再交易明細。
+        XLSX.utils.book_append_sheet(wb,ws,allocateName(name));
+    });
+    XLSX.writeFile(wb,`百麒國際股份有限公司對帳單_${report.comp.replace(/[\\/:*?"<>|]/g,'_')}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
 }
 
 // ==========================================
