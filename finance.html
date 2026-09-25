@@ -88,7 +88,10 @@ body { background: white; padding: 0; margin: 0; }
   .report-overview .info-box-title { padding:5px 10px; }
   .report-overview .info-table td { padding:4px 8px; font-size:14px; line-height:1.25; }
   .report-overview .report-section-title { padding:6px 10px; margin:9px 0 6px; }
-  .report-overview .data-table { margin-bottom:0; }
+  .report-overview .data-table { margin-bottom:10px; }
+  .report-overview .report-totals { margin-top:10px; width:330px; }
+  .report-overview .report-totals > div { font-size:15px; }
+  .report-overview .report-totals .report-grand { font-size:20px; }
   .report-overview .data-table th { padding:7px 8px; font-size:16px; }
   .report-overview .data-table td { padding:6px 8px; font-size:16px; line-height:1.25; }
   .report-overview .data-table .overview-total td { background:#f8f5ed !important; font-weight:900; border-top:1px solid #d8c9a8; }
@@ -1232,12 +1235,13 @@ function generateOfficialInvoice() {
     deptEntries.forEach(([name, dept], index) => {
         html += `<tr><td>${index + 1}</td><td style="text-align:left">${e(name)}</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>`;
     });
-    // 合計直接接在總表尾端：不再是一個會被單獨移到下一頁的大卡片。
-    html += `</tbody><tbody class="overview-total-group">
-        <tr class="overview-total"><td colspan="2">未稅金額</td><td>$${moneyReport(report.rounded)}</td></tr>
-        <tr class="overview-total"><td colspan="2">營業稅（5%）</td><td>$${moneyReport(report.tax)}</td></tr>
-        <tr class="overview-grand"><td colspan="2">含稅總金額</td><td>$${moneyReport(report.rounded + report.tax)}</td></tr>
-        </tbody></table></section>`;
+    // 合計改成獨立卡片，放在總表下方右側。
+    html += `</tbody></table>
+        <div class="report-totals">
+          <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
+          <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
+          <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
+        </div></section>`;
 
     // 同部門在同一區塊：月總量總結緊接交易明細，不再各自成頁。
     deptEntries.forEach(([name, dept]) => {
