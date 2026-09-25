@@ -77,9 +77,26 @@ body { background: white; padding: 0; margin: 0; }
 /* 精品飯店風：僅調整對帳單匯出與列印外觀，不動結帳資料與運算。 */
 @media print {
   /* 每張 A4 僅保留空白邊距；不加入任何頁首頁尾文字。 */
-  @page { size:A4 portrait; margin:12mm; }
+  @page { size:A4 portrait; margin:0; }
   @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
   html, body { margin:0 !important; padding:0 !important; background:white !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  /* 以內容容器製作白邊，避免把瀏覽器預設的日期、網址與頁碼擠進 @page 邊界。 */
+  #printArea { box-sizing:border-box; padding:12mm; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+  /* 總結頁緊湊排版：同一頁可容納較多部門與三筆合計。 */
+  .report-overview .invoice-header { margin-bottom:10px; padding-bottom:8px; }
+  .report-overview .info-boxes { margin-bottom:8px; gap:10px; }
+  .report-overview .info-box-title { padding:5px 10px; }
+  .report-overview .info-table td { padding:4px 8px; font-size:14px; line-height:1.25; }
+  .report-overview .report-section-title { padding:6px 10px; margin:9px 0 6px; }
+  .report-overview .data-table { margin-bottom:0; }
+  .report-overview .data-table th { padding:7px 8px; font-size:16px; }
+  .report-overview .data-table td { padding:6px 8px; font-size:16px; line-height:1.25; }
+  .report-overview .data-table .overview-total td { background:#f8f5ed !important; font-weight:900; border-top:1px solid #d8c9a8; }
+  .report-overview .data-table .overview-grand td { background:#eaf0e8 !important; font-weight:900; color:#173c36; border-top:2px solid #b69b68; font-size:18px; }
+  .report-overview .data-table .overview-total td:first-child, .report-overview .data-table .overview-grand td:first-child { text-align:right; }
+  .report-overview .data-table .overview-total td:last-child, .report-overview .data-table .overview-grand td:last-child { text-align:right; }
+  .report-overview .data-table .overview-total, .report-overview .data-table .overview-grand { break-inside:avoid; page-break-inside:avoid; }
+  .report-overview .overview-total-group { break-inside:avoid; page-break-inside:avoid; }
   .report-page { box-sizing:border-box; width:100%; padding:0; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:auto; break-before:auto; page-break-after:auto; break-after:auto; page-break-inside:auto; break-inside:auto; }
   .report-page + .report-page { margin-top:15px; }
   /* 不為部門、月總量或交易明細強制開新頁；有空間就接著排。 */
@@ -95,10 +112,10 @@ body { background: white; padding: 0; margin: 0; }
   .report-page .info-box-title { color:#fff !important; background:#173c36 !important; padding:10px 12px; font-size:15px; font-weight:900; letter-spacing:.5px; }
   .report-page .info-table { width:100%; border-collapse:collapse; }
   .report-page .info-table td { font-size:15px; padding:10px 11px; line-height:1.4; color:#293d38; border:0; border-bottom:1px solid #e9e3d8; overflow-wrap:anywhere; }
-  .report-page .info-table td:first-child { width:102px; background:#f9f6ef; font-weight:800; color:#38564a; border-right:1px solid #e9e3d8; }
+  .report-page .info-table td:first-child { width:102px; background:#f9f6ef; font-weight:900; color:#38564a; border-right:1px solid #e9e3d8; }
   .report-page table { width:100%; border-collapse:collapse; margin-bottom:15px; }
   .report-page table th { background:#173c36 !important; color:#fff !important; border:1px solid #173c36; padding:12px 9px; font-size:17px; font-weight:900; line-height:1.4; }
-  .report-page table td { color:#243b33; border:1px solid #d9dfd8; padding:11px 9px; font-size:17px; line-height:1.45; font-weight:700; }
+  .report-page table td { color:#243b33; border:1px solid #d9dfd8; padding:11px 9px; font-size:17px; line-height:1.45; font-weight:800; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f8f8f2 !important; }
   .report-page .total-row td { background:#eaf0e8 !important; color:#173c36; font-size:15px; font-weight:900; border-top:2px solid #b69b68; }
   .report-page .monthly-table, .report-page .detail-table { font-size:17px; }
@@ -1215,11 +1232,12 @@ function generateOfficialInvoice() {
     deptEntries.forEach(([name, dept], index) => {
         html += `<tr><td>${index + 1}</td><td style="text-align:left">${e(name)}</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>`;
     });
-    html += `</tbody></table><div class="report-totals">
-        <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
-        <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
-        <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
-        </div></section>`;
+    // 合計直接接在總表尾端：不再是一個會被單獨移到下一頁的大卡片。
+    html += `</tbody><tbody class="overview-total-group">
+        <tr class="overview-total"><td colspan="2">未稅金額</td><td>$${moneyReport(report.rounded)}</td></tr>
+        <tr class="overview-total"><td colspan="2">營業稅（5%）</td><td>$${moneyReport(report.tax)}</td></tr>
+        <tr class="overview-grand"><td colspan="2">含稅總金額</td><td>$${moneyReport(report.rounded + report.tax)}</td></tr>
+        </tbody></table></section>`;
 
     // 同部門在同一區塊：月總量總結緊接交易明細，不再各自成頁。
     deptEntries.forEach(([name, dept]) => {
