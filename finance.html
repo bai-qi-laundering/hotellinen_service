@@ -68,7 +68,7 @@ body { background: white; padding: 0; margin: 0; }
 .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
 
-/* 報表字型：僅 0-9 使用 Georgia，其餘中文字採用 Windows 明體。 */
+/* 報表字型：數字使用 Georgia；中文優先使用本機已安裝的華康明體。 */
 @font-face {
   font-family: 'BaiqiGeorgiaDigits';
   src: local('Georgia');
@@ -76,11 +76,11 @@ body { background: white; padding: 0; margin: 0; }
 }
 /* 精品飯店風：僅調整對帳單匯出與列印外觀，不動結帳資料與運算。 */
 @media print {
-  /* 使用完整 A4 可列印區，不額外輸出瀏覽器標題／日期／網址／頁碼。 */
-  @page { size:A4 portrait; margin:0; }
+  /* 實體頁面上下各留 12mm：交易明細跨頁時，續頁表頭也不貼頂。 */
+  @page { size:A4 portrait; margin:12mm 0; }
   @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
   html, body { margin:0 !important; padding:0 !important; background:white !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .report-page { box-sizing:border-box; width:100%; padding:13mm 12mm 14mm; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; line-height:1.48; page-break-before:always; break-before:page; }
+  .report-page { box-sizing:border-box; width:100%; padding:0 12mm; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:always; break-before:page; }
   .report-page:first-child { page-break-before:auto; break-before:auto; }
   .report-page * { text-rendering:optimizeLegibility; }
   .report-page .invoice-header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; border-bottom:2.5px solid #b69b68; padding:0 0 13px; margin:0 0 19px; }
@@ -97,13 +97,13 @@ body { background: white; padding: 0; margin: 0; }
   .report-page .info-table td:first-child { width:102px; background:#f9f6ef; font-weight:800; color:#38564a; border-right:1px solid #e9e3d8; }
   .report-page table { width:100%; border-collapse:collapse; margin-bottom:15px; }
   .report-page table th { background:#173c36 !important; color:#fff !important; border:1px solid #173c36; padding:12px 9px; font-size:17px; font-weight:900; line-height:1.4; }
-  .report-page table td { color:#243b33; border:1px solid #d9dfd8; padding:11px 9px; font-size:17px; line-height:1.45; font-weight:500; }
+  .report-page table td { color:#243b33; border:1px solid #d9dfd8; padding:11px 9px; font-size:17px; line-height:1.45; font-weight:700; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f8f8f2 !important; }
   .report-page .total-row td { background:#eaf0e8 !important; color:#173c36; font-size:15px; font-weight:900; border-top:2px solid #b69b68; }
   .report-page .monthly-table, .report-page .detail-table { font-size:17px; }
-  /* 套用於所有報表文字：數字 Georgia、中文新細明體／細明體。 */
+  /* 套用於所有報表文字：數字 Georgia，中文優先華康明體，加粗以平衡數字筆畫。 */
   .report-page, .report-page * {
-    font-family:'BaiqiGeorgiaDigits','PMingLiU','MingLiU','Noto Serif TC',serif !important;
+    font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif !important;
     font-variant-numeric:lining-nums;
   }
   .report-page .monthly-table td:nth-child(n+2),
@@ -1261,7 +1261,7 @@ function exportToExcel() {
     const wb = XLSX.utils.book_new();
     const navy = '173C36', gold = 'B69B68', pale = 'F5F0E5', white = 'FFFFFF', ink = '293D38';
     const style = (fill, bold=false, color=ink, size=11, align='left') => ({
-        font:{name:'PMingLiU',sz:size,bold,color:{rgb:color}},
+        font:{name:'華康明體',sz:size,bold:true,color:{rgb:color}},
         fill:{fgColor:{rgb:fill}},
         alignment:{horizontal:align,vertical:'center',wrapText:true},
         border:{top:{style:'thin',color:{rgb:'D9DFD8'}},bottom:{style:'thin',color:{rgb:'D9DFD8'}},left:{style:'thin',color:{rgb:'E8E1D4'}},right:{style:'thin',color:{rgb:'E8E1D4'}}}
@@ -1284,7 +1284,7 @@ function exportToExcel() {
             ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
             if (typeof value === 'number' || (typeof value === 'string' && /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*[~～-]\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2})?\s*$/.test(value))) {
                 if (typeof value === 'number') ws[addr].z = numberFormat;
-                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用新細明體。
+                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用華康明體。
                 ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia'}};
             }
         }));
