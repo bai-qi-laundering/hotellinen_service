@@ -1249,7 +1249,9 @@ function buildInvoiceReport() {
         depts[name].records.push({ date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
         // 同品項若有不同單價，分開列示，避免月總量的單價與金額不一致。
         const key = JSON.stringify([r.item, price]);
-        if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0 };
+        // 保留物流表單 items 陣列中的品項位置，月總量依此排列，不按品名筆畫排序。
+        if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0, formOrder: r.receiptOrder, firstSeen: depts[name].records.length - 1 };
+        depts[name].summary[key].formOrder = Math.min(depts[name].summary[key].formOrder, r.receiptOrder);
         depts[name].summary[key].qty += qty;
         depts[name].summary[key].amt += amount;
         depts[name].total += amount;
@@ -1306,7 +1308,8 @@ function generateOfficialInvoice() {
 
     // 每個部門各自從新頁開始；同部門月總量總結緊接交易明細。
     deptEntries.forEach(([name, dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item, 'zh-TW'));
+        // PDF 月總量：依物流表單的原始品項順序；同順位保留首次出現的次序。
+        const items = Object.values(dept.summary).sort((a,b) => a.formOrder - b.formOrder || a.firstSeen - b.firstSeen);
         const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
         const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
         html += `<section class="report-page report-department">
@@ -1397,7 +1400,7 @@ function exportToExcel() {
         return sheetName;
     };
     entries.forEach(([name,dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => a.item.localeCompare(b.item,'zh-TW'));
+        const items = Object.values(dept.summary).sort((a,b) => a.formOrder - b.formOrder || a.firstSeen - b.firstSeen);
         const rows = [
           ['百麒國際股份有限公司｜部門對帳明細'],
           ['部門名稱',name],['對帳期間',period],[],
