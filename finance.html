@@ -20,6 +20,13 @@ body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont
 .subtotal-row { background-color: #f8f9fa; border-bottom: 3px solid #dee2e6; }
 .total-row { background-color: #eff6ff; }
 .price-display { font-weight: bold; color: #1e3a8a; }
+/* 結帳核對警示：單價為零、空白或與同部門同品項／價目表不符時整列反紅。 */
+.bank-table tr.main-row.price-warning td,
+.bank-table tr.main-row.price-warning:hover td { background-color:#fee2e2 !important; color:#991b1b !important; border-bottom:1px solid #fca5a5 !important; }
+.bank-table tr.main-row.price-warning .price-input { background:#fff1f2 !important; border:2px solid #dc2626 !important; color:#991b1b !important; }
+.bank-table tr.main-row.price-warning .item-input { background:#fff1f2 !important; border-color:#fca5a5 !important; }
+.price-warning-message { display:block; margin-top:4px; font-size:12px; line-height:1.4; font-weight:800; color:#b91c1c; white-space:normal; }
+
 
 .excel-bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: #f1f3f5; border-top: 1px solid #dee2e6; display: flex; padding: 8px 16px 0px 16px; gap: 4px; z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); overflow-x: auto; }
 .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
@@ -667,6 +674,61 @@ window.batchSavePrices = async function() {
     }
 }
 
+// 每次載入或更動品項／單價時重新核對，不改動原資料與金額。
+function refreshFinancePriceWarnings() {
+    const rows = Array.from(document.querySelectorAll('#internalTableBody tr.main-row'));
+    const groups = new Map();
+    const normalPrice = value => Number.isFinite(Number(value)) ? Math.round(Number(value) * 10000) / 10000 : NaN;
+    rows.forEach(tr => {
+        const dept = tr.getAttribute('data-dept') || '';
+        const item = tr.querySelector('.item-input')?.value.trim() || '';
+        const input = tr.querySelector('.price-input');
+        const raw = input ? input.value.trim() : '';
+        const price = raw === '' ? NaN : normalPrice(raw);
+        const key = JSON.stringify([dept, item]);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push({tr, dept, item, input, price});
+    });
+    groups.forEach(group => {
+        const {dept, item} = group[0];
+        // 優先以原始價目表核對，不以手動修改後的 customPrices 當標準。
+        const exactKey = `${dept}_${item}`;
+        const unifiedKey = `${dept}_統一折扣`;
+        const listed = sheetPrices[exactKey] !== undefined ? sheetPrices[exactKey]
+                     : sheetPrices[unifiedKey] !== undefined ? sheetPrices[unifiedKey] : null;
+        const reference = listed !== null && listed !== '' ? normalPrice(listed) : null;
+        const freq = new Map();
+        group.forEach(({price}) => {
+            if (Number.isFinite(price) && price > 0) freq.set(price, (freq.get(price) || 0) + 1);
+        });
+        const sorted = [...freq.entries()].sort((a,b) => b[1]-a[1]);
+        const hasConflict = sorted.length > 1;
+        // 沒有價目表時，以同部門、同品項出現最多的價格作為核對參考；
+        // 若票數相同，兩種價格都標示待確認，避免任意判定哪個正確。
+        const peerReference = sorted.length && (!hasConflict || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
+        group.forEach(({tr, input, price}) => {
+            const warnings = [];
+            if (!Number.isFinite(price) || price <= 0) warnings.push('單價未填或為 0');
+            else if (reference !== null && Number.isFinite(reference) && price !== reference)
+                warnings.push(`與價目表單價 ${reference} 不同`);
+            else if (hasConflict && (peerReference === null || price !== peerReference))
+                warnings.push(peerReference === null ? '同部門同品項單價不一致' : `與同部門同品項常用單價 ${peerReference} 不同`);
+            tr.classList.toggle('price-warning', warnings.length > 0);
+            const cell = input?.closest('td');
+            if (!cell) return;
+            let message = cell.querySelector('.price-warning-message');
+            if (warnings.length) {
+                if (!message) { message = document.createElement('span'); message.className = 'price-warning-message'; cell.appendChild(message); }
+                message.textContent = '⚠ ' + warnings.join('；');
+                tr.title = warnings.join('；');
+            } else {
+                if (message) message.remove();
+                tr.removeAttribute('title');
+            }
+        });
+    });
+}
+
 function recalculateFinanceUI() {
     let grandTotal = 0;
     let deptSubtotals = {};
@@ -714,6 +776,7 @@ function recalculateFinanceUI() {
     if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${roundedGrandTotal.toLocaleString()}`;
     if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
     if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
+    refreshFinancePriceWarnings();
 }
 
 async function syncMasterDataFromSheet() {
@@ -1039,6 +1102,7 @@ async function loadFinanceData() {
         `;
 
         tbody.innerHTML = html;
+        refreshFinancePriceWarnings();
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center py-10">${e.message}</td></tr>`;
     } finally {
