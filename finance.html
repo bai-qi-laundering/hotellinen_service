@@ -95,6 +95,19 @@ body { background: white; padding: 0; margin: 0; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f8f8f2 !important; }
   .report-page .total-row td { background:#eaf0e8 !important; color:#173c36; font-size:15px; font-weight:900; border-top:2px solid #b69b68; }
   .report-page .monthly-table, .report-page .detail-table { font-size:17px; }
+  /* 數字專用字型：Georgia 精品襯線數字，中文維持原本字型。 */
+  .report-page .monthly-table td:nth-child(n+2),
+  .report-page .detail-table td:first-child,
+  .report-page .detail-table td:nth-child(n+3),
+  .report-page .report-overview .data-table td:last-child,
+  .report-page .report-totals b,
+  .report-page .report-dept-meta span {
+    font-family:Georgia, 'Times New Roman', serif;
+    font-variant-numeric:tabular-nums lining-nums;
+    font-weight:600;
+    letter-spacing:0.25px;
+  }
+
   .report-page .monthly-table tr, .report-page .detail-table tr { page-break-inside:avoid; break-inside:avoid; }
   .report-page .monthly-table thead, .report-page .detail-table thead { display:table-header-group; }
   /* 總量表一般維持一塊；項目極多則容許自然續頁，避免內容被裁切。 */
@@ -1267,7 +1280,11 @@ function exportToExcel() {
             const isTotal = totals.includes(ri+1), isHeader = headers.includes(ri+1), isSection = sections.includes(ri+1);
             const fill = isTotal ? pale : ri % 2 ? 'F8F8F2' : white;
             ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
-            if (typeof value === 'number') ws[addr].z = numberFormat;
+            if (typeof value === 'number') {
+                ws[addr].z = numberFormat;
+                // Excel 數字儲存格使用 Georgia，保留原本的配色、底色與字級。
+                ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia', bold:false}};
+            }
         }));
         ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 45 : headers.includes(ri+1) || sections.includes(ri+1) ? 37 : totals.includes(ri+1) ? 36 : 33}));
         ws['!margins'] = {left:0.35,right:0.35,top:0.45,bottom:0.45,header:0,footer:0};
