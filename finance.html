@@ -30,7 +30,7 @@ body { background: white; padding: 0; margin: 0; }
 .no-print { display: none !important; }
 .print-only { display: block !important; width: 100%; color: #000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
 @page { size: A4 portrait; margin: 0; }
-.page-break { page-break-before: always; }
+.page-break { page-break-before: auto; break-before: auto; }
 .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 20px; }
 .invoice-title { font-size: 28px; font-weight: 900; color: #1e3a8a; letter-spacing: 2px; }
 .invoice-meta { text-align: right; font-size: 12px; color: #4b5563; line-height: 1.6; }
@@ -76,12 +76,13 @@ body { background: white; padding: 0; margin: 0; }
 }
 /* 精品飯店風：僅調整對帳單匯出與列印外觀，不動結帳資料與運算。 */
 @media print {
-  /* 實體頁面上下各留 12mm：交易明細跨頁時，續頁表頭也不貼頂。 */
-  @page { size:A4 portrait; margin:12mm 0; }
+  /* 每張 A4 僅保留空白邊距；不加入任何頁首頁尾文字。 */
+  @page { size:A4 portrait; margin:12mm; }
   @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
   html, body { margin:0 !important; padding:0 !important; background:white !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .report-page { box-sizing:border-box; width:100%; padding:0 12mm; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:always; break-before:page; }
-  .report-page:first-child { page-break-before:auto; break-before:auto; }
+  .report-page { box-sizing:border-box; width:100%; padding:0; background:#fffefa; color:#293d38; font-family:'BaiqiGeorgiaDigits','華康明體','DFMing-Md','DFMingMedium-B5','PMingLiU','MingLiU','Noto Serif TC',serif; font-size:15px; font-weight:700; line-height:1.48; page-break-before:auto; break-before:auto; page-break-after:auto; break-after:auto; page-break-inside:auto; break-inside:auto; }
+  .report-page + .report-page { margin-top:15px; }
+  /* 不為部門、月總量或交易明細強制開新頁；有空間就接著排。 */
   .report-page * { text-rendering:optimizeLegibility; }
   .report-page .invoice-header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; border-bottom:2.5px solid #b69b68; padding:0 0 13px; margin:0 0 19px; }
   .report-page .invoice-title { font-size:27px; line-height:1.25; font-weight:900; letter-spacing:1.1px; color:#173c36; }
@@ -115,13 +116,15 @@ body { background: white; padding: 0; margin: 0; }
   }
 
   .report-page .monthly-table tr, .report-page .detail-table tr { page-break-inside:avoid; break-inside:avoid; }
-  .report-page .monthly-table thead, .report-page .detail-table thead { display:table-header-group; }
+  .report-page .monthly-table thead, .report-page .detail-table thead, .report-page .data-table thead { display:table-header-group; }
   /* 總量表一般維持一塊；項目極多則容許自然續頁，避免內容被裁切。 */
-  .report-monthly-block { break-inside:avoid-page; page-break-inside:avoid; }
+  .report-monthly-block { break-inside:auto; page-break-inside:auto; }
   .report-monthly-block.dense, .report-monthly-block.very-dense { break-inside:auto; page-break-inside:auto; }
   .report-monthly-block.dense .monthly-table td, .report-monthly-block.dense .monthly-table th,
   .report-monthly-block.very-dense .monthly-table td, .report-monthly-block.very-dense .monthly-table th { font-size:15px; padding:9px 7px; }
-  .report-detail-block { break-before:auto; }
+  .report-detail-block { break-before:auto; page-break-before:auto; break-inside:auto; page-break-inside:auto; }
+  .report-page .invoice-header, .report-page .report-dept-meta, .report-page .report-section-title { break-after:avoid; page-break-after:avoid; }
+  .report-page .report-totals { break-inside:avoid; page-break-inside:avoid; }
   .report-totals { box-sizing:border-box; margin:20px 0 0 auto; width:370px; max-width:100%; background:#f8f5ed; border:1px solid #d8c9a8; border-top:3px solid #b69b68; border-radius:7px; padding:13px 17px; }
   .report-totals > div { display:flex; justify-content:space-between; align-items:center; gap:15px; padding:8px 0; font-size:16px; }
   .report-totals .report-grand { border-top:1.5px solid #b69b68; color:#173c36; font-size:21px; font-weight:900; padding-top:12px; }
