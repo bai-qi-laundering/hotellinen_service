@@ -74,33 +74,34 @@ body { background: white; padding: 0; margin: 0; }
   @page { size:A4 portrait; margin:0; }
   @page { @top-left { content:none; } @top-center { content:none; } @top-right { content:none; } @bottom-left { content:none; } @bottom-center { content:none; } @bottom-right { content:none; } }
   .report-page { box-sizing:border-box; padding:12mm 11mm; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+  .report-page * { text-rendering:optimizeLegibility; }
   body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .report-page { page-break-before:always; break-before:page; width:100%; }
   .report-page:first-child { page-break-before:auto; break-before:auto; }
-  .report-page .invoice-header { align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:3px solid #203b61; }
-  .report-page .invoice-title { font-size:20px; letter-spacing:1px; }
-  .report-heading { font-size:19px; color:#203b61; font-weight:900; }
-  .report-section-title { font-size:15px; color:#203b61; font-weight:800; padding:8px 11px; margin:16px 0 8px; border-left:4px solid #bb935e; background:#f1f5f9; }
-  .report-dept-meta { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#43536b; margin:0 0 12px; }
-  .report-dept-meta b { font-size:14px; color:#203b61; }
+  .report-page .invoice-header { align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:3px solid #203b61; }
+  .report-page .invoice-title { font-size:24px; letter-spacing:1px; line-height:1.2; }
+  .report-heading { font-size:22px; color:#203b61; font-weight:900; line-height:1.2; }
+  .report-section-title { font-size:18px; color:#203b61; font-weight:900; padding:10px 14px; margin:18px 0 10px; border-left:5px solid #bb935e; background:#f1f5f9; }
+  .report-dept-meta { display:flex; justify-content:space-between; gap:12px; font-size:15px; color:#43536b; margin:0 0 14px; }
+  .report-dept-meta b { font-size:18px; color:#203b61; }
   .report-page table { width:100%; border-collapse:collapse; margin-bottom:12px; }
-  .report-page table th { background:#203b61 !important; color:white !important; padding:7px 6px; font-weight:700; border:1px solid #203b61; }
-  .report-page table td { padding:6px; border:1px solid #d8e0e9; color:#26364b; }
+  .report-page table th { background:#203b61 !important; color:white !important; padding:10px 8px; font-weight:800; font-size:15px; border:1.5px solid #203b61; }
+  .report-page table td { padding:9px 8px; border:1.2px solid #d8e0e9; color:#26364b; font-size:14px; line-height:1.35; }
   .report-page tbody tr:nth-child(even):not(.total-row) { background:#f7f9fc !important; }
   .report-page .total-row td { background:#e9eff7 !important; color:#17365d; font-weight:800; border-top:2px solid #9bafc9; }
-  .report-page .monthly-table { font-size:11px; }
-  .report-page .detail-table { font-size:11px; }
+  .report-page .monthly-table { font-size:14px; }
+  .report-page .detail-table { font-size:14px; }
   .report-page .monthly-table tr, .report-page .detail-table tr { break-inside:avoid; page-break-inside:avoid; }
   .report-monthly-block { break-inside:avoid-page; page-break-inside:avoid; }
-  .report-monthly-block.dense .monthly-table { font-size:9px; }
-  .report-monthly-block.dense .monthly-table td, .report-monthly-block.dense .monthly-table th { padding:3px 4px; }
-  .report-monthly-block.very-dense .monthly-table { font-size:8px; }
-  .report-monthly-block.very-dense .monthly-table td, .report-monthly-block.very-dense .monthly-table th { padding:2px 3px; line-height:1.1; }
+  .report-monthly-block.dense .monthly-table { font-size:12px; }
+  .report-monthly-block.dense .monthly-table td, .report-monthly-block.dense .monthly-table th { padding:7px 6px; }
+  .report-monthly-block.very-dense .monthly-table { font-size:11px; }
+  .report-monthly-block.very-dense .monthly-table td, .report-monthly-block.very-dense .monthly-table th { padding:6px 5px; line-height:1.25; }
   .report-detail-block { break-before:auto; }
   .report-detail-block thead { display:table-header-group; }
-  .report-totals { margin-left:auto; width:290px; background:#f7f9fc; border:1px solid #c9d4e2; border-radius:5px; padding:12px; }
-  .report-totals > div { display:flex; justify-content:space-between; padding:6px 0; }
-  .report-totals .report-grand { border-top:2px solid #bb935e; font-size:17px; color:#203b61; }
+  .report-totals { margin-left:auto; width:340px; background:#f7f9fc; border:1px solid #c9d4e2; border-radius:8px; padding:14px 16px; }
+  .report-totals > div { display:flex; justify-content:space-between; align-items:center; padding:8px 0; font-size:15px; }
+  .report-totals .report-grand { border-top:2px solid #bb935e; font-size:20px; color:#203b61; }
 }
 </style>
 </head>
@@ -1246,10 +1247,10 @@ function exportToExcel() {
         alignment:{horizontal:align,vertical:'center'},
         border:{bottom:{style:'thin',color:{rgb:'D9E2EC'}}}
     });
-    const titleStyle = style(navy,true,white,17);
-    const sectionStyle = style(pale,true,navy,12);
-    const headStyle = style(navy,true,white,10,'center');
-    const totalStyle = style(pale,true,navy,11);
+    const titleStyle = style(navy,true,white,19);
+    const sectionStyle = style(pale,true,navy,14);
+    const headStyle = style(navy,true,white,12,'center');
+    const totalStyle = style(pale,true,navy,13);
     const numberFormat = '#,##0.##';
     const applyStyle = (ws, row, col, cellStyle) => {
         const addr = XLSX.utils.encode_cell({r:row-1,c:col-1});
@@ -1261,10 +1262,10 @@ function exportToExcel() {
             if (!ws[addr]) return;
             const isTotal = totals.includes(ri+1), isHeader = headers.includes(ri+1), isSection = sections.includes(ri+1);
             const fill = isTotal ? pale : ri % 2 ? 'F7F9FC' : white;
-            ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,10, numericCols.includes(ci) ? 'right' : 'left');
+            ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,11, numericCols.includes(ci) ? 'right' : 'left');
             if (typeof value === 'number') ws[addr].z = numberFormat;
         }));
-        ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 31 : headers.includes(ri+1) || sections.includes(ri+1) ? 25 : totals.includes(ri+1) ? 25 : 21}));
+        ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 34 : headers.includes(ri+1) || sections.includes(ri+1) ? 28 : totals.includes(ri+1) ? 28 : 24}));
         ws['!margins'] = {left:0.35,right:0.35,top:0.45,bottom:0.45,header:0,footer:0};
         ws['!pageSetup'] = {orientation:'portrait',paperSize:9,fitToWidth:1,fitToHeight:0};
         ws['!header'] = ''; ws['!footer'] = '';
@@ -1273,7 +1274,7 @@ function exportToExcel() {
     entries.forEach(([name,dept]) => totalRows.push([name,dept.total]));
     totalRows.push([],['未稅金額',report.rounded],['營業稅（5%）',report.tax],['含稅總金額',report.rounded+report.tax]);
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch:40},{wch:23}];
+    totalSheet['!cols'] = [{wch:46},{wch:25}];
     totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
     formatData(totalSheet,totalRows,[1],[5],[totalRows.length-2,totalRows.length-1,totalRows.length],[]);
     totalSheet['!print_area'] = `A1:B${totalRows.length}`;
@@ -1303,7 +1304,7 @@ function exportToExcel() {
         dept.records.forEach(r => { rows.push([r.date===lastDate?'':r.date,r.item,r.qty,r.price,r.amt]); lastDate=r.date; });
         rows.push(['','','','部門小計',dept.total]);
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:19},{wch:34},{wch:15},{wch:16},{wch:20}];
+        ws['!cols'] = [{wch:22},{wch:38},{wch:16},{wch:18},{wch:22}];
         ws['!merges'] = [
           {s:{r:0,c:0},e:{r:0,c:4}},
           {s:{r:4,c:0},e:{r:4,c:4}},
