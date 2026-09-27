@@ -311,10 +311,10 @@ body { background: white; padding: 0; margin: 0; }
       </div>
       <details id="settlementGroupPanel" class="mt-4 border border-emerald-200 bg-emerald-50/50 rounded-xl p-4">
         <summary class="font-black text-emerald-900 cursor-pointer text-lg">⚙️ 飯店結帳日管理（點擊展開／收合）</summary>
-        <p class="text-sm text-slate-600 mt-3">以飯店主名稱設定，旗下各部門共用。既有飯店會先依原本兩組名單顯示建議值，請確認後按「儲存全部設定」才會寫入資料庫。</p>
+        <p class="text-sm text-slate-600 mt-3">以飯店主名稱設定，旗下各部門共用。只顯示所選結帳月份有實收出貨紀錄的飯店；既有設定不會因未顯示而刪除。請確認後按「儲存全部設定」。</p>
         <div class="flex flex-wrap gap-2 items-center my-3">
           <input id="settlementHotelSearch" placeholder="搜尋飯店" oninput="filterSettlementHotelRows()" class="p-2 border rounded-lg flex-1 min-w-[140px]">
-          <button onclick="refreshSettlementHotels()" class="bg-white border border-emerald-400 px-4 py-2 rounded-lg font-bold text-emerald-800">重新整理飯店名單</button>
+          <button onclick="refreshSettlementHotels()" class="bg-white border border-emerald-400 px-4 py-2 rounded-lg font-bold text-emerald-800">重新整理本月有紀錄飯店</button>
           <button onclick="saveSettlementGroups()" class="bg-emerald-800 text-white px-4 py-2 rounded-lg font-black">💾 儲存全部設定</button>
         </div>
         <div class="max-h-80 overflow-y-auto rounded-lg border bg-white"><table class="w-full text-sm"><thead class="sticky top-0 bg-emerald-900 text-white"><tr><th class="text-left p-3">飯店名稱</th><th class="p-3 text-left">結帳類型</th><th class="p-3 text-left">設定來源</th></tr></thead><tbody id="settlementGroupRows"><tr><td colspan="3" class="p-4 text-center">正在載入飯店設定…</td></tr></tbody></table></div>
@@ -637,6 +637,7 @@ const groupEndOfMonth = ["捷站前", "捷中正", "歐遊", "鈞怡", "宮賞",
 // 飯店主名稱的結帳日設定，存於 Firestore；不改動既有物流／價目資料。
 const SETTLEMENT_REF = doc(db, 'inventory_config', 'finance_settlement_groups');
 let settlementGroups = {}, settlementGroupsReady = false, settlementGroupsPending = null;
+let settlementActiveHotels = new Set(), settlementActiveMonth = "", settlementHotelsLoading = false;
 const settlementExtraHotels = new Set();
 function settlementSuggestion(hotel) {
   if (group25th.some(kw => hotel.includes(kw))) return '25th';
@@ -666,12 +667,12 @@ function settlementHotels() {
 function renderSettlementGroups() {
   const body=document.getElementById('settlementGroupRows');if(!body)return;
   const esc=escapeReportHTML;
-  const names=settlementHotels();
+  const names=settlementHotels().filter(h => settlementExtraHotels.has(h) || (settlementActiveMonth === document.getElementById('bossTargetMonth')?.value && settlementActiveHotels.has(h)));
   body.innerHTML=names.length ? names.map(h=>{
     const saved=Object.prototype.hasOwnProperty.call(settlementGroups,h);
     const value=saved?settlementGroups[h]:settlementSuggestion(h);
     return `<tr class="settlement-hotel-row border-b" data-hotel="${esc(h)}"><td class="p-2 font-bold">${esc(h)}</td><td class="p-2"><select class="settlement-choice border rounded p-2 w-full" data-hotel="${esc(h)}"><option value="" ${!value?'selected':''}>未分類（不計入兩組）</option><option value="25th" ${value==='25th'?'selected':''}>25 號（上月 26 日～當月 25 日）</option><option value="month" ${value==='month'?'selected':''}>月底／1 號（當月 1 日～月底）</option></select></td><td class="p-2 text-slate-500">${saved?'已儲存':'舊名單建議，尚未儲存'}</td></tr>`;
-  }).join('') : '<tr><td colspan="3" class="p-4 text-center">尚無飯店。可手動新增，或按「重新整理飯店名單」。</td></tr>';
+  }).join('') : '<tr><td colspan="3" class="p-4 text-center">本月份沒有實收出貨紀錄的飯店。可切換月份，或手動新增。</td></tr>';
   filterSettlementHotelRows();
 }
 window.filterSettlementHotelRows=()=>{
@@ -685,13 +686,32 @@ window.addSettlementHotel=()=>{
   if(row)row.scrollIntoView({block:'nearest'});
 };
 window.refreshSettlementHotels=async()=>{
-  const status=document.getElementById('settlementGroupStatus'); status.textContent='讀取飯店資料中…';
+  const status=document.getElementById('settlementGroupStatus');
+  if (settlementHotelsLoading) return;
+  settlementHotelsLoading=true;
+  status.textContent='正在讀取所選月份有實收紀錄的飯店…';
   try {
-    await Promise.all([ensureSettlementGroups(),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]);
-    const dates=getBossPeriods();const docs=await getLogisticsDocsForPeriod(dates.queryStart,dates.queryEnd);
-    docs.forEach(snap=>{const name=String(snap.data().hotelKeyword||'').trim();if(name)settlementExtraHotels.add(name);});
-    renderSettlementGroups();status.textContent='已更新名單，請確認結帳類型並儲存。';
+    const periods=getBossPeriods();
+    const targetMonth=periods.month;
+    const [,,docs]=await Promise.all([ensureSettlementGroups(),ensureLogisticsItemOrder(),getLogisticsDocsForPeriod(periods.queryStart,periods.queryEnd)]);
+    const active=new Set();
+    docs.forEach(snap=>{
+      const data=snap.data(), date=standardizeDate(data.date);
+      const hotel=String(data.hotelKeyword||'').trim();
+      if (!hotel || date < periods.queryStart || date > periods.queryEnd) return;
+      if (String(data.deptName||'').includes('回洗')) return;
+      if (!(data.items||[]).some(item=>Number(item.actualQty)>0 && !String(item.itemName||'').includes('回洗'))) return;
+      // 結帳日未分類的飯店也要能設定，故使用兩組日期的聯集。
+      active.add(hotel);
+    });
+    // 使用者切換月份時，較晚完成的舊請求不得覆蓋新月份畫面。
+    if (document.getElementById('bossTargetMonth').value!==targetMonth) return;
+    settlementActiveHotels=active;
+    settlementActiveMonth=targetMonth;
+    renderSettlementGroups();
+    status.textContent=`✅ 本月有實收紀錄的飯店 ${active.size} 間；無紀錄的已隱藏，原設定仍保留。`;
   } catch(err){status.textContent='飯店名單更新失敗：'+err.message;}
+  finally { settlementHotelsLoading=false; }
 };
 window.saveSettlementGroups=async()=>{
   const status=document.getElementById('settlementGroupStatus');status.textContent='儲存中…';
@@ -716,11 +736,13 @@ window.updateBossPeriodHint=()=>{
   const el=document.getElementById('bossPeriodHint');
   try{const p=getBossPeriods();el.textContent=`25號結帳：${p['25th'].start} ～ ${p['25th'].end}　｜　月底／1號結帳：${p.monthGroup.start} ～ ${p.monthGroup.end}`;}
   catch(e){el.textContent=e.message;}
+  if (document.getElementById('settlementGroupPanel')?.open) refreshSettlementHotels();
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('bossTargetMonth').value=getLocalDateString(new Date()).slice(0,7);
   updateBossPeriodHint();
-  Promise.allSettled([ensureSettlementGroups(),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]).then(()=>renderSettlementGroups());
+  document.getElementById('settlementGroupPanel').addEventListener('toggle',e=>{if(e.target.open && settlementActiveMonth!==document.getElementById('bossTargetMonth').value) refreshSettlementHotels();});
+  ensureSettlementGroups().catch(console.warn);
 });
  
 
