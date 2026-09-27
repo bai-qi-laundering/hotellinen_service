@@ -338,7 +338,7 @@ body { background: white; padding: 0; margin: 0; }
                     ▶ 一鍵載入兩組業績
                 </button>
                 <button onclick="exportBossExcel()" id="exportBossBtn" class="hidden bg-white text-emerald-800 hover:bg-gray-100 font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-gray-200 flex items-center gap-2">
-                    ⬇️ 匯出業績 Excel
+                    ⬇️ 匯出雙組對照 Excel
                 </button>
             </div>
         </div>
@@ -1567,6 +1567,92 @@ function exportBossExcel() {
     const {startDate,endDate,periods} = currentBossGroups;
     const a = currentBossGroups['25th'], b = currentBossGroups.month;
     const total = a.untaxed + b.untaxed, tax = Math.round(total * .05);
+    // ★ 仿照管理用月報：兩組並排、相同飯店部門相鄰、飯店小計放在右側。
+    // 使用系統已載入的業績，不再發出額外資料庫請求。
+    const compareWs = XLSX.utils.aoa_to_sheet([
+        ['百麒國際股份有限公司｜客戶別業績對照表','','','','','',''],
+        ['結帳月份',periods.month,'','統計狀態',periods.partial ? '暫估，截至 '+periods.cutoff : '完整結帳','',''],
+        ['25號結帳區間',`${periods['25th'].start} ～ ${periods['25th'].end}`,'','月底／1號區間',`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`,'',''],
+        [],
+        ['25號結帳','','','','1號／月底結帳','',''],
+        ['飯店／部門','銷貨淨額（未稅）','飯店小計','','飯店／部門','銷貨淨額（未稅）','飯店小計']
+    ]);
+    const fmt = '#,##0.##;[Red](#,##0.##);–';
+    const ink='243C36', green='173C36', gold='B69B68', pale='F5F0E5', line='D5DED9';
+    const colored = ['E9F2F0','EAF0FA','F3EDF5','F9F2E8','EAF2F8'];
+    const address = (row,col)=>XLSX.utils.encode_cell({r:row-1,c:col-1});
+    const set = (row,col,value,style) => {
+        const p=address(row,col);
+        compareWs[p]={t:typeof value==='number'?'n':'s',v:value,s:style};
+        if(typeof value==='number')compareWs[p].z=fmt;
+    };
+    const cellStyle = (fill='FFFFFF',bold=false,color=ink,align='left',size=12)=>({
+        font:{name:'Microsoft JhengHei',sz:size,bold,color:{rgb:color}},
+        fill:{patternType:'solid',fgColor:{rgb:fill}},
+        alignment:{horizontal:align,vertical:'center',wrapText:true},
+        border:{bottom:{style:'thin',color:{rgb:line}},right:{style:'thin',color:{rgb:line}}}
+    });
+    compareWs['!merges']=[
+        {s:{r:0,c:0},e:{r:0,c:6}},
+        {s:{r:1,c:1},e:{r:1,c:2}},
+        {s:{r:1,c:4},e:{r:1,c:6}},
+        {s:{r:2,c:1},e:{r:2,c:2}},
+        {s:{r:2,c:4},e:{r:2,c:6}},
+        {s:{r:4,c:0},e:{r:4,c:2}},
+        {s:{r:4,c:4},e:{r:4,c:6}}
+    ];
+    for(let c=1;c<=7;c++)set(1,c,c===1?'百麒國際股份有限公司｜客戶別業績對照表':'',cellStyle(green,true,'FFFFFF','center',19));
+    [[2,1,'結帳月份'],[2,2,periods.month],[2,4,'統計狀態'],[2,5,periods.partial?'暫估，截至 '+periods.cutoff:'完整結帳'],
+     [3,1,'25號結帳區間'],[3,2,`${periods['25th'].start} ～ ${periods['25th'].end}`],
+     [3,4,'月底／1號區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4)));
+    [1,2,3,5,6,7].forEach(c=>set(5,c,c===1?'25號結帳':c===5?'1號／月底結帳':'',cellStyle(green,true,'FFFFFF','center',15)));
+    [1,2,3,5,6,7].forEach((c,i)=>set(6,c,['飯店／部門','銷貨淨額（未稅）','飯店小計','飯店／部門','銷貨淨額（未稅）','飯店小計'][i],cellStyle('DCD1B8',true,ink,'center',12)));
+    function createSideRows(group,startCol) {
+        const grouped=new Map();
+        sortedBossStores(group).forEach(([name,amount])=>{
+            const parent=group.storeParents[name]||name;
+            if(!grouped.has(parent))grouped.set(parent,[]);
+            grouped.get(parent).push([name,amount]);
+        });
+        let row=7, block=0;
+        for(const [parent,items] of grouped){
+            const from=row, fill=colored[block++%colored.length];
+            const subtotal=items.reduce((sum,[,amount])=>sum+amount,0);
+            for(const [name,amount] of items){
+                set(row,startCol,name,cellStyle(fill,true,ink,'left',12));
+                set(row,startCol+1,amount,cellStyle(fill,true,ink,'right',12));
+                set(row,startCol+2,'',cellStyle(fill,true,ink,'right',12));
+                row++;
+            }
+            if(row-from>1) compareWs['!merges'].push({s:{r:from-1,c:startCol+1},e:{r:row-2,c:startCol+1}});
+            set(from,startCol+2,subtotal,cellStyle(fill,true,green,'right',12));
+        }
+        if(row===7){set(7,startCol,'本期無出貨紀錄',cellStyle('FFFFFF',false,ink,'left'));row=8;}
+        return row;
+    }
+    const endA=createSideRows(a,1), endB=createSideRows(b,5);
+    const totalRow=Math.max(endA,endB)+1;
+    [1,5].forEach((c)=>{
+        const g=c===1?a:b;
+        set(totalRow,c,'未稅合計',cellStyle(green,true,'FFFFFF','left',13));
+        set(totalRow,c+1,g.untaxed,cellStyle(green,true,'FFFFFF','right',13));
+        set(totalRow+1,c,'營業稅（5%）',cellStyle(pale,true,ink,'left'));
+        set(totalRow+1,c+1,g.tax,cellStyle(pale,true,ink,'right'));
+        set(totalRow+2,c,'含稅合計',cellStyle(green,true,'FFFFFF','left',13));
+        set(totalRow+2,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
+    });
+    set(totalRow+4,1,'兩組未稅合計',cellStyle(pale,true,ink));
+    set(totalRow+4,2,total,cellStyle(pale,true,ink,'right'));
+    set(totalRow+4,5,'兩組含稅合計',cellStyle(pale,true,ink));
+    set(totalRow+4,6,total+tax,cellStyle(pale,true,ink,'right'));
+    compareWs['!cols']=[{wch:31},{wch:21},{wch:20},{wch:3},{wch:31},{wch:21},{wch:20}];
+    compareWs['!rows']=Array.from({length:totalRow+4},(_,i)=>({hpt:i===0?38:i===4?29:i===5?28:23}));
+    compareWs['!freeze']={xSplit:0,ySplit:6};
+    compareWs['!print_area']=`A1:G${totalRow+4}`;
+    compareWs['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1,fitToHeight:0};
+    compareWs['!margins']={left:.25,right:.25,top:.35,bottom:.35,header:0,footer:0};
+    compareWs['!header']='';compareWs['!footer']='';
+    XLSX.utils.book_append_sheet(wb,compareWs,'雙組對照表');
     const overview = [ ['百麒國際股份有限公司｜老闆業績戰情總覽'], ['結帳月份',periods.month], ['統計狀態',periods.partial?'暫估／截至 '+periods.cutoff:'完整結帳'], ['25號區間',`${periods['25th'].start} ~ ${periods['25th'].end}`], ['月底／1號區間',`${periods.monthGroup.start} ~ ${periods.monthGroup.end}`], [],
         ['結帳群組','未稅金額','稅金（5%）','含稅金額'],
         ['25號結帳',a.untaxed,a.tax,a.final], ['1號／月底結帳',b.untaxed,b.tax,b.final],
@@ -1588,7 +1674,7 @@ function exportBossExcel() {
         const dws = XLSX.utils.aoa_to_sheet(details); dws['!cols'] = [{wch:16},{wch:30},{wch:28},{wch:15},{wch:15},{wch:20}];
         XLSX.utils.book_append_sheet(wb,dws,name+'明細');
     });
-    XLSX.writeFile(wb,`老闆業績戰報_兩組_${periods.month.replace(/-/g,'')}.xlsx`);
+    XLSX.writeFile(wb,`百麒業績對照表_${periods.month.replace(/-/g,'')}.xlsx`);
 }
 
 function openInvoiceModal() {
