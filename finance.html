@@ -306,12 +306,13 @@ body { background: white; padding: 0; margin: 0; }
 <div id="sysBoss" class="hidden">
     <div class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-5 mb-5 no-print">
       <div class="flex flex-wrap items-end gap-4 justify-between">
-        <div><label for="bossTargetMonth" class="block text-emerald-900 font-black mb-2">📅 業績結帳月份</label><input id="bossTargetMonth" type="month" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossPeriodHint()"></div>
+        <div><label for="bossTargetMonth" class="block text-emerald-900 font-black mb-2">📅 業績結帳月份</label><input id="bossTargetMonth" type="month" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossMonth()"></div>
+        <div><label for="bossCutoffDate" class="block text-emerald-900 font-black mb-2">📆 統計截至日期</label><input id="bossCutoffDate" type="date" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossPeriodHint()"><div class="text-xs text-slate-500 mt-1">可選當月 10／20 日；選月底代表完整結帳。</div></div>
         <div id="bossPeriodHint" class="text-sm font-bold text-slate-700 leading-7 flex-1"></div>
       </div>
       <details id="settlementGroupPanel" class="mt-4 border border-emerald-200 bg-emerald-50/50 rounded-xl p-4">
         <summary class="font-black text-emerald-900 cursor-pointer text-lg">⚙️ 飯店結帳日管理（點擊展開／收合）</summary>
-        <p class="text-sm text-slate-600 mt-3">以飯店主名稱設定，旗下各部門共用。只顯示所選結帳月份有實收出貨紀錄的飯店；既有設定不會因未顯示而刪除。請確認後按「儲存全部設定」。</p>
+        <p class="text-sm text-slate-600 mt-3">以飯店主名稱設定，旗下各部門共用。只顯示截至選定日期有實收出貨紀錄的飯店；既有設定不會因未顯示而刪除。請確認後按「儲存全部設定」。</p>
         <div class="flex flex-wrap gap-2 items-center my-3">
           <input id="settlementHotelSearch" placeholder="搜尋飯店" oninput="filterSettlementHotelRows()" class="p-2 border rounded-lg flex-1 min-w-[140px]">
           <button onclick="refreshSettlementHotels()" class="bg-white border border-emerald-400 px-4 py-2 rounded-lg font-bold text-emerald-800">重新整理本月有紀錄飯店</button>
@@ -667,7 +668,8 @@ function settlementHotels() {
 function renderSettlementGroups() {
   const body=document.getElementById('settlementGroupRows');if(!body)return;
   const esc=escapeReportHTML;
-  const names=settlementHotels().filter(h => settlementExtraHotels.has(h) || (settlementActiveMonth === document.getElementById('bossTargetMonth')?.value && settlementActiveHotels.has(h)));
+  const periodKey=`${document.getElementById('bossTargetMonth')?.value}|${document.getElementById('bossCutoffDate')?.value}`;
+  const names=settlementHotels().filter(h => settlementExtraHotels.has(h) || (settlementActiveMonth === periodKey && settlementActiveHotels.has(h)));
   body.innerHTML=names.length ? names.map(h=>{
     const saved=Object.prototype.hasOwnProperty.call(settlementGroups,h);
     const value=saved?settlementGroups[h]:settlementSuggestion(h);
@@ -692,7 +694,7 @@ window.refreshSettlementHotels=async()=>{
   status.textContent='正在讀取所選月份有實收紀錄的飯店…';
   try {
     const periods=getBossPeriods();
-    const targetMonth=periods.month;
+    const targetMonth=`${periods.month}|${periods.cutoff}`;
     const [,,docs]=await Promise.all([ensureSettlementGroups(),ensureLogisticsItemOrder(),getLogisticsDocsForPeriod(periods.queryStart,periods.queryEnd)]);
     const active=new Set();
     docs.forEach(snap=>{
@@ -705,11 +707,11 @@ window.refreshSettlementHotels=async()=>{
       active.add(hotel);
     });
     // 使用者切換月份時，較晚完成的舊請求不得覆蓋新月份畫面。
-    if (document.getElementById('bossTargetMonth').value!==targetMonth) return;
+    if (`${document.getElementById('bossTargetMonth').value}|${document.getElementById('bossCutoffDate').value}`!==targetMonth) return;
     settlementActiveHotels=active;
     settlementActiveMonth=targetMonth;
     renderSettlementGroups();
-    status.textContent=`✅ 本月有實收紀錄的飯店 ${active.size} 間；無紀錄的已隱藏，原設定仍保留。`;
+    status.textContent=`✅ 截至 ${periods.cutoff} 有實收紀錄的飯店 ${active.size} 間；無紀錄的已隱藏，原設定仍保留。`;
   } catch(err){status.textContent='飯店名單更新失敗：'+err.message;}
   finally { settlementHotelsLoading=false; }
 };
@@ -728,23 +730,46 @@ function getBossPeriods() {
   const [y,m]=value.split('-').map(Number);
   if(m<1||m>12)throw new Error('結帳月份不正確');
   const fmt=d=>getLocalDateString(d);
-  const start25=fmt(new Date(y,m-2,26)), end25=fmt(new Date(y,m-1,25));
-  const startMonth=fmt(new Date(y,m-1,1)), endMonth=fmt(new Date(y,m,0));
-  return {month:value,'25th':{start:start25,end:end25},monthGroup:{start:startMonth,end:endMonth},queryStart:start25,queryEnd:endMonth};
+  const start25=fmt(new Date(y,m-2,26)), fullEnd25=fmt(new Date(y,m-1,25));
+  const startMonth=fmt(new Date(y,m-1,1)), fullEndMonth=fmt(new Date(y,m,0));
+  const cutoff=document.getElementById('bossCutoffDate').value;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(cutoff) || cutoff.slice(0,7)!==value || cutoff>fullEndMonth)
+    throw new Error('統計截至日期請選擇結帳月份內的有效日期');
+  const end25=cutoff < fullEnd25 ? cutoff : fullEnd25;
+  const partial=cutoff<fullEndMonth;
+  return {month:value,cutoff,partial,'25th':{start:start25,end:end25},monthGroup:{start:startMonth,end:cutoff},queryStart:start25,queryEnd:cutoff};
 }
+window.updateBossMonth=()=>{
+  const value=document.getElementById('bossTargetMonth').value;
+  if(/^\d{4}-\d{2}$/.test(value)) {
+    const [y,m]=value.split('-').map(Number);
+    const input=document.getElementById('bossCutoffDate');
+    input.min=`${value}-01`;input.max=getLocalDateString(new Date(y,m,0));
+    input.value=input.max;
+  }
+  updateBossPeriodHint();
+};
 window.updateBossPeriodHint=()=>{
   const el=document.getElementById('bossPeriodHint');
-  try{const p=getBossPeriods();el.textContent=`25號結帳：${p['25th'].start} ～ ${p['25th'].end}　｜　月底／1號結帳：${p.monthGroup.start} ～ ${p.monthGroup.end}`;}
-  catch(e){el.textContent=e.message;}
+  try{
+    const p=getBossPeriods();
+    el.textContent=`${p.partial?'暫估業績（截至 '+p.cutoff+'）':'完整結帳'}｜25號：${p['25th'].start} ～ ${p['25th'].end}｜月底／1號：${p.monthGroup.start} ～ ${p.monthGroup.end}`;
+  } catch(e){el.textContent=e.message;}
   if (document.getElementById('settlementGroupPanel')?.open) refreshSettlementHotels();
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('bossTargetMonth').value=getLocalDateString(new Date()).slice(0,7);
+  updateBossMonth();
+  // 本月預設統計到今天；歷史月份切換則預設整月，亦可自行修改截至日。
+  const now=getLocalDateString(new Date());
+  document.getElementById('bossCutoffDate').value=now;
   updateBossPeriodHint();
-  document.getElementById('settlementGroupPanel').addEventListener('toggle',e=>{if(e.target.open && settlementActiveMonth!==document.getElementById('bossTargetMonth').value) refreshSettlementHotels();});
+  document.getElementById('settlementGroupPanel').addEventListener('toggle',e=>{
+    const key=`${document.getElementById('bossTargetMonth').value}|${document.getElementById('bossCutoffDate').value}`;
+    if(e.target.open && settlementActiveMonth!==key) refreshSettlementHotels();
+  });
   ensureSettlementGroups().catch(console.warn);
 });
- 
 
 function standardizeDate(dStr) {
 if(!dStr) return "";
@@ -1438,15 +1463,23 @@ function bossRecordPrice(r) {
 }
 function summarizeBossGroup(records) {
     const stores = {};
+    const storeParents = {};
     let rawTotal = 0;
     records.forEach(r => {
         const amount = r.qty * bossRecordPrice(r);
         stores[r.hotel] = (stores[r.hotel] || 0) + amount;
+        storeParents[r.hotel] = r.parentCompany || r.hotel;
         rawTotal += amount;
     });
     const untaxed = Math.round(rawTotal);
     const tax = Math.round(untaxed * 0.05);
-    return {records, stores, untaxed, tax, final:untaxed + tax};
+    return {records, stores, storeParents, untaxed, tax, final:untaxed + tax};
+}
+// 同一飯店的部門相鄰；同一飯店內以部門名稱排序，而非金額大小打散。
+function sortedBossStores(group) {
+    return Object.entries(group.stores).sort(([nameA],[nameB])=>
+        String(group.storeParents[nameA]||nameA).localeCompare(String(group.storeParents[nameB]||nameB),'zh-TW') ||
+        nameA.localeCompare(nameB,'zh-TW'));
 }
 async function loadBossData() {
     const btn = document.getElementById('loadBossBtn');
@@ -1487,15 +1520,24 @@ async function loadBossData() {
         // 整體以兩組未稅合計重新計稅，與原本整體結算方式一致。
         const totalUntaxed = Math.round(a.untaxed + b.untaxed);
         const totalTax = Math.round(totalUntaxed * .05);
-        document.getElementById('bossDateRange').innerText = `${periods.month} 結帳月份｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}`;
+        document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}`;
         document.getElementById('bossTotalUntaxed').innerText = `$${totalUntaxed.toLocaleString()}`;
         document.getElementById('bossTotalTax').innerText = `$${totalTax.toLocaleString()}`;
         document.getElementById('bossTotalFinal').innerText = `$${(totalUntaxed + totalTax).toLocaleString()}`;
         const e = escapeReportHTML;
         const renderGroup = (key,label,accent) => {
             const g = currentBossGroups[key];
-            const stores = Object.entries(g.stores).sort((x,y) => y[1]-x[1]);
-            const cards = stores.length ? stores.map(([name,amt]) => `<div class="bg-white/10 border border-white/20 p-3 rounded-lg flex justify-between items-center gap-3"><span class="font-bold break-words">${e(name)}</span><b class="text-lg whitespace-nowrap">$${amt.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div>`).join('') : '<p class="text-white/70 py-5 text-center">這個區間沒有符合的出貨資料</p>';
+            const stores = sortedBossStores(g);
+            const byHotel = new Map();
+            stores.forEach(([name,amt])=>{
+                const parent=g.storeParents[name]||name;
+                if(!byHotel.has(parent))byHotel.set(parent,[]);
+                byHotel.get(parent).push([name,amt]);
+            });
+            const cards = stores.length ? [...byHotel.entries()].map(([parent,rows])=>{
+                const subtotal=rows.reduce((sum,[,amt])=>sum+amt,0);
+                return `<div class="mb-3 rounded-xl border border-white/20 overflow-hidden"><div class="flex justify-between gap-3 items-center bg-black/20 px-3 py-2"><span class="font-black">🏨 ${e(parent)}</span><b class="whitespace-nowrap">$${subtotal.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div><div class="p-2 space-y-2">${rows.map(([name,amt])=>`<div class="bg-white/10 border border-white/10 p-3 rounded-lg flex justify-between items-center gap-3"><span class="font-bold break-words">${e(name)}</span><b class="text-lg whitespace-nowrap">$${amt.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div>`).join('')}</div></div>`;
+            }).join('') : '<p class="text-white/70 py-5 text-center">這個區間沒有符合的出貨資料</p>';
             const range=key==='25th' ? periods['25th'] : periods.monthGroup;
             return `<section class="bg-white/10 border border-white/20 rounded-2xl p-5 min-w-0">
                 <h3 class="text-xl font-black mb-2 border-l-4 ${accent} pl-3">${label}</h3>
@@ -1525,7 +1567,7 @@ function exportBossExcel() {
     const {startDate,endDate,periods} = currentBossGroups;
     const a = currentBossGroups['25th'], b = currentBossGroups.month;
     const total = a.untaxed + b.untaxed, tax = Math.round(total * .05);
-    const overview = [ ['百麒國際股份有限公司｜老闆業績戰情總覽'], ['結帳月份',periods.month], ['25號區間',`${periods['25th'].start} ~ ${periods['25th'].end}`], ['月底／1號區間',`${periods.monthGroup.start} ~ ${periods.monthGroup.end}`], [],
+    const overview = [ ['百麒國際股份有限公司｜老闆業績戰情總覽'], ['結帳月份',periods.month], ['統計狀態',periods.partial?'暫估／截至 '+periods.cutoff:'完整結帳'], ['25號區間',`${periods['25th'].start} ~ ${periods['25th'].end}`], ['月底／1號區間',`${periods.monthGroup.start} ~ ${periods.monthGroup.end}`], [],
         ['結帳群組','未稅金額','稅金（5%）','含稅金額'],
         ['25號結帳',a.untaxed,a.tax,a.final], ['1號／月底結帳',b.untaxed,b.tax,b.final],
         [], ['兩組合計',total,tax,total+tax] ];
@@ -1536,12 +1578,12 @@ function exportBossExcel() {
         const g = currentBossGroups[key];
         const range=key==='25th'?periods['25th']:periods.monthGroup;
         const rows = [['百麒國際股份有限公司｜'+name+'結帳業績'],['統計區間',`${range.start} ~ ${range.end}`],[],['飯店／部門','未稅金額']];
-        Object.entries(g.stores).sort((x,y)=>y[1]-x[1]).forEach(([hotel,amt])=>rows.push([hotel,amt]));
+        sortedBossStores(g).forEach(([hotel,amt])=>rows.push([hotel,amt]));
         rows.push([],['未稅合計',g.untaxed],['稅金（5%）',g.tax],['含稅合計',g.final]);
         const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = [{wch:42},{wch:24}];
         XLSX.utils.book_append_sheet(wb,ws,name+'業績');
         const details = [['出貨日期','飯店／部門','品項名稱','實收數量','單價','金額小計']];
-        [...g.records].sort((x,y)=>x.date.localeCompare(y.date)||x.hotel.localeCompare(y.hotel,'zh-TW')||x.receiptOrder-y.receiptOrder)
+        [...g.records].sort((x,y)=>String(x.parentCompany||x.hotel).localeCompare(String(y.parentCompany||y.hotel),'zh-TW')||x.hotel.localeCompare(y.hotel,'zh-TW')||x.date.localeCompare(y.date)||x.receiptOrder-y.receiptOrder)
             .forEach(r=>{const price=bossRecordPrice(r); details.push([r.date,r.hotel,r.item,r.qty,price,r.qty*price]);});
         const dws = XLSX.utils.aoa_to_sheet(details); dws['!cols'] = [{wch:16},{wch:30},{wch:28},{wch:15},{wch:15},{wch:20}];
         XLSX.utils.book_append_sheet(wb,dws,name+'明細');
