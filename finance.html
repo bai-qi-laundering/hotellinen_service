@@ -1140,7 +1140,7 @@ async function fetchRecordsForSelectedHotels() {
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
     // 價目表、物流排序與物流資料彼此獨立，平行讀取，並避免重複下載。
-    const [, , uniqueDocs] = await Promise.all([
+    const [, , , uniqueDocs] = await Promise.all([
         syncMasterDataFromSheet(),
         ensurePricingRules(),
         ensureLogisticsItemOrder(),
