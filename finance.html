@@ -601,9 +601,66 @@ async function persistPricingRules() {
     renderPricingRules();
   } catch(err) { status.textContent='❌ 儲存失敗：'+err.message; await ensurePricingRules(true); }
 }
+// 管理選單僅顯示財務查詢期間內，實收數量與洗滌金額皆大於 0 的飯店。
+// 不修改或刪除任何已儲存的春節、回饋及管理費設定。
+let pricingActiveHotels = new Set();
+let pricingActivePeriod = '';
+let pricingActiveRequest = 0;
+function currentPricingPeriodKey() {
+  return `${document.getElementById('startDate').value}|${document.getElementById('endDate').value}`;
+}
+async function refreshPricingActiveHotels() {
+  const panel = document.getElementById('pricingRulesPanel');
+  if (!panel?.open) return;
+  const start = document.getElementById('startDate').value;
+  const end = document.getElementById('endDate').value;
+  const request = ++pricingActiveRequest;
+  const status = document.getElementById('pricingRulesStatus');
+  if (!start || !end || start > end) {
+    pricingActiveHotels = new Set(); pricingActivePeriod = '';
+    renderPricingRules();
+    status.textContent = '請先選擇有效的財務查詢區間。';
+    return;
+  }
+  pricingActivePeriod = '';
+  pricingActiveHotels = new Set();
+  renderPricingRules();
+  status.textContent = '正在篩選有實收數量與金額的飯店…';
+  try {
+    const [, docs] = await Promise.all([syncMasterDataFromSheet(), getLogisticsDocsForPeriod(start, end)]);
+    const names = new Set();
+    docs.forEach(snap => {
+      const d = snap.data();
+      const date = standardizeDate(d.date);
+      if (date < start || date > end || String(d.deptName || '').includes('回洗')) return;
+      const hotel = String(d.hotelKeyword || '').trim();
+      if (!hotel) return;
+      const fullHotel = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
+      const hasBillable = (d.items || []).some(item => {
+        const qty = Number(item.actualQty);
+        if (!(qty > 0) || String(item.itemName || '').includes('回洗')) return false;
+        const itemName = String(item.itemName || '');
+        const price = item.price !== undefined && item.price !== null && item.price !== ''
+          ? Number(item.price) : Number(getPrice(fullHotel, itemName));
+        return Number.isFinite(price) && qty * price > 0;
+      });
+      if (hasBillable) names.add(hotel);
+    });
+    if (request !== pricingActiveRequest || currentPricingPeriodKey() !== `${start}|${end}`) return;
+    pricingActiveHotels = names;
+    pricingActivePeriod = `${start}|${end}`;
+    renderPricingRules();
+    status.textContent = `✅ 本期有實收數量及洗滌金額的飯店 ${names.size} 間；其餘已隱藏，已儲存設定不受影響。`;
+  } catch (err) {
+    if (request !== pricingActiveRequest) return;
+    pricingActivePeriod = '';
+    renderPricingRules();
+    status.textContent = `❌ 飯店名單載入失敗：${err.message}`;
+  }
+}
 function pricingHotelNames() {
-  const names = new Set([...Object.keys(sheetClients), ...[...uniqueCompanies], ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName || r.hotel || "").trim()), ...pricingRules.holidays.map(r=>r.hotel), ...pricingRules.rebates.map(r=>r.hotel), ...pricingRules.managementFees.map(r=>r.hotel)]);
-  return [...names].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+  if (pricingActivePeriod !== currentPricingPeriodKey()) return [];
+  return [...pricingActiveHotels].sort((a,b)=>a.localeCompare(b,'zh-TW'));
 }
 function renderPricingRules() {
   const esc=escapeReportHTML;
@@ -612,14 +669,15 @@ function renderPricingRules() {
     const prev=el.value;
     el.innerHTML='<option value="">請選擇飯店</option>'+pricingHotelNames().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
     if ([...el.options].some(o=>o.value===prev)) el.value=prev;
-    if (el.options.length===1) el.options[0].textContent='飯店名單載入中，請稍後再展開';
+    if (el.options.length===1) el.options[0].textContent='本期無實收金額或名單載入中';
   }
-  const holidays=[...pricingRules.holidays].sort((a,b)=>b.year-a.year || a.hotel.localeCompare(b.hotel,'zh-TW'));
+  const visible = new Set(pricingHotelNames());
+  const holidays=[...pricingRules.holidays].filter(r=>visible.has(r.hotel)).sort((a,b)=>b.year-a.year || a.hotel.localeCompare(b.hotel,'zh-TW'));
   document.getElementById('holidayRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定春節加價</div>'+(holidays.length ? holidays.map(r=>`<div class="p-2 border-b">${esc(r.year)}｜${esc(r.hotel)}｜${esc(r.start)} 至 ${esc(r.end)}｜加價 ${esc(r.percent)}%</div>`).join('') : '<div class="text-gray-500">目前尚無設定，未設定者不加價。</div>');
-  document.getElementById('rebateRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定飯店回饋</div>'+(pricingRules.rebates.length ? pricingRules.rebates.map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無回饋設定。</div>');
-  document.getElementById('managementFeeRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定布巾洗滌管理費</div>'+(pricingRules.managementFees.length ? pricingRules.managementFees.map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜加收 ${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無管理費設定，未設定飯店不加收。</div>');
+  document.getElementById('rebateRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定飯店回饋</div>'+(pricingRules.rebates.some(r=>visible.has(r.hotel)) ? pricingRules.rebates.filter(r=>visible.has(r.hotel)).map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無回饋設定。</div>');
+  document.getElementById('managementFeeRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定布巾洗滌管理費</div>'+(pricingRules.managementFees.some(r=>visible.has(r.hotel)) ? pricingRules.managementFees.filter(r=>visible.has(r.hotel)).map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜加收 ${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無管理費設定，未設定飯店不加收。</div>');
 }
-window.reloadPricingRules=async()=>{await Promise.all([ensurePricingRules(true),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]);renderPricingRules();document.getElementById('pricingRulesStatus').textContent='已重新同步。';};
+window.reloadPricingRules=async()=>{await Promise.all([ensurePricingRules(true),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]);await refreshPricingActiveHotels();};
 window.saveHolidayRule=async()=>{
  await ensurePricingRules();
  const year=Number(document.getElementById('holidayYear').value), start=document.getElementById('holidayStart').value, end=document.getElementById('holidayEnd').value, hotel=document.getElementById('holidayHotel').value, percent=Number(document.getElementById('holidayPercent').value);
@@ -656,6 +714,7 @@ window.removeManagementFeeRule=async()=>{
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('holidayYear').value=new Date().getFullYear();
+  document.getElementById('pricingRulesPanel').addEventListener('toggle', e => { if (e.target.open) refreshPricingActiveHotels(); });
   const status=document.getElementById('pricingRulesStatus');
   Promise.allSettled([ensurePricingRules(),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]).then(results=>{
     renderPricingRules();
@@ -1312,7 +1371,7 @@ if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword);
 }
 }
 });
-renderPricingRules(); // 日期區間載入後，同步新增期間內飯店
+if (document.getElementById('pricingRulesPanel')?.open) refreshPricingActiveHotels(); // 期間更換時重算有效飯店
 if(hotels.size === 0) {
 container.innerHTML = `<div class="text-gray-500 font-bold w-full py-2">該區間無任何出貨紀錄</div>`;
 return;
@@ -1698,6 +1757,8 @@ function exportBossExcel() {
     compareWs['!cols']=[{wch:31},{wch:21},{wch:20},{wch:3},{wch:31},{wch:21},{wch:20}];
     compareWs['!rows']=Array.from({length:totalRow+4},(_,i)=>({hpt:i===0?38:i===4?29:i===5?28:23}));
     compareWs['!freeze']={xSplit:0,ySplit:6};
+    // 使用 set() 動態寫入儲存格時，必須同步擴充 !ref；否則 SheetJS 仍只匯出起始 A1:G6，業績列會全部消失。
+    compareWs['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totalRow+3,c:6}});
     compareWs['!print_area']=`A1:G${totalRow+4}`;
     compareWs['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1,fitToHeight:0};
     compareWs['!margins']={left:.25,right:.25,top:.35,bottom:.35,header:0,footer:0};
