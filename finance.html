@@ -238,9 +238,9 @@ body { background: white; padding: 0; margin: 0; }
 
 <!-- 春節調價與飯店回饋管理：設定保存在 Firestore，不更改物流原始單價。 -->
 <details id="pricingRulesPanel" class="bg-white border border-amber-200 rounded-2xl shadow-sm p-5 mb-7 no-print">
- <summary class="cursor-pointer select-none font-black text-emerald-900 text-xl py-1">🗓️ 年度春節價格／飯店回饋管理 <span class="text-sm font-medium text-gray-500">（點擊展開／收起）</span></summary>
+ <summary class="cursor-pointer select-none font-black text-emerald-900 text-xl py-1">🗓️ 年度春節價格／飯店回饋／洗滌管理費管理 <span class="text-sm font-medium text-gray-500">（點擊展開／收起）</span></summary>
  <div class="flex flex-wrap items-center justify-between gap-3 border-b pb-3 mb-4 mt-4">
-  <div><h2 class="text-xl font-black text-emerald-900">🗓️ 年度春節價格／飯店回饋管理</h2><p class="text-sm text-gray-600 mt-1">春節依出貨日計算；單價四捨五入至小數點後 1 位。回饋扣除未稅金額後再計算 5% 營業稅。</p></div>
+  <div><h2 class="text-xl font-black text-emerald-900">🗓️ 年度春節價格／飯店回饋／洗滌管理費管理</h2><p class="text-sm text-gray-600 mt-1">春節依出貨日計算；單價四捨五入至小數點後 1 位。回饋扣除未稅金額後再計算 5% 營業稅。</p></div>
   <button onclick="reloadPricingRules()" class="bg-gray-100 border rounded-lg px-4 py-2 font-bold text-gray-700">重新同步設定</button>
  </div>
  <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-3">
@@ -260,6 +260,18 @@ body { background: white; padding: 0; margin: 0; }
  </div>
  <div class="flex flex-wrap gap-2 mt-3"><button onclick="saveRebateRule()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg font-bold">儲存飯店回饋</button><button onclick="removeRebateRule()" class="px-4 py-2 bg-red-50 text-red-700 border rounded-lg font-bold">移除飯店回饋</button></div>
  <div id="rebateRulesList" class="overflow-x-auto text-sm mt-3"></div>
+ <div class="border-t border-amber-200 pt-4 mt-5">
+  <h3 class="font-black text-emerald-900 text-lg">布巾洗滌管理費設定（依飯店）</h3>
+  <p class="text-sm text-gray-600 mt-1 mb-3">以適用期間內的未稅洗滌金額計算，四捨五入至整元；另列管理費，之後扣回饋再計 5% 營業稅。不修改品項單價。</p>
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+   <label class="text-sm font-bold">管理費飯店<select id="managementFeeHotel" class="block mt-1 border rounded-lg p-2 w-full"></select></label>
+   <label class="text-sm font-bold">管理費 %<input id="managementFeePercent" type="number" min="0" max="100" step="0.1" placeholder="例：3" class="block mt-1 border rounded-lg p-2 w-full"></label>
+   <label class="text-sm font-bold">起始日（可留空）<input id="managementFeeStart" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+   <label class="text-sm font-bold">結束日（可留空）<input id="managementFeeEnd" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  </div>
+  <div class="flex flex-wrap gap-2 mt-3"><button onclick="saveManagementFeeRule()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg font-bold">儲存飯店管理費</button><button onclick="removeManagementFeeRule()" class="px-4 py-2 bg-red-50 text-red-700 border rounded-lg font-bold">移除飯店管理費</button></div>
+  <div id="managementFeeRulesList" class="overflow-x-auto text-sm mt-3"></div>
+ </div>
  <p id="pricingRulesStatus" class="text-sm font-bold text-emerald-700 mt-3" aria-live="polite"></p>
 </details>
 
@@ -527,7 +539,7 @@ function compareLogisticsItems(hotelName, itemA, itemB) {
 
 // 只儲存規則，不把春節調整價回寫到物流單據，避免重複加價。
 const PRICING_RULES_REF = doc(db, 'inventory_config', 'finance_annual_pricing');
-let pricingRules = {holidays:[], rebates:[]};
+let pricingRules = {holidays:[], rebates:[], managementFees:[]};
 let pricingRulesPending = null, pricingRulesReady = false;
 const roundHolidayPrice = n => Math.round((Number(n) + Number.EPSILON) * 10) / 10;
 function activeHolidayRule(company, date) {
@@ -547,6 +559,15 @@ function rebateForReport(company, records) {
   const amount = Math.round(eligible * rule.percent / 100);
   return {percent:rule.percent, amount, base:eligible};
 }
+function managementFeeForReport(company, records) {
+  const rule = pricingRules.managementFees.find(r => r.hotel === company);
+  if (!rule) return {percent:0, amount:0, base:0};
+  const base = records.reduce((sum,r) => {
+    if ((rule.start && r.date < rule.start) || (rule.end && r.date > rule.end)) return sum;
+    return sum + (Number(r.qty)||0) * reportRecordPrice(r);
+  }, 0);
+  return {percent:Number(rule.percent)||0, amount:Math.round(base * (Number(rule.percent)||0) / 100), base};
+}
 function baseRecordPrice(r) {
   if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
   return Number(getPrice(r.hotel,r.item)) || 0;
@@ -564,7 +585,7 @@ async function ensurePricingRules(force=false) {
   pricingRulesPending = (async()=>{
     const snap = await getDoc(PRICING_RULES_REF);
     const data = snap.exists() ? snap.data() : {};
-    pricingRules = {holidays:Array.isArray(data.holidays)?data.holidays:[], rebates:Array.isArray(data.rebates)?data.rebates:[]};
+    pricingRules = {holidays:Array.isArray(data.holidays)?data.holidays:[], rebates:Array.isArray(data.rebates)?data.rebates:[], managementFees:Array.isArray(data.managementFees)?data.managementFees:[]};
     pricingRulesReady = true;
     renderPricingRules();
   })();
@@ -575,18 +596,18 @@ async function persistPricingRules() {
   status.textContent='正在儲存設定…';
   try {
     // 使用整份規則文件；同時更新時後寫者覆蓋，請勿於多台裝置同時編輯。
-    await setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, updatedAt:new Date().toISOString()});
+    await setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, managementFees:pricingRules.managementFees, updatedAt:new Date().toISOString()});
     status.textContent='✅ 規則已儲存；請重新載入明細／業績，使新設定套用到當期資料。';
     renderPricingRules();
   } catch(err) { status.textContent='❌ 儲存失敗：'+err.message; await ensurePricingRules(true); }
 }
 function pricingHotelNames() {
-  const names = new Set([...Object.keys(sheetClients), ...[...uniqueCompanies], ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName || r.hotel || "").trim()), ...pricingRules.holidays.map(r=>r.hotel), ...pricingRules.rebates.map(r=>r.hotel)]);
+  const names = new Set([...Object.keys(sheetClients), ...[...uniqueCompanies], ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName || r.hotel || "").trim()), ...pricingRules.holidays.map(r=>r.hotel), ...pricingRules.rebates.map(r=>r.hotel), ...pricingRules.managementFees.map(r=>r.hotel)]);
   return [...names].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-TW'));
 }
 function renderPricingRules() {
   const esc=escapeReportHTML;
-  for (const id of ['holidayHotel','rebateHotel']) {
+  for (const id of ['holidayHotel','rebateHotel','managementFeeHotel']) {
     const el=document.getElementById(id); if (!el) continue;
     const prev=el.value;
     el.innerHTML='<option value="">請選擇飯店</option>'+pricingHotelNames().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
@@ -596,6 +617,7 @@ function renderPricingRules() {
   const holidays=[...pricingRules.holidays].sort((a,b)=>b.year-a.year || a.hotel.localeCompare(b.hotel,'zh-TW'));
   document.getElementById('holidayRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定春節加價</div>'+(holidays.length ? holidays.map(r=>`<div class="p-2 border-b">${esc(r.year)}｜${esc(r.hotel)}｜${esc(r.start)} 至 ${esc(r.end)}｜加價 ${esc(r.percent)}%</div>`).join('') : '<div class="text-gray-500">目前尚無設定，未設定者不加價。</div>');
   document.getElementById('rebateRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定飯店回饋</div>'+(pricingRules.rebates.length ? pricingRules.rebates.map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無回饋設定。</div>');
+  document.getElementById('managementFeeRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定布巾洗滌管理費</div>'+(pricingRules.managementFees.length ? pricingRules.managementFees.map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜加收 ${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無管理費設定，未設定飯店不加收。</div>');
 }
 window.reloadPricingRules=async()=>{await Promise.all([ensurePricingRules(true),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]);renderPricingRules();document.getElementById('pricingRulesStatus').textContent='已重新同步。';};
 window.saveHolidayRule=async()=>{
@@ -618,6 +640,19 @@ window.saveRebateRule=async()=>{
 window.removeRebateRule=async()=>{
  await ensurePricingRules();const hotel=document.getElementById('rebateHotel').value;if(!hotel||!confirm(`移除 ${hotel} 回饋設定？`))return;
  pricingRules.rebates=pricingRules.rebates.filter(r=>r.hotel!==hotel);await persistPricingRules();
+};
+window.saveManagementFeeRule=async()=>{
+ await ensurePricingRules();
+ const hotel=document.getElementById('managementFeeHotel').value, input=document.getElementById('managementFeePercent').value;
+ const percent=Number(input),start=document.getElementById('managementFeeStart').value,end=document.getElementById('managementFeeEnd').value;
+ if(!hotel||input.trim()===''||!Number.isFinite(percent)||percent<0||percent>100||(start&&end&&start>end)) { alert('請選擇飯店、輸入 0～100% 的管理費比例，並檢查日期。');return; }
+ pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);
+ pricingRules.managementFees.push({hotel,percent,start,end});await persistPricingRules();
+};
+window.removeManagementFeeRule=async()=>{
+ await ensurePricingRules();const hotel=document.getElementById('managementFeeHotel').value;
+ if(!hotel||!confirm(`確定移除 ${hotel} 的布巾洗滌管理費設定？`))return;
+ pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);await persistPricingRules();
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('holidayYear').value=new Date().getFullYear();
@@ -756,6 +791,19 @@ window.updateBossPeriodHint=()=>{
     el.textContent=`${p.partial?'暫估業績（截至 '+p.cutoff+'）':'完整結帳'}｜25號：${p['25th'].start} ～ ${p['25th'].end}｜月底／1號：${p.monthGroup.start} ～ ${p.monthGroup.end}`;
   } catch(e){el.textContent=e.message;}
   if (document.getElementById('settlementGroupPanel')?.open) refreshSettlementHotels();
+};
+window.saveManagementFeeRule=async()=>{
+ await ensurePricingRules();
+ const hotel=document.getElementById('managementFeeHotel').value, input=document.getElementById('managementFeePercent').value;
+ const percent=Number(input),start=document.getElementById('managementFeeStart').value,end=document.getElementById('managementFeeEnd').value;
+ if(!hotel||input.trim()===''||!Number.isFinite(percent)||percent<0||percent>100||(start&&end&&start>end)) { alert('請選擇飯店、輸入 0～100% 的管理費比例，並檢查日期。');return; }
+ pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);
+ pricingRules.managementFees.push({hotel,percent,start,end});await persistPricingRules();
+};
+window.removeManagementFeeRule=async()=>{
+ await ensurePricingRules();const hotel=document.getElementById('managementFeeHotel').value;
+ if(!hotel||!confirm(`確定移除 ${hotel} 的布巾洗滌管理費設定？`))return;
+ pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);await persistPricingRules();
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('bossTargetMonth').value=getLocalDateString(new Date()).slice(0,7);
@@ -1039,10 +1087,10 @@ function financeSelectionTotals() {
  const rounded=Math.round(raw);
  const grouped=new Map();
  rawLogisticsData.forEach(r=>{if(!grouped.has(r.parentCompany))grouped.set(r.parentCompany,[]);grouped.get(r.parentCompany).push(r);});
- let rebate=0;
- grouped.forEach((records,hotel)=>{rebate+=rebateForReport(hotel,records).amount;});
- const net=rounded-rebate, tax=Math.round(net*.05);
- return {rounded,rebate,net,tax,final:net+tax};
+ let rebate=0, managementFee=0;
+ grouped.forEach((records,hotel)=>{rebate+=rebateForReport(hotel,records).amount;managementFee+=managementFeeForReport(hotel,records).amount;});
+ const net=rounded+managementFee-rebate, tax=Math.round(net*.05);
+ return {rounded,managementFee,rebate,net,tax,final:net+tax};
 }
 
 function recalculateFinanceUI() {
@@ -1086,9 +1134,10 @@ function recalculateFinanceUI() {
 
     // ★ 只有最後的總結算才進行四捨五入
     let roundedGrandTotal = Math.round(grandTotal);
-    let {rebate,net,tax,final:finalAmount} = financeSelectionTotals();
+    let {managementFee,rebate,net,tax,final:finalAmount} = financeSelectionTotals();
 
     if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${roundedGrandTotal.toLocaleString()}`;
+    if (document.getElementById('financeManagementFee')) document.getElementById('financeManagementFee').textContent = `+$${managementFee.toLocaleString()}`;
     if (document.getElementById('financeRebate')) document.getElementById('financeRebate').textContent = `-$${rebate.toLocaleString()}`;
     if (document.getElementById('financeNet')) document.getElementById('financeNet').textContent = `$${net.toLocaleString()}`;
     if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
@@ -1433,12 +1482,13 @@ async function loadFinanceData() {
 
         // ★ 只有最後的總結算才進行四捨五入
         let roundedGrandTotal = Math.round(grandTotal);
-        let {rebate,net,tax:taxAmount,final:finalAmount} = financeSelectionTotals();
+        let {managementFee,rebate,net,tax:taxAmount,final:finalAmount} = financeSelectionTotals();
 
         html += `
         <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2" id="financeGrandTotal">$${roundedGrandTotal.toLocaleString()}</td></tr>
+        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">布巾洗滌管理費（未稅加收）：</td><td class="text-right pr-6 font-bold text-emerald-800 text-lg" id="financeManagementFee">+$${managementFee.toLocaleString()}</td></tr>
         <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">客戶回饋（未稅扣除）：</td><td class="text-right pr-6 font-bold text-red-700 text-lg" id="financeRebate">-$${rebate.toLocaleString()}</td></tr>
-        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">回饋後未稅：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg" id="financeNet">$${net.toLocaleString()}</td></tr>
+        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">加收管理費／扣回饋後未稅：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg" id="financeNet">$${net.toLocaleString()}</td></tr>
         <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2" id="financeTax">$${taxAmount.toLocaleString()}</td></tr>
         <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6" id="financeFinal">$${finalAmount.toLocaleString()}</td></tr>
         `;
@@ -1723,10 +1773,11 @@ function buildInvoiceReport() {
     });
     Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || a.receiptOrder - b.receiptOrder));
     const rebate = rebateForReport(comp, matches);
+    const managementFee = managementFeeForReport(comp, matches);
     const rounded = Math.round(grandTotal);
-    const afterRebate = rounded - rebate.amount;
+    const afterRebate = rounded + managementFee.amount - rebate.amount;
     const tax = Math.round(afterRebate * 0.05);
-    return { comp, depts, grandTotal, rounded, rebate, afterRebate, tax };
+    return { comp, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax };
 }
 
 function escapeReportHTML(value) {
@@ -1770,8 +1821,9 @@ function generateOfficialInvoice() {
     html += `</tbody></table>
         <div class="report-totals">
           <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
+          <div><span>布巾洗滌管理費（${moneyReport(report.managementFee.percent)}%）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>
           <div><span>客戶回饋（${moneyReport(report.rebate.percent)}%）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>
-          <div><span>回饋後未稅</span><b>$${moneyReport(report.afterRebate)}</b></div>
+          <div><span>調整後未稅金額</span><b>$${moneyReport(report.afterRebate)}</b></div>
           <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
           <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.afterRebate + report.tax)}</b></div>
         </div></section>`;
@@ -1854,11 +1906,11 @@ function exportToExcel() {
     };
     const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱',document.getElementById('ciName').value || report.comp], ['對帳期間',period], [], ['部門名稱','未稅金額']];
     entries.forEach(([name,dept]) => totalRows.push([name,dept.total]));
-    totalRows.push([],['未稅金額',report.rounded],[`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount],['回饋後未稅',report.afterRebate],['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
+    totalRows.push([],['洗滌未稅金額',report.rounded],[`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount],[`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount],['調整後未稅金額',report.afterRebate],['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
     totalSheet['!cols'] = [{wch:52},{wch:30}];
     totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
-    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-4,totalRows.length-3,totalRows.length-2,totalRows.length-1,totalRows.length],[]);
+    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-5,totalRows.length-4,totalRows.length-3,totalRows.length-2,totalRows.length-1,totalRows.length],[]);
     totalSheet['!print_area'] = `A1:B${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
