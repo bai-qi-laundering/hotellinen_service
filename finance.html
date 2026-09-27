@@ -1703,27 +1703,7 @@ function exportBossExcel() {
     compareWs['!margins']={left:.25,right:.25,top:.35,bottom:.35,header:0,footer:0};
     compareWs['!header']='';compareWs['!footer']='';
     XLSX.utils.book_append_sheet(wb,compareWs,'雙組對照表');
-    const overview = [ ['百麒國際股份有限公司｜老闆業績戰情總覽'], ['結帳月份',periods.month], ['統計狀態',periods.partial?'暫估／截至 '+periods.cutoff:'完整結帳'], ['25號區間',`${periods['25th'].start} ~ ${periods['25th'].end}`], ['月底／1號區間',`${periods.monthGroup.start} ~ ${periods.monthGroup.end}`], [],
-        ['結帳群組','未稅金額','稅金（5%）','含稅金額'],
-        ['25號結帳',a.untaxed,a.tax,a.final], ['1號／月底結帳',b.untaxed,b.tax,b.final],
-        [], ['兩組合計',total,tax,total+tax] ];
-    const overviewWs = XLSX.utils.aoa_to_sheet(overview);
-    overviewWs['!cols'] = [{wch:32},{wch:22},{wch:20},{wch:22}];
-    XLSX.utils.book_append_sheet(wb,overviewWs,'兩組總覽');
-    [['25th','25號'],['month','1號月底']].forEach(([key,name]) => {
-        const g = currentBossGroups[key];
-        const range=key==='25th'?periods['25th']:periods.monthGroup;
-        const rows = [['百麒國際股份有限公司｜'+name+'結帳業績'],['統計區間',`${range.start} ~ ${range.end}`],[],['飯店／部門','未稅金額']];
-        sortedBossStores(g).forEach(([hotel,amt])=>rows.push([hotel,amt]));
-        rows.push([],['未稅合計',g.untaxed],['稅金（5%）',g.tax],['含稅合計',g.final]);
-        const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = [{wch:42},{wch:24}];
-        XLSX.utils.book_append_sheet(wb,ws,name+'業績');
-        const details = [['出貨日期','飯店／部門','品項名稱','實收數量','單價','金額小計']];
-        [...g.records].sort((x,y)=>String(x.parentCompany||x.hotel).localeCompare(String(y.parentCompany||y.hotel),'zh-TW')||x.hotel.localeCompare(y.hotel,'zh-TW')||x.date.localeCompare(y.date)||x.receiptOrder-y.receiptOrder)
-            .forEach(r=>{const price=bossRecordPrice(r); details.push([r.date,r.hotel,r.item,r.qty,price,r.qty*price]);});
-        const dws = XLSX.utils.aoa_to_sheet(details); dws['!cols'] = [{wch:16},{wch:30},{wch:28},{wch:15},{wch:15},{wch:20}];
-        XLSX.utils.book_append_sheet(wb,dws,name+'明細');
-    });
+    // 老闆業績 Excel 僅保留一張左右並排的雙組業績總結工作表。
     XLSX.writeFile(wb,`百麒業績對照表_${periods.month.replace(/-/g,'')}.xlsx`);
 }
 
