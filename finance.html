@@ -459,12 +459,22 @@ let customPrices = {};
 
 // 與「物流查帳後台」共用同一份 Firestore 品項排序範本。
 let logisticsMasterItems = [];
+let logisticsOrderFetchedAt = 0;
+let logisticsOrderPending = null;
+const MASTER_CACHE_MS = 120000; // 價目與品項排序快取兩分鐘，之後自動重新取得
 async function ensureLogisticsItemOrder() {
-    const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
-    if (!snap.exists() || !Array.isArray(snap.data().items) || !snap.data().items.length) {
-        throw new Error('無法讀取物流查帳後台的品項排序設定（master_template），請稍後重試。');
-    }
-    logisticsMasterItems = snap.data().items;
+    if (logisticsMasterItems.length && Date.now() - logisticsOrderFetchedAt < MASTER_CACHE_MS) return;
+    if (logisticsOrderPending) return logisticsOrderPending;
+    logisticsOrderPending = (async () => {
+        const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
+        if (!snap.exists() || !Array.isArray(snap.data().items) || !snap.data().items.length) {
+            throw new Error('無法讀取物流查帳後台的品項排序設定（master_template），請稍後重試。');
+        }
+        logisticsMasterItems = snap.data().items;
+        logisticsOrderFetchedAt = Date.now();
+    })();
+    try { return await logisticsOrderPending; }
+    finally { logisticsOrderPending = null; }
 }
 // 完全比照 boss_admin.html：先比對該飯店／部門的範本；若無範本，使用全域品項順序。
 function getLogisticsItemSortIndex(hotelName, itemName) {
@@ -676,6 +686,7 @@ window.batchSavePrices = async function() {
 
         await Promise.all(promises);
 
+        logisticsPeriodCache.clear(); // 儲存單價或品項後，下次載入讀取最新單據。
         pendingUpdatesArray = [];
         customPricesDirty = false;
 
@@ -792,7 +803,16 @@ function recalculateFinanceUI() {
     refreshFinancePriceWarnings();
 }
 
+let financeMasterFetchedAt = 0;
+let financeMasterPending = null;
 async function syncMasterDataFromSheet() {
+    if (financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS) return;
+    if (financeMasterPending) return financeMasterPending;
+    financeMasterPending = fetchFinanceMasterData();
+    try { return await financeMasterPending; }
+    finally { financeMasterPending = null; }
+}
+async function fetchFinanceMasterData() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
 document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
 document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
@@ -851,6 +871,7 @@ if (compSelect) {
     Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
 }
 
+financeMasterFetchedAt = Date.now();
 document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
 document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
 } else throw new Error(json.error);
@@ -890,6 +911,38 @@ setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 
 window.addEventListener('DOMContentLoaded', () => { syncMasterDataFromSheet(); });
 
+// 同一日期區間的三種日期格式查詢只做一次；選飯店與載入明細共用結果。
+// 短暫快取 45 秒以避免重複下載。切換日期會使用不同 key，逾期重新查詢。
+const LOGISTICS_CACHE_MS = 45000;
+const logisticsPeriodCache = new Map();
+async function getLogisticsDocsForPeriod(startDate, endDate) {
+    const key = `${startDate}|${endDate}`;
+    const cached = logisticsPeriodCache.get(key);
+    if (cached && (cached.promise || Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS)) return cached.promise || cached.docs;
+    const promise = (async () => {
+        const startParts = startDate.split('-'), endParts = endDate.split('-');
+        const unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+        const unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+        const qStandard = query(collection(db, 'logistics_records'), where('date', '>=', startDate), where('date', '<=', endDate));
+        const qUnpad = query(collection(db, 'logistics_records'), where('date', '>=', unpadStart), where('date', '<=', unpadEnd + '\uf8ff'));
+        const qTs = query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59`)));
+        const snapshots = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
+        const docs = new Map();
+        snapshots.forEach(snap => snap.forEach(d => docs.set(d.id, d)));
+        return docs;
+    })();
+    logisticsPeriodCache.clear(); // 只保留當前區間，避免長時間累積記憶體
+    logisticsPeriodCache.set(key, {promise, fetchedAt:0, docs:null});
+    try {
+        const docs = await promise;
+        logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs});
+        return docs;
+    } catch (error) {
+        logisticsPeriodCache.delete(key);
+        throw error;
+    }
+}
+
 async function fetchInitialHotels() {
 const container = document.getElementById('hotelCheckboxes');
 container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
@@ -897,22 +950,9 @@ try {
 const startDate = document.getElementById('startDate').value;
 const endDate = document.getElementById('endDate').value;
 if(!startDate || !endDate) return;
-let startParts = startDate.split('-'); let endParts = endDate.split('-');
-let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-
-const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-const startTs = new Date(`${startDate}T00:00:00`);
-const endTs = new Date(`${endDate}T23:59:59`);
-const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
-
-const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
-
-let uniqueDocs = new Map();
-snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
+const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+// 使用者切換日期期間，避免舊請求稍晚完成而蓋掉最新選單。
+if (document.getElementById('startDate').value !== startDate || document.getElementById('endDate').value !== endDate) return;
 
 let hotels = new Set();
 uniqueCompanies.clear();
@@ -972,23 +1012,14 @@ async function fetchRecordsForSelectedHotels() {
     
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
-    await Promise.all([syncMasterDataFromSheet(), ensureLogisticsItemOrder()]);
+    // 價目表、物流排序與物流資料彼此獨立，平行讀取，並避免重複下載。
+    const [, , uniqueDocs] = await Promise.all([
+        syncMasterDataFromSheet(),
+        ensureLogisticsItemOrder(),
+        getLogisticsDocsForPeriod(startDate, endDate)
+    ]);
 
-    let startParts = startDate.split('-'); let endParts = endDate.split('-');
-    let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-    let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-    const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-    const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-    const startTs = new Date(`${startDate}T00:00:00`);
-    const endTs = new Date(`${endDate}T23:59:59`);
-    const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
-
-    const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
-    let uniqueDocs = new Map();
-    snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-    snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-    snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
-
+    const selectedSet = new Set(selectedHotels);
     let results = [];
     uniqueDocs.forEach(docSnap => {
         const d = docSnap.data();
@@ -996,7 +1027,7 @@ async function fetchRecordsForSelectedHotels() {
         if (dDate >= startDate && dDate <= endDate) {
             let hotelName = d.hotelKeyword || "未命名飯店";
             if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
-            if (selectedHotels.includes(hotelName)) {
+            if (selectedSet.has(hotelName)) {
                 (d.items || []).forEach((item, idx) => {
                     // 結帳一律以實收數量為準；0 或尚未填寫都不計入，不得回填原出貨量。
                     const actual = Number(item.actualQty) || 0;
