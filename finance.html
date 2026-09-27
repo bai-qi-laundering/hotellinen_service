@@ -288,7 +288,7 @@ body { background: white; padding: 0; margin: 0; }
             </div>
             <div class="flex gap-3">
                 <button onclick="loadBossData()" id="loadBossBtn" class="bg-emerald-500 hover:bg-emerald-400 text-white font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-emerald-400 flex items-center gap-2">
-                    ▶ 立即計算業績
+                    ▶ 一鍵載入兩組業績
                 </button>
                 <button onclick="exportBossExcel()" id="exportBossBtn" class="hidden bg-white text-emerald-800 hover:bg-gray-100 font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-gray-200 flex items-center gap-2">
                     ⬇️ 匯出業績 Excel
@@ -297,27 +297,15 @@ body { background: white; padding: 0; margin: 0; }
         </div>
 
         <div id="bossDashboardContent" class="hidden relative z-10">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5">
-                    <p class="text-emerald-200 text-sm font-bold mb-1">未稅總營業額</p>
-                    <p id="bossTotalUntaxed" class="text-3xl font-black">$0</p>
-                </div>
-                <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5">
-                    <p class="text-emerald-200 text-sm font-bold mb-1">營業稅金 (5%)</p>
-                    <p id="bossTotalTax" class="text-3xl font-black">$0</p>
-                </div>
-                <div class="bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl p-5 transform scale-105 shadow-lg">
-                    <p class="text-white text-sm font-bold mb-1 flex items-center gap-1">⭐ 含稅總營業額</p>
-                    <p id="bossTotalFinal" class="text-4xl font-black text-yellow-300 drop-shadow">$0</p>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・未稅</p><p id="bossTotalUntaxed" class="text-3xl font-black">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・營業稅（5%）</p><p id="bossTotalTax" class="text-3xl font-black">$0</p></div>
+                <div class="bg-white/20 border border-white/30 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・含稅</p><p id="bossTotalFinal" class="text-3xl font-black text-yellow-300">$0</p></div>
             </div>
-
-            <h3 class="font-bold text-lg mb-3 border-l-4 border-emerald-400 pl-3">各店家業績貢獻 (未稅)</h3>
-            <div id="bossStoreGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[300px] overflow-y-auto custom-scroll pr-2 pb-2">
-                <!-- 店家卡片 -->
-            </div>
+            <p id="bossGroupNote" class="text-sm text-emerald-100 mb-4"></p>
+            <div id="bossGroupsContainer" class="grid grid-cols-1 xl:grid-cols-2 gap-5"></div>
         </div>
-        
+
         <div id="bossEmptyState" class="text-center py-10 text-emerald-200/50 font-bold text-lg">
             請點擊上方「立即計算業績」按鈕生成戰情數據
         </div>
@@ -1154,115 +1142,129 @@ async function loadFinanceData() {
     }
 }
 
-// 📊 系統2：老闆業績載入
+// 📊 系統2：依既有兩組結帳名單，一次下載日期區間資料並分組，與勾選狀態無關。
+let currentBossGroups = null;
+function classifyBossGroup(hotel) {
+    // 名單沿用上方「快速載入群組名單」設定；排除回洗。
+    if (String(hotel).includes('回洗')) return null;
+    const in25 = group25th.some(kw => hotel.includes(kw));
+    const inMonth = groupEndOfMonth.some(kw => hotel.includes(kw));
+    // 同時命中時只歸入一組，避免重複計算；畫面顯示提醒。
+    return in25 ? '25th' : inMonth ? 'month' : null;
+}
+function bossRecordPrice(r) {
+    return r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== ''
+        ? (Number(r.savedPrice) || 0) : (getPrice(r.hotel, r.item) || 0);
+}
+function summarizeBossGroup(records) {
+    const stores = {};
+    let rawTotal = 0;
+    records.forEach(r => {
+        const amount = r.qty * bossRecordPrice(r);
+        stores[r.hotel] = (stores[r.hotel] || 0) + amount;
+        rawTotal += amount;
+    });
+    const untaxed = Math.round(rawTotal);
+    const tax = Math.round(untaxed * 0.05);
+    return {records, stores, untaxed, tax, final:untaxed + tax};
+}
 async function loadBossData() {
     const btn = document.getElementById('loadBossBtn');
     const content = document.getElementById('bossDashboardContent');
     const emptyState = document.getElementById('bossEmptyState');
     const exportBtn = document.getElementById('exportBossBtn');
-    
-    btn.innerHTML = `計算中...`; btn.disabled = true;
-    
+    btn.disabled = true;
+    btn.textContent = '⏳ 同時載入兩組資料...';
     try {
-        currentBossData = await fetchRecordsForSelectedHotels();
-        
-        if(currentBossData.length === 0) {
-            alert("勾選範圍內無紀錄可計算！");
-            return;
-        }
-
-        let deptsData = {};
-        let grandTotal = 0;
-        
-        currentBossData.forEach(r => {
-            if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
-            // ★ 如果以前有輸入過快照價錢就用，沒有才用預設的
-            let price = r.savedPrice !== undefined ? r.savedPrice : (getPrice(r.hotel, r.item) || 0);
-            let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
-            deptsData[r.hotel] += amt;
-            grandTotal += amt;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        if (!startDate || !endDate || startDate > endDate) throw new Error('請確認正確的統計日期區間');
+        const [, docs] = await Promise.all([syncMasterDataFromSheet(), getLogisticsDocsForPeriod(startDate,endDate)]);
+        const groups = {'25th':[], month:[]};
+        const unmatched = new Set();
+        const overlaps = new Set();
+        docs.forEach(docSnap => {
+            const d = docSnap.data();
+            const date = standardizeDate(d.date);
+            if (date < startDate || date > endDate) return;
+            const hotel = d.hotelKeyword || '未命名飯店';
+            const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
+            if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
+            const key = classifyBossGroup(fullName);
+            const hasValid = (d.items || []).some(item => Number(item.actualQty) > 0 && !String(item.itemName).includes('回洗'));
+            if (!key) { if (hasValid) unmatched.add(fullName); return; }
+            if (group25th.some(kw => fullName.includes(kw)) && groupEndOfMonth.some(kw => fullName.includes(kw))) overlaps.add(fullName);
+            (d.items || []).forEach((item,idx) => {
+                const qty = Number(item.actualQty) || 0;
+                if (qty <= 0 || String(item.itemName).includes('回洗')) return;
+                groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
+                    receiptOrder:idx, savedPrice:item.price});
+            });
         });
-
-        // ★ 只有最後的總結算才進行四捨五入
-        let roundedGrandTotal = Math.round(grandTotal);
-        let taxAmount = Math.round(roundedGrandTotal * 0.05); 
-        let finalAmount = roundedGrandTotal + taxAmount;
-
-        document.getElementById('bossDateRange').innerText = `${document.getElementById('startDate').value} 至 ${document.getElementById('endDate').value}`;
-        document.getElementById('bossTotalUntaxed').innerText = `$${roundedGrandTotal.toLocaleString()}`;
-        document.getElementById('bossTotalTax').innerText = `$${taxAmount.toLocaleString()}`;
-        document.getElementById('bossTotalFinal').innerText = `$${finalAmount.toLocaleString()}`;
-
-        let summaryHtml = "";
-        const sortedDepts = Object.entries(deptsData).sort((a,b) => b[1] - a[1]); 
-        sortedDepts.forEach(([deptName, amt]) => {
-            summaryHtml += `
-            <div class="bg-white/10 rounded-lg p-4 border border-white/20 hover:bg-white/20 transition shadow-sm">
-                <div class="text-sm text-emerald-100 font-bold truncate mb-2" title="${deptName}">${deptName}</div>
-                <div class="text-2xl font-black text-white">$${amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>
-            </div>`;
-        });
-        document.getElementById('bossStoreGrid').innerHTML = summaryHtml;
-
-        emptyState.classList.add('hidden');
-        content.classList.remove('hidden');
-        exportBtn.classList.remove('hidden');
-
-    } catch (e) {
-        alert(e.message);
-    } finally {
-        btn.innerHTML = `▶ 重新計算業績`; btn.disabled = false;
-    }
+        currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), startDate, endDate };
+        currentBossData = [...groups['25th'],...groups.month];
+        const a = currentBossGroups['25th'], b = currentBossGroups.month;
+        // 整體以兩組未稅合計重新計稅，與原本整體結算方式一致。
+        const totalUntaxed = Math.round(a.untaxed + b.untaxed);
+        const totalTax = Math.round(totalUntaxed * .05);
+        document.getElementById('bossDateRange').innerText = `${startDate} 至 ${endDate}`;
+        document.getElementById('bossTotalUntaxed').innerText = `$${totalUntaxed.toLocaleString()}`;
+        document.getElementById('bossTotalTax').innerText = `$${totalTax.toLocaleString()}`;
+        document.getElementById('bossTotalFinal').innerText = `$${(totalUntaxed + totalTax).toLocaleString()}`;
+        const e = escapeReportHTML;
+        const renderGroup = (key,label,accent) => {
+            const g = currentBossGroups[key];
+            const stores = Object.entries(g.stores).sort((x,y) => y[1]-x[1]);
+            const cards = stores.length ? stores.map(([name,amt]) => `<div class="bg-white/10 border border-white/20 p-3 rounded-lg flex justify-between items-center gap-3"><span class="font-bold break-words">${e(name)}</span><b class="text-lg whitespace-nowrap">$${amt.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div>`).join('') : '<p class="text-white/70 py-5 text-center">這個區間沒有符合的出貨資料</p>';
+            return `<section class="bg-white/10 border border-white/20 rounded-2xl p-5 min-w-0">
+                <h3 class="text-xl font-black mb-4 border-l-4 ${accent} pl-3">${label}</h3>
+                <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                    <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">未稅</p><p class="font-black text-lg">$${g.untaxed.toLocaleString()}</p></div>
+                    <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">稅金 5%</p><p class="font-black text-lg">$${g.tax.toLocaleString()}</p></div>
+                    <div class="rounded-lg bg-white/15 p-3"><p class="text-xs text-emerald-100 mb-1">含稅</p><p class="font-black text-lg text-yellow-300">$${g.final.toLocaleString()}</p></div>
+                </div><p class="font-bold mb-3 text-emerald-100">飯店／部門業績（未稅）・${stores.length} 個</p>
+                <div class="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">${cards}</div></section>`;
+        };
+        document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','1號／月底結帳','border-sky-300');
+        const notices = [];
+        if (unmatched.size) notices.push(`未列入兩組的飯店／部門（${unmatched.size} 個）：${[...unmatched].sort().join('、')}`);
+        if (overlaps.size) notices.push(`同時符合兩組名單者依25號組計算，避免重複：${[...overlaps].sort().join('、')}`);
+        document.getElementById('bossGroupNote').textContent = notices.join('｜') || '按照上方兩份快速群組名單分類；不需逐一勾選飯店。';
+        emptyState.classList.add('hidden'); content.classList.remove('hidden'); exportBtn.classList.remove('hidden');
+    } catch (err) {
+        currentBossGroups = null; currentBossData = [];
+        content.classList.add('hidden'); exportBtn.classList.add('hidden'); emptyState.classList.remove('hidden');
+        alert('業績載入失敗：' + err.message);
+    } finally { btn.disabled = false; btn.textContent = '▶ 重新載入兩組業績'; }
 }
 
-// 📊 系統2：老闆專屬匯出 Excel
 function exportBossExcel() {
-    if (currentBossData.length === 0) { alert("請先計算業績！"); return; }
-    
-    let deptsData = {};
-    let grandTotal = 0;
-    
-    let detailsForExcel = [["出貨日期", "飯店名稱", "品項名稱", "數量", "單價", "金額小計"]];
-    currentBossData.sort((a,b) => {
-        if(a.date !== b.date) return a.date < b.date ? -1 : 1; 
-        if(a.hotel !== b.hotel) return a.hotel < b.hotel ? -1 : 1;
-        return a.receiptOrder - b.receiptOrder;
+    if (!currentBossGroups) { alert('請先載入兩組業績！'); return; }
+    const wb = XLSX.utils.book_new();
+    const {startDate,endDate} = currentBossGroups;
+    const a = currentBossGroups['25th'], b = currentBossGroups.month;
+    const total = a.untaxed + b.untaxed, tax = Math.round(total * .05);
+    const overview = [ ['百麒國際股份有限公司｜老闆業績戰情總覽'], ['統計區間',`${startDate} ~ ${endDate}`], [],
+        ['結帳群組','未稅金額','稅金（5%）','含稅金額'],
+        ['25號結帳',a.untaxed,a.tax,a.final], ['1號／月底結帳',b.untaxed,b.tax,b.final],
+        [], ['兩組合計',total,tax,total+tax] ];
+    const overviewWs = XLSX.utils.aoa_to_sheet(overview);
+    overviewWs['!cols'] = [{wch:32},{wch:22},{wch:20},{wch:22}];
+    XLSX.utils.book_append_sheet(wb,overviewWs,'兩組總覽');
+    [['25th','25號'],['month','1號月底']].forEach(([key,name]) => {
+        const g = currentBossGroups[key];
+        const rows = [['百麒國際股份有限公司｜'+name+'結帳業績'],['統計區間',`${startDate} ~ ${endDate}`],[],['飯店／部門','未稅金額']];
+        Object.entries(g.stores).sort((x,y)=>y[1]-x[1]).forEach(([hotel,amt])=>rows.push([hotel,amt]));
+        rows.push([],['未稅合計',g.untaxed],['稅金（5%）',g.tax],['含稅合計',g.final]);
+        const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = [{wch:42},{wch:24}];
+        XLSX.utils.book_append_sheet(wb,ws,name+'業績');
+        const details = [['出貨日期','飯店／部門','品項名稱','實收數量','單價','金額小計']];
+        [...g.records].sort((x,y)=>x.date.localeCompare(y.date)||x.hotel.localeCompare(y.hotel,'zh-TW')||x.receiptOrder-y.receiptOrder)
+            .forEach(r=>{const price=bossRecordPrice(r); details.push([r.date,r.hotel,r.item,r.qty,price,r.qty*price]);});
+        const dws = XLSX.utils.aoa_to_sheet(details); dws['!cols'] = [{wch:16},{wch:30},{wch:28},{wch:15},{wch:15},{wch:20}];
+        XLSX.utils.book_append_sheet(wb,dws,name+'明細');
     });
-
-    currentBossData.forEach(r => {
-        let price = r.savedPrice !== undefined ? r.savedPrice : (getPrice(r.hotel, r.item) || 0);
-        let amt = r.qty * price; // ★ 復原：明細小計不四捨五入
-        grandTotal += amt;
-        
-        if(!deptsData[r.hotel]) deptsData[r.hotel] = 0;
-        deptsData[r.hotel] += amt;
-        
-        detailsForExcel.push([r.date, r.hotel, r.item, r.qty, price, amt]);
-    });
-
-    let wb = XLSX.utils.book_new();
-
-    let ws1_data = [
-        ["百麒國際股份有限公司 - 老闆業績戰情報表"],
-        ["統計區間", `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`],
-        [],
-        ["飯店名稱", "結算總計 (未稅)"]
-    ];
-    const sortedDepts = Object.entries(deptsData).sort((a,b) => b[1] - a[1]); 
-    sortedDepts.forEach(([dept, amt]) => { ws1_data.push([dept, amt]); });
-    
-    // ★ 只有最後的總結算才進行四捨五入
-    let roundedGrandTotal = Math.round(grandTotal);
-    ws1_data.push([]); 
-    ws1_data.push(["總計數據"]); 
-    ws1_data.push(["未稅金額", roundedGrandTotal]); 
-    ws1_data.push(["稅金 (5%)", Math.round(roundedGrandTotal * 0.05)]); 
-    ws1_data.push(["含稅金額", roundedGrandTotal + Math.round(roundedGrandTotal * 0.05)]);
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1_data), "各店業績總覽");
-
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailsForExcel), "所有出貨明細");
-
-    XLSX.writeFile(wb, `老闆業績戰報_${document.getElementById('startDate').value.replace(/-/g,'')}至${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+    XLSX.writeFile(wb,`老闆業績戰報_兩組_${startDate.replace(/-/g,'')}至${endDate.replace(/-/g,'')}.xlsx`);
 }
 
 function openInvoiceModal() {
