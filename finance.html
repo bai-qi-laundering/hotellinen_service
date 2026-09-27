@@ -235,6 +235,33 @@ body { background: white; padding: 0; margin: 0; }
 <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
 </div>
 
+
+<!-- 春節調價與飯店回饋管理：設定保存在 Firestore，不更改物流原始單價。 -->
+<section id="pricingRulesPanel" class="bg-white border border-amber-200 rounded-2xl shadow-sm p-5 mb-7 no-print">
+ <div class="flex flex-wrap items-center justify-between gap-3 border-b pb-3 mb-4">
+  <div><h2 class="text-xl font-black text-emerald-900">🗓️ 年度春節價格／飯店回饋管理</h2><p class="text-sm text-gray-600 mt-1">春節依出貨日計算；單價四捨五入至小數點後 1 位。回饋扣除未稅金額後再計算 5% 營業稅。</p></div>
+  <button onclick="reloadPricingRules()" class="bg-gray-100 border rounded-lg px-4 py-2 font-bold text-gray-700">重新同步設定</button>
+ </div>
+ <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-3">
+  <label class="text-sm font-bold">年度<input id="holidayYear" type="number" min="2020" max="2100" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  <label class="text-sm font-bold">春節起始日<input id="holidayStart" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  <label class="text-sm font-bold">春節結束日（含當日）<input id="holidayEnd" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  <label class="text-sm font-bold">飯店<select id="holidayHotel" class="block mt-1 border rounded-lg p-2 w-full"></select></label>
+  <label class="text-sm font-bold">春節加價 %<input id="holidayPercent" type="number" min="0" max="1000" step="0.1" placeholder="例：20" class="block mt-1 border rounded-lg p-2 w-full"></label>
+ </div>
+ <div class="flex flex-wrap gap-2 mb-5"><button onclick="saveHolidayRule()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg font-bold">儲存該飯店春節設定</button><button onclick="removeHolidayRule()" class="px-4 py-2 bg-red-50 text-red-700 border rounded-lg font-bold">移除該年度飯店設定</button></div>
+ <div id="holidayRulesList" class="overflow-x-auto text-sm mb-5"></div>
+ <div class="border-t pt-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+  <label class="text-sm font-bold">回饋飯店<select id="rebateHotel" class="block mt-1 border rounded-lg p-2 w-full"></select></label>
+  <label class="text-sm font-bold">未稅回饋 %<input id="rebatePercent" type="number" min="0" max="100" step="0.1" placeholder="例：3" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  <label class="text-sm font-bold">回饋起始日（可留空）<input id="rebateStart" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+  <label class="text-sm font-bold">回饋結束日（可留空）<input id="rebateEnd" type="date" class="block mt-1 border rounded-lg p-2 w-full"></label>
+ </div>
+ <div class="flex flex-wrap gap-2 mt-3"><button onclick="saveRebateRule()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg font-bold">儲存飯店回饋</button><button onclick="removeRebateRule()" class="px-4 py-2 bg-red-50 text-red-700 border rounded-lg font-bold">移除飯店回饋</button></div>
+ <div id="rebateRulesList" class="overflow-x-auto text-sm mt-3"></div>
+ <p id="pricingRulesStatus" class="text-sm font-bold text-emerald-700 mt-3" aria-live="polite"></p>
+</section>
+
 <!-- ==================== 【系統 1：財務對帳單】 ==================== -->
 <div id="sysFinance" class="block">
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
@@ -476,6 +503,102 @@ function compareLogisticsItems(hotelName, itemA, itemB) {
     return diff || String(itemA).localeCompare(String(itemB), 'zh-TW');
 }
 
+
+// 只儲存規則，不把春節調整價回寫到物流單據，避免重複加價。
+const PRICING_RULES_REF = doc(db, 'inventory_config', 'finance_annual_pricing');
+let pricingRules = {holidays:[], rebates:[]};
+let pricingRulesPending = null, pricingRulesReady = false;
+const roundHolidayPrice = n => Math.round((Number(n) + Number.EPSILON) * 10) / 10;
+function activeHolidayRule(company, date) {
+  return pricingRules.holidays.find(r => r.hotel === company && date >= r.start && date <= r.end) || null;
+}
+function activeRebateRule(company, start, end) {
+  const r = pricingRules.rebates.find(x => x.hotel === company);
+  return r && (!r.start || end >= r.start) && (!r.end || start <= r.end) ? r : null;
+}
+function rebateForReport(company, records) {
+  const rule = pricingRules.rebates.find(r => r.hotel === company);
+  if (!rule) return {percent:0, amount:0, base:0};
+  const eligible = records.reduce((sum,r) => {
+    if ((rule.start && r.date < rule.start) || (rule.end && r.date > rule.end)) return sum;
+    return sum + (Number(r.qty)||0) * reportRecordPrice(r);
+  },0);
+  const amount = Math.round(eligible * rule.percent / 100);
+  return {percent:rule.percent, amount, base:eligible};
+}
+function baseRecordPrice(r) {
+  if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
+  return Number(getPrice(r.hotel,r.item)) || 0;
+}
+function reportRecordPrice(r) {
+  // 手動改價為該筆最終結帳價；春節價格只對原始價運算一次。
+  if (r.manualPriceOverride) return Number(r.currentPrice !== undefined ? r.currentPrice : r.savedPrice) || 0;
+  const original = baseRecordPrice(r);
+  const rule = activeHolidayRule(r.parentCompany, r.date);
+  return rule ? roundHolidayPrice(original * (1 + rule.percent / 100)) : original;
+}
+async function ensurePricingRules(force=false) {
+  if (pricingRulesReady && !force) return;
+  if (pricingRulesPending) return pricingRulesPending;
+  pricingRulesPending = (async()=>{
+    const snap = await getDoc(PRICING_RULES_REF);
+    const data = snap.exists() ? snap.data() : {};
+    pricingRules = {holidays:Array.isArray(data.holidays)?data.holidays:[], rebates:Array.isArray(data.rebates)?data.rebates:[]};
+    pricingRulesReady = true;
+    renderPricingRules();
+  })();
+  try { await pricingRulesPending; } finally { pricingRulesPending=null; }
+}
+async function persistPricingRules() {
+  const status=document.getElementById('pricingRulesStatus');
+  status.textContent='正在儲存設定…';
+  try {
+    // 使用整份規則文件；同時更新時後寫者覆蓋，請勿於多台裝置同時編輯。
+    await setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, updatedAt:new Date().toISOString()});
+    status.textContent='✅ 規則已儲存；請重新載入明細／業績，使新設定套用到當期資料。';
+    renderPricingRules();
+  } catch(err) { status.textContent='❌ 儲存失敗：'+err.message; await ensurePricingRules(true); }
+}
+function pricingHotelNames() {
+  const names = new Set([...Object.keys(sheetClients), ...[...uniqueCompanies], ...rawLogisticsData.map(r=>r.parentCompany), ...pricingRules.holidays.map(r=>r.hotel), ...pricingRules.rebates.map(r=>r.hotel)]);
+  return [...names].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+}
+function renderPricingRules() {
+  const esc=escapeReportHTML;
+  for (const id of ['holidayHotel','rebateHotel']) {
+    const el=document.getElementById(id); if (!el) continue;
+    const prev=el.value;
+    el.innerHTML='<option value="">請選擇飯店</option>'+pricingHotelNames().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    if ([...el.options].some(o=>o.value===prev)) el.value=prev;
+  }
+  const holidays=[...pricingRules.holidays].sort((a,b)=>b.year-a.year || a.hotel.localeCompare(b.hotel,'zh-TW'));
+  document.getElementById('holidayRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定春節加價</div>'+(holidays.length ? holidays.map(r=>`<div class="p-2 border-b">${esc(r.year)}｜${esc(r.hotel)}｜${esc(r.start)} 至 ${esc(r.end)}｜加價 ${esc(r.percent)}%</div>`).join('') : '<div class="text-gray-500">目前尚無設定，未設定者不加價。</div>');
+  document.getElementById('rebateRulesList').innerHTML='<div class="font-black text-emerald-900 mb-1">已設定飯店回饋</div>'+(pricingRules.rebates.length ? pricingRules.rebates.map(r=>`<div class="p-2 border-b">${esc(r.hotel)}｜${esc(r.percent)}%｜${esc(r.start||'不限起日')} 至 ${esc(r.end||'不限迄日')}</div>`).join('') : '<div class="text-gray-500">目前尚無回饋設定。</div>');
+}
+window.reloadPricingRules=async()=>{await ensurePricingRules(true);document.getElementById('pricingRulesStatus').textContent='已重新同步。';};
+window.saveHolidayRule=async()=>{
+ await ensurePricingRules();
+ const year=Number(document.getElementById('holidayYear').value), start=document.getElementById('holidayStart').value, end=document.getElementById('holidayEnd').value, hotel=document.getElementById('holidayHotel').value, percent=Number(document.getElementById('holidayPercent').value);
+ if (!hotel || !start || !end || !Number.isInteger(year) || Number(start.slice(0,4))!==year || start>end || document.getElementById('holidayPercent').value==='' || !Number.isFinite(percent) || percent<0 || percent>1000) {alert('請填寫飯店、年度、完整日期及 0～1000% 加價比例；開始日期需在該年度內。');return;}
+ pricingRules.holidays=pricingRules.holidays.filter(r=>!(r.hotel===hotel && r.year===year));
+ pricingRules.holidays.push({hotel,year,start,end,percent}); await persistPricingRules();
+};
+window.removeHolidayRule=async()=>{
+ await ensurePricingRules(); const hotel=document.getElementById('holidayHotel').value,year=Number(document.getElementById('holidayYear').value);
+ if (!hotel || !year || !confirm(`移除 ${hotel} ${year} 年春節加價設定？`)) return;
+ pricingRules.holidays=pricingRules.holidays.filter(r=>!(r.hotel===hotel && r.year===year)); await persistPricingRules();
+};
+window.saveRebateRule=async()=>{
+ await ensurePricingRules();const hotel=document.getElementById('rebateHotel').value,inp=document.getElementById('rebatePercent').value,percent=Number(inp),start=document.getElementById('rebateStart').value,end=document.getElementById('rebateEnd').value;
+ if (!hotel || inp==='' || !Number.isFinite(percent) || percent<0 || percent>100 || (start && end && start>end)) {alert('請選擇飯店，回饋比例需介於 0～100%，日期不可顛倒。');return;}
+ pricingRules.rebates=pricingRules.rebates.filter(r=>r.hotel!==hotel);pricingRules.rebates.push({hotel,percent,start,end});await persistPricingRules();
+};
+window.removeRebateRule=async()=>{
+ await ensurePricingRules();const hotel=document.getElementById('rebateHotel').value;if(!hotel||!confirm(`移除 ${hotel} 回饋設定？`))return;
+ pricingRules.rebates=pricingRules.rebates.filter(r=>r.hotel!==hotel);await persistPricingRules();
+};
+window.addEventListener('DOMContentLoaded',()=>{document.getElementById('holidayYear').value=new Date().getFullYear();ensurePricingRules().catch(e=>document.getElementById('pricingRulesStatus').textContent='⚠ 規則讀取失敗：'+e.message);});
+
 // ★ 待儲存更新陣列 (現在包含品項與價格)
 let pendingUpdatesArray = []; 
 let customPricesDirty = false;
@@ -593,6 +716,7 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
     
     record.currentPrice = newPrice;
     record.savedPrice = newPrice;
+    record.manualPriceOverride = true;
 
     // 自動更新右邊那格單價的畫面
     let tr = inputEl.closest('tr');
@@ -618,6 +742,7 @@ window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, input
 
     record.savedPrice = newPrice;
     record.currentPrice = newPrice;
+    record.manualPriceOverride = true;
 
     // 把手動修改的價格記進 customPrices
     let key = `${hotelName}_${record.item}`;
@@ -657,6 +782,7 @@ window.batchSavePrices = async function() {
                         if (data.items && data.items[update.receiptOrder]) {
                             data.items[update.receiptOrder].itemName = update.newItemName;
                             data.items[update.receiptOrder].price = update.newPrice;
+                            data.items[update.receiptOrder].manualFinancePrice = true;
                             changed = true;
                         }
                     }
@@ -716,14 +842,14 @@ function refreshFinancePriceWarnings() {
             if (Number.isFinite(price) && price > 0) freq.set(price, (freq.get(price) || 0) + 1);
         });
         const sorted = [...freq.entries()].sort((a,b) => b[1]-a[1]);
-        const hasConflict = sorted.length > 1;
+        const hasConflict = sorted.length > 1 && !rawLogisticsData.some(r => r.hotel === dept && r.item === item && activeHolidayRule(r.parentCompany, r.date));
         // 僅以同部門、同品項出現最多的價格作為核對參考；
         // 若票數相同，兩種價格都標示待確認，避免任意判定哪個正確。
         const peerReference = sorted.length && (!hasConflict || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
         group.forEach(({tr, input, price}) => {
             const warnings = [];
             if (!Number.isFinite(price) || price <= 0) warnings.push('單價未填或為 0');
-            else if (hasConflict && (peerReference === null || price !== peerReference))
+            else if (hasConflict && (peerReference === null || price !== peerReference) && !rawLogisticsData.some(r => r.docId === tr.getAttribute('data-docid') && r.item === item && activeHolidayRule(r.parentCompany, r.date) && reportRecordPrice(r) === price))
                 warnings.push(peerReference === null ? '同部門同品項單價不一致' : `與同部門同品項常用單價 ${peerReference} 不同`);
             tr.classList.toggle('price-warning', warnings.length > 0);
             const cell = input?.closest('td');
@@ -739,6 +865,18 @@ function refreshFinancePriceWarnings() {
             }
         });
     });
+}
+
+
+function financeSelectionTotals() {
+ const raw=rawLogisticsData.reduce((sum,r)=>sum+(Number(r.qty)||0)*reportRecordPrice(r),0);
+ const rounded=Math.round(raw);
+ const grouped=new Map();
+ rawLogisticsData.forEach(r=>{if(!grouped.has(r.parentCompany))grouped.set(r.parentCompany,[]);grouped.get(r.parentCompany).push(r);});
+ let rebate=0;
+ grouped.forEach((records,hotel)=>{rebate+=rebateForReport(hotel,records).amount;});
+ const net=rounded-rebate, tax=Math.round(net*.05);
+ return {rounded,rebate,net,tax,final:net+tax};
 }
 
 function recalculateFinanceUI() {
@@ -782,10 +920,11 @@ function recalculateFinanceUI() {
 
     // ★ 只有最後的總結算才進行四捨五入
     let roundedGrandTotal = Math.round(grandTotal);
-    let tax = Math.round(roundedGrandTotal * 0.05);
-    let finalAmount = roundedGrandTotal + tax;
+    let {rebate,net,tax,final:finalAmount} = financeSelectionTotals();
 
     if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${roundedGrandTotal.toLocaleString()}`;
+    if (document.getElementById('financeRebate')) document.getElementById('financeRebate').textContent = `-$${rebate.toLocaleString()}`;
+    if (document.getElementById('financeNet')) document.getElementById('financeNet').textContent = `$${net.toLocaleString()}`;
     if (document.getElementById('financeTax')) document.getElementById('financeTax').textContent = `$${tax.toLocaleString()}`;
     if (document.getElementById('financeFinal')) document.getElementById('financeFinal').textContent = `$${finalAmount.toLocaleString()}`;
     refreshFinancePriceWarnings();
@@ -1003,6 +1142,7 @@ async function fetchRecordsForSelectedHotels() {
     // 價目表、物流排序與物流資料彼此獨立，平行讀取，並避免重複下載。
     const [, , uniqueDocs] = await Promise.all([
         syncMasterDataFromSheet(),
+        ensurePricingRules(),
         ensureLogisticsItemOrder(),
         getLogisticsDocsForPeriod(startDate, endDate)
     ]);
@@ -1026,7 +1166,7 @@ async function fetchRecordsForSelectedHotels() {
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                             date: dDate, item: item.itemName, qty: actual,
                             receiptOrder: idx, 
-                            savedPrice: item.price 
+                            savedPrice: item.price, manualPriceOverride: !!item.manualFinancePrice 
                         });
                     }
                 });
@@ -1081,9 +1221,10 @@ async function loadFinanceData() {
 
             let lastDate = ""; let deptSubtotal = 0;
             records.forEach(r => {
-                let price = r.savedPrice !== undefined ? r.savedPrice : getPrice(r.hotel, r.item);
+                let price = reportRecordPrice(r);
                 let priceVal = price !== null ? price : "";
-                r.currentPrice = priceVal; 
+                r.currentPrice = priceVal;
+                r.autoHolidayRule = activeHolidayRule(r.parentCompany,r.date); 
 
                 // 防禦性處理字串引號
                 let safeDocId = String(r.docId || "").replace(/'/g, "\\'");
@@ -1095,7 +1236,7 @@ async function loadFinanceData() {
                 let itemDisplay = `<input type="text" value="${safeItem}" class="item-input w-full text-left py-1 px-2 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-gray-800 transition" onchange="markItemChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
 
                 // 單價輸入框
-                let priceDisplay = `<input type="number" step="0.01" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onchange="markPriceChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
+                let priceDisplay = `<input type="number" step="0.1" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onchange="markPriceChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
                 
                 let subtotalDisplay = "";
                 if (price === null || price === "") {
@@ -1124,11 +1265,12 @@ async function loadFinanceData() {
 
         // ★ 只有最後的總結算才進行四捨五入
         let roundedGrandTotal = Math.round(grandTotal);
-        let taxAmount = Math.round(roundedGrandTotal * 0.05); 
-        let finalAmount = roundedGrandTotal + taxAmount;
+        let {rebate,net,tax:taxAmount,final:finalAmount} = financeSelectionTotals();
 
         html += `
         <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2" id="financeGrandTotal">$${roundedGrandTotal.toLocaleString()}</td></tr>
+        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">客戶回饋（未稅扣除）：</td><td class="text-right pr-6 font-bold text-red-700 text-lg" id="financeRebate">-$${rebate.toLocaleString()}</td></tr>
+        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">回饋後未稅：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg" id="financeNet">$${net.toLocaleString()}</td></tr>
         <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2" id="financeTax">$${taxAmount.toLocaleString()}</td></tr>
         <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6" id="financeFinal">$${finalAmount.toLocaleString()}</td></tr>
         `;
@@ -1153,8 +1295,7 @@ function classifyBossGroup(hotel) {
     return in25 ? '25th' : inMonth ? 'month' : null;
 }
 function bossRecordPrice(r) {
-    return r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== ''
-        ? (Number(r.savedPrice) || 0) : (getPrice(r.hotel, r.item) || 0);
+    return reportRecordPrice(r);
 }
 function summarizeBossGroup(records) {
     const stores = {};
@@ -1179,7 +1320,7 @@ async function loadBossData() {
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
         if (!startDate || !endDate || startDate > endDate) throw new Error('請確認正確的統計日期區間');
-        const [, docs] = await Promise.all([syncMasterDataFromSheet(), getLogisticsDocsForPeriod(startDate,endDate)]);
+        const [, , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), getLogisticsDocsForPeriod(startDate,endDate)]);
         const groups = {'25th':[], month:[]};
         const unmatched = new Set();
         const overlaps = new Set();
@@ -1198,7 +1339,7 @@ async function loadBossData() {
                 const qty = Number(item.actualQty) || 0;
                 if (qty <= 0 || String(item.itemName).includes('回洗')) return;
                 groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
-                    receiptOrder:idx, savedPrice:item.price});
+                    receiptOrder:idx, savedPrice:item.price, manualPriceOverride:!!item.manualFinancePrice});
             });
         });
         currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), startDate, endDate };
@@ -1298,7 +1439,7 @@ function buildInvoiceReport() {
     matches.forEach(r => {
         const name = r.hotel;
         if (!depts[name]) depts[name] = { records: [], summary: {}, total: 0 };
-        const price = Number(r.currentPrice !== undefined ? r.currentPrice : (getPrice(r.hotel, r.item) ?? 0)) || 0;
+        const price = reportRecordPrice(r);
         const qty = Number(r.qty) || 0;
         const amount = qty * price;
         depts[name].records.push({ date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
@@ -1312,7 +1453,11 @@ function buildInvoiceReport() {
         grandTotal += amount;
     });
     Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || a.receiptOrder - b.receiptOrder));
-    return { comp, depts, grandTotal, rounded: Math.round(grandTotal), tax: Math.round(Math.round(grandTotal) * 0.05) };
+    const rebate = rebateForReport(comp, matches);
+    const rounded = Math.round(grandTotal);
+    const afterRebate = rounded - rebate.amount;
+    const tax = Math.round(afterRebate * 0.05);
+    return { comp, depts, grandTotal, rounded, rebate, afterRebate, tax };
 }
 
 function escapeReportHTML(value) {
@@ -1356,8 +1501,10 @@ function generateOfficialInvoice() {
     html += `</tbody></table>
         <div class="report-totals">
           <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
+          <div><span>客戶回饋（${moneyReport(report.rebate.percent)}%）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>
+          <div><span>回饋後未稅</span><b>$${moneyReport(report.afterRebate)}</b></div>
           <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
-          <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.rounded + report.tax)}</b></div>
+          <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.afterRebate + report.tax)}</b></div>
         </div></section>`;
 
     // 每個部門各自從新頁開始；同部門月總量總結緊接交易明細。
@@ -1438,11 +1585,11 @@ function exportToExcel() {
     };
     const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱',document.getElementById('ciName').value || report.comp], ['對帳期間',period], [], ['部門名稱','未稅金額']];
     entries.forEach(([name,dept]) => totalRows.push([name,dept.total]));
-    totalRows.push([],['未稅金額',report.rounded],['營業稅（5%）',report.tax],['含稅總金額',report.rounded+report.tax]);
+    totalRows.push([],['未稅金額',report.rounded],[`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount],['回饋後未稅',report.afterRebate],['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
     totalSheet['!cols'] = [{wch:52},{wch:30}];
     totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
-    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-2,totalRows.length-1,totalRows.length],[]);
+    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-4,totalRows.length-3,totalRows.length-2,totalRows.length-1,totalRows.length],[]);
     totalSheet['!print_area'] = `A1:B${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
