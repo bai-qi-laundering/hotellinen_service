@@ -1670,102 +1670,233 @@ async function loadBossData() {
     } finally { btn.disabled = false; btn.textContent = '▶ 重新載入兩組業績'; }
 }
 
-function exportBossExcel() {
+async function exportBossExcel() {
     if (!currentBossGroups) { alert('請先載入兩組業績！'); return; }
-    const wb = XLSX.utils.book_new();
-    const {startDate,endDate,periods} = currentBossGroups;
-    const a = currentBossGroups['25th'], b = currentBossGroups.month;
-    const total = a.untaxed + b.untaxed, tax = Math.round(total * .05);
-    // ★ 仿照管理用月報：兩組並排、相同飯店部門相鄰、飯店小計放在右側。
-    // 使用系統已載入的業績，不再發出額外資料庫請求。
-    const compareWs = XLSX.utils.aoa_to_sheet([
-        ['百麒國際股份有限公司｜客戶別業績對照表','','','','','',''],
-        ['結帳月份',periods.month,'','統計狀態',periods.partial ? '暫估，截至 '+periods.cutoff : '完整結帳','',''],
-        ['25號結帳區間',`${periods['25th'].start} ～ ${periods['25th'].end}`,'','月底／1號區間',`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`,'',''],
-        [],
-        ['25號結帳','','','','1號／月底結帳','',''],
-        ['飯店／部門','銷貨淨額（未稅）','飯店小計','','飯店／部門','銷貨淨額（未稅）','飯店小計']
-    ]);
-    const fmt = '#,##0.##;[Red](#,##0.##);–';
-    const ink='243C36', green='173C36', gold='B69B68', pale='F5F0E5', line='D5DED9';
-    const colored = ['E9F2F0','EAF0FA','F3EDF5','F9F2E8','EAF2F8'];
-    const address = (row,col)=>XLSX.utils.encode_cell({r:row-1,c:col-1});
-    const set = (row,col,value,style) => {
-        const p=address(row,col);
-        compareWs[p]={t:typeof value==='number'?'n':'s',v:value,s:style};
-        if(typeof value==='number')compareWs[p].z=fmt;
-    };
-    const cellStyle = (fill='FFFFFF',bold=false,color=ink,align='left',size=12)=>({
-        font:{name:'Microsoft JhengHei',sz:size,bold,color:{rgb:color}},
-        fill:{patternType:'solid',fgColor:{rgb:fill}},
-        alignment:{horizontal:align,vertical:'center',wrapText:true},
-        border:{bottom:{style:'thin',color:{rgb:line}},right:{style:'thin',color:{rgb:line}}}
-    });
-    compareWs['!merges']=[
-        {s:{r:0,c:0},e:{r:0,c:6}},
-        {s:{r:1,c:1},e:{r:1,c:2}},
-        {s:{r:1,c:4},e:{r:1,c:6}},
-        {s:{r:2,c:1},e:{r:2,c:2}},
-        {s:{r:2,c:4},e:{r:2,c:6}},
-        {s:{r:4,c:0},e:{r:4,c:2}},
-        {s:{r:4,c:4},e:{r:4,c:6}}
-    ];
-    for(let c=1;c<=7;c++)set(1,c,c===1?'百麒國際股份有限公司｜客戶別業績對照表':'',cellStyle(green,true,'FFFFFF','center',19));
-    [[2,1,'結帳月份'],[2,2,periods.month],[2,4,'統計狀態'],[2,5,periods.partial?'暫估，截至 '+periods.cutoff:'完整結帳'],
-     [3,1,'25號結帳區間'],[3,2,`${periods['25th'].start} ～ ${periods['25th'].end}`],
-     [3,4,'月底／1號區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4)));
-    [1,2,3,5,6,7].forEach(c=>set(5,c,c===1?'25號結帳':c===5?'1號／月底結帳':'',cellStyle(green,true,'FFFFFF','center',15)));
-    [1,2,3,5,6,7].forEach((c,i)=>set(6,c,['飯店／部門','銷貨淨額（未稅）','飯店小計','飯店／部門','銷貨淨額（未稅）','飯店小計'][i],cellStyle('DCD1B8',true,ink,'center',12)));
-    function createSideRows(group,startCol) {
-        const grouped=new Map();
-        sortedBossStores(group).forEach(([name,amount])=>{
-            const parent=group.storeParents[name]||name;
-            if(!grouped.has(parent))grouped.set(parent,[]);
-            grouped.get(parent).push([name,amount]);
+    const exportBtn = document.getElementById('exportBossBtn');
+    if (exportBtn) { exportBtn.disabled = true; exportBtn.textContent = '⏳ 匯出中...'; }
+    try {
+        await Promise.all([ensurePricingRules(), ensureSettlementGroups(), syncMasterDataFromSheet()]);
+        const wb = XLSX.utils.book_new();
+        const {periods} = currentBossGroups;
+        const a = currentBossGroups['25th'], b = currentBossGroups.month;
+
+        const fmtDate = (str) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(str||''))) return str || '';
+            const [,m,d] = str.split('-');
+            return `${m}/${d}`;
+        };
+        const rawAmount = (records) => records.reduce((sum, r) => sum + (Number(r.qty) || 0) * bossRecordPrice(r), 0);
+        const summarizeAdjustments = (records) => {
+            const grouped = new Map();
+            records.forEach(r => {
+                const hotel = r.parentCompany || r.hotel;
+                if (!grouped.has(hotel)) grouped.set(hotel, []);
+                grouped.get(hotel).push(r);
+            });
+            const rebateLines = [];
+            const managementFeeLines = [];
+            let totalRebate = 0, totalManagementFee = 0;
+            [...grouped.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'zh-TW')).forEach(([hotel,recs]) => {
+                const rebate = rebateForReport(hotel, recs);
+                if (rebate.amount) {
+                    rebateLines.push({ label: `${hotel}回饋`, amount: -Number(rebate.amount || 0) });
+                    totalRebate += Number(rebate.amount || 0);
+                }
+                const fee = managementFeeForReport(hotel, recs);
+                if (fee.amount) {
+                    managementFeeLines.push({ label: `${hotel}布巾管理費`, amount: Number(fee.amount || 0) });
+                    totalManagementFee += Number(fee.amount || 0);
+                }
+            });
+            return {
+                rebateLines,
+                managementFeeLines,
+                totalRebate,
+                totalManagementFee,
+                adjusted: rawAmount(records) + totalManagementFee - totalRebate
+            };
+        };
+        const buildPeriodsForMonth = (monthValue, cutoffValue = null) => {
+            const [y,m] = monthValue.split('-').map(Number);
+            const fmt = d => getLocalDateString(d);
+            const start25 = fmt(new Date(y, m - 2, 26));
+            const fullEnd25 = fmt(new Date(y, m - 1, 25));
+            const startMonth = fmt(new Date(y, m - 1, 1));
+            const fullEndMonth = fmt(new Date(y, m, 0));
+            const cutoff = cutoffValue && cutoffValue <= fullEndMonth ? cutoffValue : fullEndMonth;
+            const end25 = cutoff < fullEnd25 ? cutoff : fullEnd25;
+            return { month: monthValue, cutoff, partial: cutoff < fullEndMonth, '25th': { start: start25, end: end25 }, monthGroup: { start: startMonth, end: cutoff }, queryStart: start25, queryEnd: cutoff };
+        };
+        const summarizeDocsForPeriods = (docs, p) => {
+            const groups = { '25th': [], month: [] };
+            docs.forEach(docSnap => {
+                const d = docSnap.data();
+                const date = standardizeDate(d.date);
+                if (date < p.queryStart || date > p.queryEnd) return;
+                const hotel = d.hotelKeyword || '未命名飯店';
+                const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
+                if (fullName.includes('回洗') || String(d.deptName || '').includes('回洗')) return;
+                const key = classifyBossGroup(hotel);
+                if (!key) return;
+                const gp = key === '25th' ? p['25th'] : p.monthGroup;
+                if (date < gp.start || date > gp.end) return;
+                (d.items || []).forEach((item, idx) => {
+                    const qty = Number(item.actualQty) || 0;
+                    if (qty <= 0 || String(item.itemName || '').includes('回洗')) return;
+                    groups[key].push({
+                        docId: docSnap.id,
+                        parentCompany: hotel,
+                        hotel: fullName,
+                        date,
+                        item: item.itemName,
+                        qty,
+                        receiptOrder: idx,
+                        savedPrice: item.price,
+                        manualPriceOverride: !!item.manualFinancePrice,
+                        currentPrice: item.manualFinancePrice ? Number(item.price) || 0 : undefined
+                    });
+                });
+            });
+            return { '25th': summarizeBossGroup(groups['25th']), month: summarizeBossGroup(groups.month) };
+        };
+
+        const raw25 = rawAmount(a.records);
+        const rawMonth = rawAmount(b.records);
+        const currentGross = raw25 + rawMonth;
+        const currentAdj = summarizeAdjustments([...(a.records || []), ...(b.records || [])]);
+
+        const currentMonthDate = new Date(Number(periods.month.slice(0,4)), Number(periods.month.slice(5,7)) - 1, 1);
+        const prevMonthDate = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - 1, 1);
+        const prevMonth = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2,'0')}`;
+        const prevPeriods = buildPeriodsForMonth(prevMonth);
+        const prevDocs = await getLogisticsDocsForPeriod(prevPeriods.queryStart, prevPeriods.queryEnd);
+        const prevGroups = summarizeDocsForPeriods(prevDocs, prevPeriods);
+        const prevAdj = summarizeAdjustments([...(prevGroups['25th'].records || []), ...(prevGroups.month.records || [])]);
+
+        const compareWs = XLSX.utils.aoa_to_sheet([]);
+        const numFmt = '#,##0.0;[Red]-#,##0.0;–';
+        const numFmtTable = '#,##0.##;[Red]-#,##0.##;–';
+        const ink='243C36', green='173C36', pale='F5F0E5', line='D5DED9';
+        const yellow='FFF200', blueGrey='D9E2F3', lavender='D9D2E9', beige='DCD1B8';
+        const colored = ['E9F2F0','EAF0FA','F3EDF5','F9F2E8','EAF2F8'];
+        const address = (row,col)=>XLSX.utils.encode_cell({r:row-1,c:col-1});
+        const set = (row,col,value,style,fmt=numFmtTable) => {
+            const p=address(row,col);
+            compareWs[p]={t:typeof value==='number'?'n':'s',v:value,s:style};
+            if(typeof value==='number') compareWs[p].z=fmt;
+        };
+        const cellStyle = (fill='FFFFFF',bold=false,color=ink,align='left',size=12)=>({
+            font:{name:'Microsoft JhengHei',sz:size,bold,color:{rgb:color}},
+            fill:{patternType:'solid',fgColor:{rgb:fill}},
+            alignment:{horizontal:align,vertical:'center',wrapText:true},
+            border:{top:{style:'thin',color:{rgb:line}},bottom:{style:'thin',color:{rgb:line}},left:{style:'thin',color:{rgb:line}},right:{style:'thin',color:{rgb:line}}}
         });
-        let row=7, block=0;
-        for(const [parent,items] of grouped){
-            const from=row, fill=colored[block++%colored.length];
-            const subtotal=items.reduce((sum,[,amount])=>sum+amount,0);
-            for(const [name,amount] of items){
-                set(row,startCol,name,cellStyle(fill,true,ink,'left',12));
-                set(row,startCol+1,amount,cellStyle(fill,true,ink,'right',12));
-                set(row,startCol+2,'',cellStyle(fill,true,ink,'right',12));
-                row++;
+
+        compareWs['!merges']=[
+            {s:{r:0,c:0},e:{r:0,c:6}},
+            {s:{r:1,c:1},e:{r:1,c:2}},
+            {s:{r:1,c:4},e:{r:1,c:6}},
+            {s:{r:2,c:1},e:{r:2,c:2}},
+            {s:{r:2,c:4},e:{r:2,c:6}}
+        ];
+
+        for(let c=1;c<=7;c++) set(1,c,c===1?'百麒國際股份有限公司｜客戶別業績對照表':'',cellStyle(green,true,'FFFFFF','center',19));
+        [[2,1,'結帳月份'],[2,2,periods.month],[2,4,'統計狀態'],[2,5,periods.partial?'暫估，截至 '+periods.cutoff:'完整結帳'],
+         [3,1,'25號結帳區間'],[3,2,`${periods['25th'].start} ～ ${periods['25th'].end}`],
+         [3,4,'月底／1號區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4,ink,'left',12)));
+
+        const summaryLines = [
+            {label:`${fmtDate(periods['25th'].start)}-${fmtDate(periods['25th'].end)}`, value:raw25, fill:yellow, color:'000000', bold:true},
+            {label:`${fmtDate(periods.monthGroup.start)}-${fmtDate(periods.monthGroup.end)}`, value:rawMonth, fill:yellow, color:'000000', bold:true},
+            {label:`${fmtDate(periods.monthGroup.end)}營業額`, value:currentGross, fill:yellow, color:'000000', bold:true}
+        ];
+        currentAdj.rebateLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
+        currentAdj.managementFeeLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
+        summaryLines.push({label:`${fmtDate(periods.monthGroup.end)}營業額`, value:currentAdj.adjusted, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'', value:'', fill:'FFFFFF', color:ink, bold:false});
+        summaryLines.push({label:`${fmtDate(prevPeriods.monthGroup.end)}營業額`, value:prevAdj.adjusted, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'差額', value:currentAdj.adjusted - prevAdj.adjusted, fill:lavender, color:'FF0000', bold:true});
+
+        let row = 5;
+        summaryLines.forEach((line) => {
+            if (line.label === '' && line.value === '') { row++; return; }
+            set(row,1,line.label,cellStyle(line.fill,line.bold,line.color,'center',15));
+            set(row,2,typeof line.value === 'number' ? line.value : String(line.value || ''),cellStyle(line.fill,line.bold,line.color,'right',15),numFmt);
+            row++;
+        });
+
+        const sectionRow = row + 1;
+        compareWs['!merges'].push(
+            {s:{r:sectionRow-1,c:0},e:{r:sectionRow-1,c:2}},
+            {s:{r:sectionRow-1,c:4},e:{r:sectionRow-1,c:6}}
+        );
+        [1,2,3,5,6,7].forEach(c=>set(sectionRow,c,c===1?'25號結帳':c===5?'1號／月底結帳':'',cellStyle(green,true,'FFFFFF','center',15)));
+        const headRow = sectionRow + 1;
+        set(headRow,1,'飯店／部門',cellStyle(beige,true,ink,'center',12));
+        set(headRow,2,'銷貨淨額（未稅）',cellStyle(beige,true,ink,'center',12));
+        set(headRow,3,'飯店小計',cellStyle(beige,true,ink,'center',12));
+        set(headRow,5,'飯店／部門',cellStyle(beige,true,ink,'center',12));
+        set(headRow,6,'銷貨淨額（未稅）',cellStyle(beige,true,ink,'center',12));
+        set(headRow,7,'飯店小計',cellStyle(beige,true,ink,'center',12));
+
+        function createSideRows(group,startCol,startRow) {
+            const grouped=new Map();
+            sortedBossStores(group).forEach(([name,amount])=>{
+                const parent=group.storeParents[name]||name;
+                if(!grouped.has(parent))grouped.set(parent,[]);
+                grouped.get(parent).push([name,amount]);
+            });
+            let rowPtr=startRow, block=0;
+            for(const [parent,items] of grouped){
+                const from=rowPtr, fill=colored[block++%colored.length];
+                const subtotal=items.reduce((sum,[,amount])=>sum+amount,0);
+                for(const [name,amount] of items){
+                    set(rowPtr,startCol,name,cellStyle(fill,true,ink,'left',12));
+                    set(rowPtr,startCol+1,amount,cellStyle(fill,true,ink,'right',12));
+                    set(rowPtr,startCol+2,'',cellStyle(fill,true,ink,'right',12));
+                    rowPtr++;
+                }
+                if(rowPtr-from>1) compareWs['!merges'].push({s:{r:from-1,c:startCol+2},e:{r:rowPtr-2,c:startCol+2}});
+                set(from,startCol+2,subtotal,cellStyle(fill,true,green,'right',12));
             }
-            if(row-from>1) compareWs['!merges'].push({s:{r:from-1,c:startCol+1},e:{r:row-2,c:startCol+1}});
-            set(from,startCol+2,subtotal,cellStyle(fill,true,green,'right',12));
+            if(rowPtr===startRow){ set(startRow,startCol,'本期無出貨紀錄',cellStyle('FFFFFF',false,ink,'left',12)); rowPtr = startRow + 1; }
+            return rowPtr;
         }
-        if(row===7){set(7,startCol,'本期無出貨紀錄',cellStyle('FFFFFF',false,ink,'left'));row=8;}
-        return row;
+
+        const dataStart = headRow + 1;
+        const endA = createSideRows(a,1,dataStart), endB = createSideRows(b,5,dataStart);
+        const totalRow = Math.max(endA,endB) + 1;
+        [1,5].forEach((c)=>{
+            const g=c===1?a:b;
+            set(totalRow,c,'未稅合計',cellStyle(green,true,'FFFFFF','left',13));
+            set(totalRow,c+1,rawAmount(g.records || []),cellStyle(green,true,'FFFFFF','right',13),numFmt);
+            set(totalRow+1,c,'營業稅（5%）',cellStyle(pale,true,ink,'left',12));
+            set(totalRow+1,c+1,g.tax,cellStyle(pale,true,ink,'right',12));
+            set(totalRow+2,c,'含稅合計',cellStyle(green,true,'FFFFFF','left',13));
+            set(totalRow+2,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
+        });
+        const overallRow = totalRow + 4;
+        set(overallRow,1,'兩組未稅合計',cellStyle(pale,true,ink,'left',12));
+        set(overallRow,2,currentGross,cellStyle(pale,true,ink,'right',12),numFmt);
+        set(overallRow,5,'加回饋/管理費後本月營業額',cellStyle(pale,true,ink,'left',12));
+        set(overallRow,6,currentAdj.adjusted,cellStyle(pale,true,ink,'right',12),numFmt);
+
+        compareWs['!cols']=[{wch:27},{wch:19},{wch:18},{wch:3},{wch:27},{wch:19},{wch:18}];
+        compareWs['!rows']=Array.from({length:overallRow},(_,i)=>({hpt:i===0?38:(i+1)===sectionRow?29:(i+1)===headRow?28:23}));
+        compareWs['!freeze']={xSplit:0,ySplit:headRow};
+        compareWs['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:overallRow-1,c:6}});
+        compareWs['!print_area']=`A1:G${overallRow}`;
+        compareWs['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1,fitToHeight:0};
+        compareWs['!margins']={left:.25,right:.25,top:.35,bottom:.35,header:0,footer:0};
+        compareWs['!header']=''; compareWs['!footer']='';
+        XLSX.utils.book_append_sheet(wb,compareWs,'雙組對照表');
+        XLSX.writeFile(wb,`百麒業績對照表_${periods.month.replace(/-/g,'')}.xlsx`);
+    } catch (err) {
+        console.error(err);
+        alert('匯出業績 Excel 失敗：' + err.message);
+    } finally {
+        if (exportBtn) { exportBtn.disabled = false; exportBtn.innerHTML = '⬇️ 匯出業績 Excel'; }
     }
-    const endA=createSideRows(a,1), endB=createSideRows(b,5);
-    const totalRow=Math.max(endA,endB)+1;
-    [1,5].forEach((c)=>{
-        const g=c===1?a:b;
-        set(totalRow,c,'未稅合計',cellStyle(green,true,'FFFFFF','left',13));
-        set(totalRow,c+1,g.untaxed,cellStyle(green,true,'FFFFFF','right',13));
-        set(totalRow+1,c,'營業稅（5%）',cellStyle(pale,true,ink,'left'));
-        set(totalRow+1,c+1,g.tax,cellStyle(pale,true,ink,'right'));
-        set(totalRow+2,c,'含稅合計',cellStyle(green,true,'FFFFFF','left',13));
-        set(totalRow+2,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
-    });
-    set(totalRow+4,1,'兩組未稅合計',cellStyle(pale,true,ink));
-    set(totalRow+4,2,total,cellStyle(pale,true,ink,'right'));
-    set(totalRow+4,5,'兩組含稅合計',cellStyle(pale,true,ink));
-    set(totalRow+4,6,total+tax,cellStyle(pale,true,ink,'right'));
-    compareWs['!cols']=[{wch:31},{wch:21},{wch:20},{wch:3},{wch:31},{wch:21},{wch:20}];
-    compareWs['!rows']=Array.from({length:totalRow+4},(_,i)=>({hpt:i===0?38:i===4?29:i===5?28:23}));
-    compareWs['!freeze']={xSplit:0,ySplit:6};
-    // 使用 set() 動態寫入儲存格時，必須同步擴充 !ref；否則 SheetJS 仍只匯出起始 A1:G6，業績列會全部消失。
-    compareWs['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totalRow+3,c:6}});
-    compareWs['!print_area']=`A1:G${totalRow+4}`;
-    compareWs['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1,fitToHeight:0};
-    compareWs['!margins']={left:.25,right:.25,top:.35,bottom:.35,header:0,footer:0};
-    compareWs['!header']='';compareWs['!footer']='';
-    XLSX.utils.book_append_sheet(wb,compareWs,'雙組對照表');
-    // 老闆業績 Excel 僅保留一張左右並排的雙組業績總結工作表。
-    XLSX.writeFile(wb,`百麒業績對照表_${periods.month.replace(/-/g,'')}.xlsx`);
 }
 
 function openInvoiceModal() {
