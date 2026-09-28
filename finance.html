@@ -1195,6 +1195,9 @@ function recalculateFinanceUI() {
     let roundedGrandTotal = Math.round(grandTotal);
     let {managementFee,rebate,net,tax,final:finalAmount} = financeSelectionTotals();
 
+    document.getElementById('financeManagementFeeRow')?.classList.toggle('hidden', managementFee <= 0);
+    document.getElementById('financeRebateRow')?.classList.toggle('hidden', rebate <= 0);
+    document.getElementById('financeNetRow')?.classList.toggle('hidden', managementFee <= 0 && rebate <= 0);
     if (document.getElementById('financeGrandTotal')) document.getElementById('financeGrandTotal').textContent = `$${roundedGrandTotal.toLocaleString()}`;
     if (document.getElementById('financeManagementFee')) document.getElementById('financeManagementFee').textContent = `+$${managementFee.toLocaleString()}`;
     if (document.getElementById('financeRebate')) document.getElementById('financeRebate').textContent = `-$${rebate.toLocaleString()}`;
@@ -1545,9 +1548,9 @@ async function loadFinanceData() {
 
         html += `
         <tr class="bg-amber-100 border-t-4 border-amber-500"><td colspan="4" class="text-right font-black text-amber-900 pt-6 pb-2 text-xl">🏆 本次勾選全數飯店 總營業額 (未稅)：</td><td class="text-right pr-6 font-black text-amber-900 text-3xl pt-6 pb-2" id="financeGrandTotal">$${roundedGrandTotal.toLocaleString()}</td></tr>
-        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">布巾洗滌管理費（未稅加收）：</td><td class="text-right pr-6 font-bold text-emerald-800 text-lg" id="financeManagementFee">+$${managementFee.toLocaleString()}</td></tr>
-        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">客戶回饋（未稅扣除）：</td><td class="text-right pr-6 font-bold text-red-700 text-lg" id="financeRebate">-$${rebate.toLocaleString()}</td></tr>
-        <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">加收管理費／扣回饋後未稅：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg" id="financeNet">$${net.toLocaleString()}</td></tr>
+        <tr id="financeManagementFeeRow" class="bg-amber-100 ${managementFee > 0 ? '' : 'hidden'}"><td colspan="4" class="text-right font-bold text-amber-700 py-2">布巾洗滌管理費（未稅加收）：</td><td class="text-right pr-6 font-bold text-emerald-800 text-lg" id="financeManagementFee">+$${managementFee.toLocaleString()}</td></tr>
+        <tr id="financeRebateRow" class="bg-amber-100 ${rebate > 0 ? '' : 'hidden'}"><td colspan="4" class="text-right font-bold text-amber-700 py-2">客戶回饋（未稅扣除）：</td><td class="text-right pr-6 font-bold text-red-700 text-lg" id="financeRebate">-$${rebate.toLocaleString()}</td></tr>
+        <tr id="financeNetRow" class="bg-amber-100 ${(managementFee > 0 || rebate > 0) ? '' : 'hidden'}"><td colspan="4" class="text-right font-bold text-amber-700 py-2">加收管理費／扣回饋後未稅：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg" id="financeNet">$${net.toLocaleString()}</td></tr>
         <tr class="bg-amber-100"><td colspan="4" class="text-right font-bold text-amber-700 py-2">營業稅 (5%)：</td><td class="text-right pr-6 font-bold text-amber-700 text-lg py-2" id="financeTax">$${taxAmount.toLocaleString()}</td></tr>
         <tr class="bg-amber-100 border-b-4 border-amber-500"><td colspan="4" class="text-right font-black text-red-700 pt-2 pb-6 text-xl">含稅總金額：</td><td class="text-right pr-6 font-black text-red-700 text-3xl pt-2 pb-6" id="financeFinal">$${finalAmount.toLocaleString()}</td></tr>
         `;
@@ -1993,9 +1996,9 @@ function generateOfficialInvoice() {
     html += `</tbody></table>
         <div class="report-totals">
           <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
-          <div><span>布巾洗滌管理費（${moneyReport(report.managementFee.percent)}%）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>
-          <div><span>客戶回饋（${moneyReport(report.rebate.percent)}%）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>
-          <div><span>調整後未稅金額</span><b>$${moneyReport(report.afterRebate)}</b></div>
+          ${report.managementFee.amount > 0 ? `<div><span>布巾洗滌管理費（${moneyReport(report.managementFee.percent)}%）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>` : ''}
+          ${report.rebate.amount > 0 ? `<div><span>客戶回饋（${moneyReport(report.rebate.percent)}%）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>` : ''}
+          ${(report.managementFee.amount > 0 || report.rebate.amount > 0) ? `<div><span>調整後未稅金額</span><b>$${moneyReport(report.afterRebate)}</b></div>` : ''}
           <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
           <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.afterRebate + report.tax)}</b></div>
         </div></section>`;
@@ -2078,11 +2081,18 @@ function exportToExcel() {
     };
     const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱',document.getElementById('ciName').value || report.comp], ['對帳期間',period], [], ['部門名稱','未稅金額']];
     entries.forEach(([name,dept]) => totalRows.push([name,dept.total]));
-    totalRows.push([],['洗滌未稅金額',report.rounded],[`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount],[`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount],['調整後未稅金額',report.afterRebate],['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
+    const hasManagementFee = report.managementFee.amount > 0;
+    const hasRebate = report.rebate.amount > 0;
+    totalRows.push([],['洗滌未稅金額',report.rounded]);
+    if (hasManagementFee) totalRows.push([`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount]);
+    if (hasRebate) totalRows.push([`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount]);
+    if (hasManagementFee || hasRebate) totalRows.push(['調整後未稅金額',report.afterRebate]);
+    totalRows.push(['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
     totalSheet['!cols'] = [{wch:52},{wch:30}];
     totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:1}}];
-    formatData(totalSheet,totalRows,[1],[5],[totalRows.length-5,totalRows.length-4,totalRows.length-3,totalRows.length-2,totalRows.length-1,totalRows.length],[]);
+    const totalsStart = 5 + entries.length + 2;
+    formatData(totalSheet,totalRows,[1],[5],Array.from({length:totalRows.length-totalsStart+1},(_,i)=>totalsStart+i),[]);
     totalSheet['!print_area'] = `A1:B${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
