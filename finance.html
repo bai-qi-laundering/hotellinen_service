@@ -1280,9 +1280,21 @@ renderPricingRules(); // 客戶資料載入後立即刷新春節與回饋飯店�
 document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
 document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
 } else throw new Error(json.error);
-} catch(e) {
-document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
-document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+ } catch(e) {
+document.getElementById('syncStatus').innerText = "⚠️ 試算表同步失敗，使用既有價格資料";
+document.getElementById('syncStatus').className = "text-sm font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-sm";
+
+// 試算表只是價格來源之一；即使 GAS 失敗，也要獨立載入 Firestore 的自訂價格。
+// 物流單據本身的 item.price 仍由 fetchRecordsForSelectedHotels() 直接保留，不受試算表影響。
+try {
+    const priceDoc = await getDoc(doc(db, 'inventory_config', 'custom_prices'));
+    if (priceDoc.exists() && priceDoc.data().prices) {
+        customPrices = priceDoc.data().prices;
+    }
+} catch(priceErr) {
+    console.warn("試算表同步失敗後，載入 Firestore 自訂價格也失敗:", priceErr);
+}
+renderPricingRules();
 }
 }
 
