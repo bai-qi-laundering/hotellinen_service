@@ -1980,11 +1980,14 @@ function refreshInvoiceCompanyOptions(preferred = '') {
     const compSelect = document.getElementById('invoiceTargetCompany');
     if (!compSelect) return [];
 
-    // 對帳單只列出目前已載入明細中實際存在的母公司；若明細尚未整理出母公司，再退回大腦客戶名單。
-    const activeCompanies = [...new Set((rawLogisticsData || [])
-        .map(r => String(r.parentCompany || '').trim())
+    // 對帳單優先使用目前畫面「實際勾選的飯店／分館名稱」，例如「鼎王 七賢」。
+    // 這樣才能正確對應大腦客戶資料，不會把分館縮成母公司「鼎王」而抓不到統編。
+    const checkedHotels = [...document.querySelectorAll('.hotel-cb:checked')]
+        .map(cb => String(cb.value || '').trim()).filter(Boolean);
+    const activeHotels = [...new Set((rawLogisticsData || [])
+        .map(r => String(r.hotel || r.parentCompany || '').trim())
         .filter(Boolean))];
-    let names = activeCompanies.length ? activeCompanies : Object.keys(sheetClients || {});
+    let names = checkedHotels.length ? checkedHotels : (activeHotels.length ? activeHotels : Object.keys(sheetClients || {}));
     names = [...new Set(names)].sort((a,b)=>a.localeCompare(b,'zh-TW'));
 
     const oldValue = preferred || compSelect.value;
@@ -2020,17 +2023,33 @@ if (!names.length) {
 document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
 }
 
+function normalizeClientLookupKey(v) {
+    return String(v ?? '').normalize('NFKC').replace(/[\s　]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
+}
+function resolveClientProfile(comp) {
+    if (sheetClients[comp]) return sheetClients[comp];
+    const key = normalizeClientLookupKey(comp);
+    const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
+    if (exact) return exact[1];
+    // 容錯：只在唯一匹配時使用前綴／包含比對，避免「鼎王 七賢、鼎王 富國」互相誤配。
+    const candidates = Object.entries(sheetClients || {}).filter(([name]) => {
+        const nk = normalizeClientLookupKey(name);
+        return nk.startsWith(key) || key.startsWith(nk);
+    });
+    if (candidates.length === 1) return candidates[0][1];
+    return null;
+}
 function loadClientProfile() {
 const comp = document.getElementById('invoiceTargetCompany').value;
 if(!comp) {
 ['ciName','ciTaxId','ciContact','ciPhone','ciAddress'].forEach(id => document.getElementById(id).value = "");
 return;
 }
-const p = sheetClients[comp] || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
-document.getElementById('ciName').value = p.name; document.getElementById('ciTaxId').value = p.taxId;
-document.getElementById('ciContact').value = p.contact; document.getElementById('ciPhone').value = p.phone;
-document.getElementById('ciAddress').value = p.address; document.getElementById('ciTerms').value = p.terms;
-document.getElementById('ciMethod').value = p.method;
+const p = resolveClientProfile(comp) || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
+document.getElementById('ciName').value = p.name || comp; document.getElementById('ciTaxId').value = p.taxId || "無資料";
+document.getElementById('ciContact').value = p.contact || "無資料"; document.getElementById('ciPhone').value = p.phone || "無資料";
+document.getElementById('ciAddress').value = p.address || "無資料"; document.getElementById('ciTerms').value = p.terms || "月結 30 天";
+document.getElementById('ciMethod').value = p.method || "銀行匯款 / 支票";
 }
 
 // 匯出共用資料：僅取所選客戶，部門數量及金額採用相同資料來源。
@@ -2057,8 +2076,10 @@ function buildInvoiceReport() {
         grandTotal += amount;
     });
     Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || a.receiptOrder - b.receiptOrder));
-    const rebate = rebateForReport(comp, matches);
-    const managementFee = managementFeeForReport(comp, matches);
+    // 報表可以選分館名稱，但回饋／管理費仍沿用物流資料中的母公司設定。
+    const pricingCompany = [...new Set(matches.map(r => r.parentCompany).filter(Boolean))][0] || comp;
+    const rebate = rebateForReport(pricingCompany, matches);
+    const managementFee = managementFeeForReport(pricingCompany, matches);
     const rounded = Math.round(grandTotal);
     const afterRebate = rounded + managementFee.amount - rebate.amount;
     const tax = Math.round(afterRebate * 0.05);
