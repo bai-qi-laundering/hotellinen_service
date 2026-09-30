@@ -860,7 +860,8 @@
                 snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
 
                 logRecords = [];
-                let processedLogKeys = new Set(); 
+                let processedLogKeys = new Set();
+                const logisticsRepairPromises = []; 
 
                 // 1. 處理已存在的物流單據
                 uniqueDocs.forEach((docSnap) => {
@@ -886,7 +887,8 @@
                         let isSigned = !!(d.driverSig && d.clientSig);
 
                         let validItems = [];
-                        (d.items || []).forEach(item => {
+                        const existingLogItems = Array.isArray(d.items) ? d.items.map(i => ({...i})) : [];
+                        existingLogItems.forEach(item => {
                             let orig = item.originalQty || "0";
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.itemName || "").trim();
@@ -907,6 +909,38 @@
                                 actualQty: actual
                             });
                         });
+
+                        // ★ 自動修復：同日盤點有、既有物流單卻漏掉的品項，自動補進物流單。
+                        // 已存在品項保留物流端 actualQty；只補缺少的品項，避免覆蓋司機已修改的實收數量。
+                        const invGroup = invRawDataMap[matchKey];
+                        const missingToPersist = [];
+                        if (invGroup && Array.isArray(invGroup.items)) {
+                            const existingNames = new Set(existingLogItems.map(i => String(i.itemName || '').trim()));
+                            invGroup.items.forEach(invItem => {
+                                const itemName = String(invItem.itemName || '').trim();
+                                const qty = String(invItem.qty ?? '0');
+                                if (!itemName || qty === '0' || existingNames.has(itemName)) return;
+                                existingNames.add(itemName);
+                                validItems.push({ itemName, bqQty: qty, actualQty: qty });
+                                missingToPersist.push({
+                                    itemName,
+                                    originalQty: qty,
+                                    actualQty: qty,
+                                    auntNote: '',
+                                    driverNote: '物流後台依盤點自動補齊'
+                                });
+                            });
+                        }
+                        if (missingToPersist.length) {
+                            const repairedItems = [...existingLogItems, ...missingToPersist];
+                            logisticsRepairPromises.push(
+                                setDoc(doc(db, 'logistics_records', docSnap.id), {
+                                    items: repairedItems,
+                                    autoRepairedFromInventory: true,
+                                    autoRepairTime: getLocalTimeString(new Date())
+                                }, { merge: true }).catch(err => console.error('自動補齊物流品項失敗', docSnap.id, err))
+                            );
+                        }
 
                         let status = "green";
                         if (hasQtyModified) {
@@ -939,6 +973,9 @@
                         }
                     }
                 });
+
+                // 等待既有物流單缺漏品項的自動修復寫回資料庫。
+                if (logisticsRepairPromises.length) await Promise.allSettled(logisticsRepairPromises);
 
                 // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據
                 for (const [matchKey, data] of Object.entries(invRawDataMap)) {
