@@ -315,7 +315,7 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -626,6 +626,112 @@
             }).join('');
         }
 
+        // 將單一盤點品項搬移日期時，同步搬移物流單中的相同品項。
+        function resolveLogisticsHotelParts(category) {
+            const exact = masterData.find(m => m.hotel === category);
+            if (exact) {
+                return {
+                    hotelKeyword: String(exact.baseName || category).trim(),
+                    deptName: String(exact.deptName || '房務').trim()
+                };
+            }
+            let hotelKeyword = String(category || '').trim();
+            let deptName = '房務';
+            const parts = hotelKeyword.split(/\s+/).filter(Boolean);
+            if (parts.length > 1) {
+                deptName = parts.pop().trim();
+                hotelKeyword = parts.join(' ').trim();
+            }
+            return { hotelKeyword, deptName };
+        }
+
+        async function moveInventoryRecordWithLogistics(docId, oldDate, newDate, hotel, item) {
+            const oldInvRef = doc(db, 'inventory_records', docId);
+            const oldInvSnap = await getDoc(oldInvRef);
+            if (!oldInvSnap.exists()) throw new Error('找不到舊盤點資料，可能已被刪除。');
+
+            const invData = oldInvSnap.data();
+            const qtyToSync = (invData.doubleCount !== undefined && invData.doubleCount !== null && invData.doubleCount !== '')
+                ? String(invData.doubleCount)
+                : String(invData.count ?? '0');
+            const { hotelKeyword, deptName } = resolveLogisticsHotelParts(hotel);
+
+            const oldLogId = `${oldDate}_${hotelKeyword}_${deptName}`;
+            const newLogId = `${newDate}_${hotelKeyword}_${deptName}`;
+            const oldLogRef = doc(db, 'logistics_records', oldLogId);
+            const newLogRef = doc(db, 'logistics_records', newLogId);
+            const [oldLogSnap, newLogSnap] = await Promise.all([getDoc(oldLogRef), getDoc(newLogRef)]);
+
+            let oldLogData = oldLogSnap.exists() ? oldLogSnap.data() : null;
+            let oldItems = oldLogData ? [...(oldLogData.items || [])] : [];
+            const oldItemIndex = oldItems.findIndex(i => String(i.itemName || '').trim() === String(item || '').trim());
+            let movedItem = null;
+            if (oldItemIndex > -1) {
+                movedItem = { ...oldItems[oldItemIndex] };
+                oldItems.splice(oldItemIndex, 1);
+            }
+
+            if (!movedItem) {
+                movedItem = {
+                    itemName: item,
+                    originalQty: qtyToSync,
+                    actualQty: qtyToSync,
+                    auntNote: invData.note || '',
+                    driverNote: '後台修改盤點日期同步新增'
+                };
+            } else {
+                movedItem.itemName = item;
+                movedItem.originalQty = qtyToSync;
+                if (movedItem.actualQty === undefined || movedItem.actualQty === null || movedItem.actualQty === '') {
+                    movedItem.actualQty = qtyToSync;
+                }
+                movedItem.driverNote = movedItem.driverNote || '後台修改盤點日期同步搬移';
+            }
+
+            const newLogData = newLogSnap.exists() ? newLogSnap.data() : null;
+            let newItems = newLogData ? [...(newLogData.items || [])] : [];
+            const newItemIndex = newItems.findIndex(i => String(i.itemName || '').trim() === String(item || '').trim());
+            if (newItemIndex > -1) {
+                // 同日期已有相同品項時，以搬移過來的資料為主，但保留既有欄位。
+                newItems[newItemIndex] = { ...newItems[newItemIndex], ...movedItem };
+            } else {
+                newItems.push(movedItem);
+            }
+
+            const newInvData = { ...invData, date: newDate };
+            const safeItem = String(item || '').replace(/\//g, '-');
+            const newInvId = `${newDate}_${hotel}_${safeItem}`;
+            const newInvRef = doc(db, 'inventory_records', newInvId);
+
+            const batch = writeBatch(db);
+            batch.set(newInvRef, newInvData);
+            batch.delete(oldInvRef);
+
+            if (oldLogSnap.exists()) {
+                if (oldItems.length > 0) batch.set(oldLogRef, { items: oldItems }, { merge: true });
+                else batch.delete(oldLogRef);
+            }
+
+            if (newLogSnap.exists()) {
+                batch.set(newLogRef, { items: newItems, forcedSync: true }, { merge: true });
+            } else {
+                batch.set(newLogRef, {
+                    date: newDate,
+                    hotelKeyword,
+                    deptName,
+                    clientSig: '',
+                    driverSig: '',
+                    timestamp: getLocalTimeString(new Date()),
+                    forcedSync: true,
+                    assignedDriver: oldLogData?.assignedDriver || '',
+                    items: newItems
+                });
+            }
+
+            await batch.commit();
+            return newInvId;
+        }
+
         // 盤點後台：批量修改日期
         window.batchChangeInventoryDate = async function() {
             const selectedCheckboxes = document.querySelectorAll('.chk-inv-item:checked');
@@ -651,18 +757,11 @@
                     const r = invRecords.find(item => item.docId === docId);
                     if (!r) continue;
 
-                    const oldDocRef = doc(db, 'inventory_records', docId);
-                    const oldSnap = await getDoc(oldDocRef);
-                    if (oldSnap.exists()) {
-                        let data = oldSnap.data();
-                        data.date = newDate;
-                        const safeItem = r.item.replace(/\//g, '-');
-                        const newDocId = `${newDate}_${r.hotel}_${safeItem}`;
-                        await setDoc(doc(db, 'inventory_records', newDocId), data);
-                        await deleteDoc(oldDocRef);
-                        r.date = newDate;
-                        r.docId = newDocId;
-                    }
+                    const oldDate = r.date;
+                    const newDocId = await moveInventoryRecordWithLogistics(docId, oldDate, newDate, r.hotel, r.item);
+                    r.date = newDate;
+                    r.docId = newDocId;
+                    lastLogFetchKey = '';
                 }
                 showToast("✅ 批量修改日期完成！");
                 applyInvFilters();
@@ -1273,39 +1372,30 @@
             if (!newDate || newDate === oldDate) {
                 inputEl.value = oldDate; return;
             }
-            const confirmChange = await customConfirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？`);
+            const confirmChange = await customConfirm(`⚠️ 確定要將【${hotel} - ${item}】的盤點日期\n從 ${oldDate} 改為 ${newDate} 嗎？\n\n物流查帳後台的相同品項也會一起搬到新日期。`);
             if (!confirmChange) {
                 inputEl.value = oldDate; return;
             }
 
             try {
-                showToast("⏳ 正在搬移單據...");
+                showToast('⏳ 正在同步搬移盤點與物流資料...');
                 inputEl.style.opacity = '0.5';
-                const oldDocRef = doc(db, 'inventory_records', docId);
-                const oldDocSnap = await getDoc(oldDocRef);
-                if (!oldDocSnap.exists()) {
-                    await customAlert("找不到舊單據資料，可能已被刪除。");
-                    return;
-                }
-                let data = oldDocSnap.data();
-                data.date = newDate;
-                const safeItem = item.replace(/\//g, '-');
-                const newDocId = `${newDate}_${hotel}_${safeItem}`;
-                await setDoc(doc(db, 'inventory_records', newDocId), data);
-                await deleteDoc(oldDocRef);
+                const newDocId = await moveInventoryRecordWithLogistics(docId, oldDate, newDate, hotel, item);
 
-                showToast("✅ 盤點日期已成功修改！");
                 const localRecord = invRecords.find(r => r.docId === docId);
                 if (localRecord) {
                     localRecord.date = newDate;
                     localRecord.docId = newDocId;
                 }
+                lastLogFetchKey = '';
+                showToast('✅ 日期修改完成，物流品項已同步搬移！');
                 applyInvFilters();
             } catch (error) {
-                console.error("修改日期失敗:", error);
-                await customAlert("修改失敗，請檢查網路連線：" + error.message);
-                inputEl.style.opacity = '1';
+                console.error('修改日期與同步物流失敗:', error);
+                await customAlert('修改失敗：' + error.message);
                 inputEl.value = oldDate;
+            } finally {
+                inputEl.style.opacity = '1';
             }
         };
 
