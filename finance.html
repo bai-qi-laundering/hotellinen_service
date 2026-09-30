@@ -2066,21 +2066,38 @@ async function refreshInvoiceClientsFromSheet(force=false) {
 }
 window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
 
+// 對帳單客戶層級規則：只有「鼎王」保留分館；其他飯店一律合併到母公司。
+function invoiceCustomerKeyForRecord(r) {
+    const parent = String(r?.parentCompany || '').trim();
+    const hotel = String(r?.hotel || parent).trim();
+    if (parent === '鼎王' || hotel.startsWith('鼎王 ')) return hotel; // 鼎王 七賢、鼎王 高雄…分開
+    return parent || hotel; // H2O、承億、洲際、日航…不分部門
+}
+function invoiceCustomerKeyFromHotelName(name) {
+    const n = String(name || '').trim();
+    if (n.startsWith('鼎王 ')) return n;
+    const matched = (rawLogisticsData || []).find(r => String(r.hotel || '').trim() === n);
+    return matched ? invoiceCustomerKeyForRecord(matched) : n;
+}
+
 function refreshInvoiceCompanyOptions(preferred = '') {
     const compSelect = document.getElementById('invoiceTargetCompany');
     if (!compSelect) return [];
 
-    // 對帳單優先使用目前畫面「實際勾選的飯店／分館名稱」，例如「鼎王 七賢」。
-    // 這樣才能正確對應大腦客戶資料，不會把分館縮成母公司「鼎王」而抓不到統編。
     const checkedHotels = [...document.querySelectorAll('.hotel-cb:checked')]
         .map(cb => String(cb.value || '').trim()).filter(Boolean);
-    const activeHotels = [...new Set((rawLogisticsData || [])
-        .map(r => String(r.hotel || r.parentCompany || '').trim())
-        .filter(Boolean))];
-    let names = checkedHotels.length ? checkedHotels : (activeHotels.length ? activeHotels : Object.keys(sheetClients || {}));
-    names = [...new Set(names)].sort((a,b)=>a.localeCompare(b,'zh-TW'));
 
-    const oldValue = preferred || compSelect.value;
+    let names;
+    if (checkedHotels.length) {
+        names = checkedHotels.map(invoiceCustomerKeyFromHotelName);
+    } else if ((rawLogisticsData || []).length) {
+        names = rawLogisticsData.map(invoiceCustomerKeyForRecord);
+    } else {
+        names = Object.keys(sheetClients || {});
+    }
+    names = [...new Set(names.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+
+    const oldValue = invoiceCustomerKeyFromHotelName(preferred || compSelect.value);
     compSelect.innerHTML = `<option value="">-- 請選擇飯店 --</option>` +
         names.map(c => `<option value="${escapeReportHTML(c)}">${escapeReportHTML(c)}</option>`).join('');
 
@@ -2152,7 +2169,8 @@ function loadClientProfile(tryRemote=true) {
 function buildInvoiceReport() {
     if (!logisticsMasterItems.length) { alert('尚未載入物流後台的品項排序，請重新載入明細。'); return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 }; }
     const comp = document.getElementById('invoiceTargetCompany').value;
-    const matches = rawLogisticsData.filter(r => r.parentCompany === comp || r.hotel === comp || r.hotel.startsWith(comp + ' '));
+    // 鼎王依分館精準篩選；其他飯店依母公司合併所有部門。
+    const matches = rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === comp);
     const depts = {};
     let grandTotal = 0;
     matches.forEach(r => {
