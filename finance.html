@@ -1246,6 +1246,7 @@ if (cachedFinanceMaster?.sheetPrices && cachedFinanceMaster?.sheetClients) {
     sheetClients = cachedFinanceMaster.sheetClients;
     customPrices = cachedFinanceMaster.customPrices || {};
     financeMasterFetchedAt = cachedFinanceMaster.at || 0;
+    setTimeout(() => { try { refreshInvoiceCompanyOptions(); } catch(e) {} }, 0);
 }
 function setFinanceSyncStatus(text, mode='gray') {
     const el = document.getElementById('syncStatus');
@@ -1322,11 +1323,7 @@ phone: String(row[4] || ""), address: String(row[8] || ""), terms: String(row[6]
 if (priceDocResult && priceDocResult.exists() && priceDocResult.data().prices) customPrices = priceDocResult.data().prices;
 
 // 等待大腦資料全部抓回來後，再建立對帳單的下拉選單
-const compSelect = document.getElementById('invoiceTargetCompany');
-if (compSelect) {
-    compSelect.innerHTML = `<option value="">-- 請選擇 --</option>` +
-    Object.keys(sheetClients).sort().map(c => `<option value="${c}">${c}</option>`).join('');
-}
+refreshInvoiceCompanyOptions();
 
 financeMasterFetchedAt = Date.now();
 writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
@@ -1979,10 +1976,46 @@ async function exportBossExcel() {
     }
 }
 
-function openInvoiceModal() {
+function refreshInvoiceCompanyOptions(preferred = '') {
+    const compSelect = document.getElementById('invoiceTargetCompany');
+    if (!compSelect) return [];
+
+    // 對帳單只列出目前已載入明細中實際存在的母公司；若明細尚未整理出母公司，再退回大腦客戶名單。
+    const activeCompanies = [...new Set((rawLogisticsData || [])
+        .map(r => String(r.parentCompany || '').trim())
+        .filter(Boolean))];
+    let names = activeCompanies.length ? activeCompanies : Object.keys(sheetClients || {});
+    names = [...new Set(names)].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+
+    const oldValue = preferred || compSelect.value;
+    compSelect.innerHTML = `<option value="">-- 請選擇飯店 --</option>` +
+        names.map(c => `<option value="${escapeReportHTML(c)}">${escapeReportHTML(c)}</option>`).join('');
+
+    if (oldValue && names.includes(oldValue)) compSelect.value = oldValue;
+    else if (names.length === 1) compSelect.value = names[0];
+
+    if (compSelect.value) loadClientProfile();
+    return names;
+}
+
+async function openInvoiceModal() {
 if(rawLogisticsData.length === 0) { alert("請先於「財務對帳單」畫面點擊載入明細！"); return; }
 if(pendingUpdatesArray.length > 0) {
     if(!confirm("您有尚未儲存的內容修改，這些修改在對帳單上雖然會顯示，但尚未上傳至資料庫。確定要直接產生對帳單嗎？")) return;
+}
+
+// 先用目前記憶體／本機快取立即建立選單，避免快取模式下選單仍停留在初始文字。
+let names = refreshInvoiceCompanyOptions();
+
+// 如果連客戶大腦資料都沒有，補做一次遠端同步；失敗時仍保留目前明細可選。
+if (!Object.keys(sheetClients || {}).length) {
+    try { await syncMasterDataFromSheet(true); } catch (e) { console.warn('開啟對帳單時補抓大腦資料失敗：', e); }
+    names = refreshInvoiceCompanyOptions();
+}
+
+if (!names.length) {
+    alert('目前載入的明細沒有可產生對帳單的飯店資料，請重新載入明細。');
+    return;
 }
 document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
 }
