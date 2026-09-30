@@ -437,8 +437,12 @@ body { background: white; padding: 0; margin: 0; }
 <div class="bg-gray-100 border border-gray-200 rounded-lg p-4 mb-4">
 <div class="flex justify-between items-end mb-3 border-b border-gray-300 pb-2">
 <h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，不可在此修改)</h4>
+<div class="flex flex-col items-end gap-1">
 <span class="text-xs text-red-500 font-bold">如需修改請至試算表</span>
+<button type="button" onclick="refreshInvoiceClientsFromSheet(true)" class="text-xs font-bold text-blue-700 border border-blue-200 bg-white rounded px-2 py-1 hover:bg-blue-50">🔄 重新讀取試算表抬頭／統編</button>
 </div>
+</div>
+<p id="invoiceClientSyncInfo" role="status" class="text-xs font-bold text-amber-700 mb-3">請選擇飯店，系統將比對試算表客戶資料。</p>
 <div class="grid grid-cols-2 gap-4 text-sm">
 <div><label class="font-bold text-gray-500 text-xs">發票抬頭</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
 <div><label class="font-bold text-gray-500 text-xs">統編</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
@@ -1306,18 +1310,10 @@ if(json.prices) {
     });
 }
 
-sheetClients = {};
-if(json.clients) {
-json.clients.forEach((row, index) => {
-if(index === 0) return;
-let companyName = String(row[0]).trim();
-if(companyName) {
-sheetClients[companyName] = {
-name: String(row[1] || ""), taxId: String(row[2] || ""), contact: String(row[3] || ""),
-phone: String(row[4] || ""), address: String(row[8] || ""), terms: String(row[6] || "月結 30 天"), method: String(row[7] || "銀行匯款 / 支票")
-};
-}
-});
+// 客戶表必須確實回傳有效列，才替換既有快取；不能因回應缺少 clients 而清空抬頭。
+if (Array.isArray(json.clients) && json.clients.length) {
+    const clients = parseFinanceClientRows(json.clients);
+    if (Object.keys(clients).length) sheetClients = clients;
 }
 
 if (priceDocResult && priceDocResult.exists() && priceDocResult.data().prices) customPrices = priceDocResult.data().prices;
@@ -1328,7 +1324,7 @@ refreshInvoiceCompanyOptions();
 financeMasterFetchedAt = Date.now();
 writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
 renderPricingRules(); // 客戶資料載入後立即刷新春節與回饋飯店下拉選單
-setFinanceSyncStatus('✅ 大腦資料同步完成', 'green');
+setFinanceSyncStatus(Object.keys(sheetClients).length ? '✅ 大腦資料同步完成（含客戶資料）' : '⚠️ 價目表已同步，但客戶抬頭資料尚未取得', Object.keys(sheetClients).length ? 'green' : 'amber');
 } else throw new Error(json.error);
 } catch(e) {
 if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
@@ -1976,6 +1972,100 @@ async function exportBossExcel() {
     }
 }
 
+
+// 客戶抬頭獨立載入：只依賴 Apps Script 回應，不等 Firebase 價目表查詢。
+// 支援試算表常見的「第一列標題 + A~I 欄資料」結構。
+function parseFinanceClientRows(rows) {
+    const out = {};
+    const val = v => String(v ?? '').trim();
+    const tax = v => val(v).replace(/\.0$/, '');
+    rows.forEach((row, index) => {
+        if (Array.isArray(row)) {
+            const shortName = val(row[0]);
+            if (!shortName || (index === 0 && /^(簡稱|飯店簡稱|客戶簡稱|客戶名稱|名稱)$/.test(shortName))) return;
+            const profile = {
+                name: val(row[1]),
+                taxId: tax(row[2]),
+                contact: val(row[3]),
+                phone: val(row[4]),
+                address: val(row[8]),
+                terms: val(row[6]) || '月結 30 天',
+                method: val(row[7]) || '銀行匯款 / 支票'
+            };
+            if (profile.name || profile.taxId) out[shortName] = profile;
+        } else if (row && typeof row === 'object') {
+            const shortName = val(row.shortName ?? row.companyName ?? row.hotel ?? row['簡稱'] ?? row['客戶簡稱']);
+            if (!shortName) return;
+            const profile = {
+                name: val(row.name ?? row.invoiceTitle ?? row['發票抬頭'] ?? row['正式抬頭']),
+                taxId: tax(row.taxId ?? row.taxID ?? row['統編'] ?? row['統一編號']),
+                contact: val(row.contact ?? row['聯絡人']),
+                phone: val(row.phone ?? row['電話']),
+                address: val(row.address ?? row['地址']),
+                terms: val(row.terms ?? row['付款條件']) || '月結 30 天',
+                method: val(row.method ?? row['付款方式']) || '銀行匯款 / 支票'
+            };
+            if (profile.name || profile.taxId) out[shortName] = profile;
+        }
+    });
+    return out;
+}
+
+let invoiceClientFetchPending = null;
+let invoiceClientLastFetch = 0;
+function setInvoiceClientInfo(msg, isError=false) {
+    const el = document.getElementById('invoiceClientSyncInfo');
+    if (el) {
+        el.textContent = msg;
+        el.className = 'text-xs font-bold mb-3 ' + (isError ? 'text-red-700' : 'text-emerald-800');
+    }
+}
+
+async function refreshInvoiceClientsFromSheet(force=false) {
+    if (invoiceClientFetchPending) return invoiceClientFetchPending;
+    // Only avoid network access when a recently fetched, populated client table is present.
+    if (!force && Object.keys(sheetClients || {}).length && Date.now()-invoiceClientLastFetch < 60000) {
+        loadClientProfile(false);
+        return true;
+    }
+    invoiceClientFetchPending = (async () => {
+        const selectionAtStart = document.getElementById('invoiceTargetCompany')?.value || '';
+        setInvoiceClientInfo('⏳ 正在獨立讀取試算表客戶抬頭及統編……');
+        try {
+            const res = await withTimeout(fetch(`${GAS_API_URL}?action=getFinanceMasterData&_invoice=${Date.now()}`, {
+                cache: 'no-store'
+            }), 18000, '客戶抬頭／統編同步');
+            if (!res.ok) throw new Error(`試算表服務回應 HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error || '試算表服務回傳失敗');
+            if (!Array.isArray(json.clients)) throw new Error('Apps Script 回傳資料沒有 clients 客戶清單');
+            const refreshed = parseFinanceClientRows(json.clients);
+            if (!Object.keys(refreshed).length) throw new Error('客戶清單空白或發票抬頭欄位格式不符');
+            sheetClients = refreshed;
+            invoiceClientLastFetch = Date.now();
+            // Keep the existing price list and pricing cache intact.
+            writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {
+                at: financeMasterFetchedAt || Date.now(), sheetPrices, sheetClients, customPrices
+            });
+            if (document.getElementById('invoiceTargetCompany')?.value === selectionAtStart) loadClientProfile(false);
+            return true;
+        } catch (err) {
+            console.error('客戶抬頭獨立同步失敗', err);
+            const selected = document.getElementById('invoiceTargetCompany')?.value || '';
+            const cached = selected ? resolveClientProfile(selected) : null;
+            if (cached && (cached.name || cached.taxId)) {
+                setInvoiceClientInfo(`⚠️ 最新同步失敗（${err.message}），目前顯示上次保存的客戶資料，請核對抬頭和統編。`, true);
+            } else {
+                setInvoiceClientInfo(`❌ 抬頭及統編尚未取得：${err.message}。請按「重新讀取」；正式帳單暫不允許匯出。`, true);
+            }
+            return false;
+        }
+    })();
+    try { return await invoiceClientFetchPending; }
+    finally { invoiceClientFetchPending = null; }
+}
+window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
+
 function refreshInvoiceCompanyOptions(preferred = '') {
     const compSelect = document.getElementById('invoiceTargetCompany');
     if (!compSelect) return [];
@@ -1997,30 +2087,24 @@ function refreshInvoiceCompanyOptions(preferred = '') {
     if (oldValue && names.includes(oldValue)) compSelect.value = oldValue;
     else if (names.length === 1) compSelect.value = names[0];
 
-    if (compSelect.value) loadClientProfile();
+    if (compSelect.value) loadClientProfile(false);
     return names;
 }
 
 async function openInvoiceModal() {
-if(rawLogisticsData.length === 0) { alert("請先於「財務對帳單」畫面點擊載入明細！"); return; }
-if(pendingUpdatesArray.length > 0) {
-    if(!confirm("您有尚未儲存的內容修改，這些修改在對帳單上雖然會顯示，但尚未上傳至資料庫。確定要直接產生對帳單嗎？")) return;
-}
-
-// 先用目前記憶體／本機快取立即建立選單，避免快取模式下選單仍停留在初始文字。
-let names = refreshInvoiceCompanyOptions();
-
-// 如果連客戶大腦資料都沒有，補做一次遠端同步；失敗時仍保留目前明細可選。
-if (!Object.keys(sheetClients || {}).length) {
-    try { await syncMasterDataFromSheet(true); } catch (e) { console.warn('開啟對帳單時補抓大腦資料失敗：', e); }
-    names = refreshInvoiceCompanyOptions();
-}
-
-if (!names.length) {
-    alert('目前載入的明細沒有可產生對帳單的飯店資料，請重新載入明細。');
-    return;
-}
-document.getElementById('invoiceModal').classList.replace('hidden', 'flex');
+    if (!rawLogisticsData.length) { alert('請先於「財務對帳單」畫面點擊載入明細！'); return; }
+    if (pendingUpdatesArray.length && !confirm('您有尚未儲存的內容修改，確定要直接產生對帳單嗎？')) return;
+    const names = refreshInvoiceCompanyOptions();
+    if (!names.length) { alert('目前明細沒有可產生對帳單的飯店資料。'); return; }
+    document.getElementById('invoiceModal').classList.replace('hidden','flex');
+    // Force a fresh lookup if the chosen branch has no valid saved profile.
+    const selected = document.getElementById('invoiceTargetCompany').value;
+    const profile = resolveClientProfile(selected);
+    if (!Object.keys(sheetClients).length || (selected && (!profile || !profile.name || !profile.taxId))) {
+        await refreshInvoiceClientsFromSheet(true);
+    } else if (selected) {
+        loadClientProfile(false);
+    }
 }
 
 function normalizeClientLookupKey(v) {
@@ -2039,17 +2123,29 @@ function resolveClientProfile(comp) {
     if (candidates.length === 1) return candidates[0][1];
     return null;
 }
-function loadClientProfile() {
-const comp = document.getElementById('invoiceTargetCompany').value;
-if(!comp) {
-['ciName','ciTaxId','ciContact','ciPhone','ciAddress'].forEach(id => document.getElementById(id).value = "");
-return;
-}
-const p = resolveClientProfile(comp) || { name: comp, taxId: "無資料", contact: "無資料", phone: "無資料", address: "無資料", terms: "月結 30 天", method: "銀行匯款 / 支票" };
-document.getElementById('ciName').value = p.name || comp; document.getElementById('ciTaxId').value = p.taxId || "無資料";
-document.getElementById('ciContact').value = p.contact || "無資料"; document.getElementById('ciPhone').value = p.phone || "無資料";
-document.getElementById('ciAddress').value = p.address || "無資料"; document.getElementById('ciTerms').value = p.terms || "月結 30 天";
-document.getElementById('ciMethod').value = p.method || "銀行匯款 / 支票";
+function loadClientProfile(tryRemote=true) {
+    const comp = document.getElementById('invoiceTargetCompany').value;
+    const ids = ['ciName','ciTaxId','ciContact','ciPhone','ciAddress','ciTerms','ciMethod'];
+    if (!comp) {
+        ids.forEach(id => document.getElementById(id).value = '');
+        setInvoiceClientInfo('請先選擇飯店。');
+        return;
+    }
+    const p = resolveClientProfile(comp);
+    // Do not pretend that fallback placeholder values came from the official sheet.
+    document.getElementById('ciName').value = p?.name || '';
+    document.getElementById('ciTaxId').value = p?.taxId || '';
+    document.getElementById('ciContact').value = p?.contact || '';
+    document.getElementById('ciPhone').value = p?.phone || '';
+    document.getElementById('ciAddress').value = p?.address || '';
+    document.getElementById('ciTerms').value = p?.terms || '月結 30 天';
+    document.getElementById('ciMethod').value = p?.method || '銀行匯款 / 支票';
+    if (p?.name && p?.taxId) {
+        setInvoiceClientInfo(`✅ 已比對試算表客戶：${comp}（${p.name}／${p.taxId}）`);
+    } else {
+        setInvoiceClientInfo(`⚠️ 尚未取得「${comp}」完整抬頭及統編，請重新讀取；不會用簡稱冒充正式抬頭。`, true);
+        if (tryRemote) void refreshInvoiceClientsFromSheet(true);
+    }
 }
 
 // 匯出共用資料：僅取所選客戶，部門數量及金額採用相同資料來源。
@@ -2092,6 +2188,12 @@ function escapeReportHTML(value) {
 function moneyReport(value) { return Number(value).toLocaleString('zh-TW', { maximumFractionDigits: 2 }); }
 
 function generateOfficialInvoice() {
+    const selected = document.getElementById('invoiceTargetCompany').value;
+    const validProfile = resolveClientProfile(selected);
+    if (!validProfile?.name || !validProfile?.taxId) {
+        alert('尚未從試算表取得這間飯店的完整「發票抬頭＋統編」，請先按「重新讀取試算表抬頭／統編」，核對成功後再產生正式對帳單。');
+        return;
+    }
     const report = buildInvoiceReport();
     if (!report.comp) { alert('請選擇請款母公司！'); return; }
     if (!Object.keys(report.depts).length) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
