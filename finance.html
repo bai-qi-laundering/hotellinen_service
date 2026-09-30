@@ -2098,8 +2098,6 @@ function exportToExcel() {
     const hasRebate = report.rebate.amount > 0;
     totalRows.push([]);
     totalTotals.push(totalRows.length + 1);
-    totalRows.push(['洗滌總數量',grandTotalQty,'','']);
-    totalTotals.push(totalRows.length + 1);
     totalRows.push(['洗滌未稅金額','',report.rounded,'']);
     if (hasManagementFee) { totalTotals.push(totalRows.length + 1); totalRows.push([`布巾洗滌管理費（${report.managementFee.percent}%）`,'',report.managementFee.amount,'']); }
     if (hasRebate) { totalTotals.push(totalRows.length + 1); totalRows.push([`客戶回饋（${report.rebate.percent}%）`,'',-report.rebate.amount,'']); }
