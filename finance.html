@@ -2185,7 +2185,7 @@ function exportToExcel() {
     });
 
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch:32},{wch:18},{wch:18},{wch:24}];
+    totalSheet['!cols'] = [{wch:30},{wch:30},{wch:22},{wch:24}];
     totalSheet['!merges'] = [
         {s:{r:0,c:0},e:{r:0,c:3}},
         {s:{r:1,c:1},e:{r:1,c:3}},
@@ -2193,6 +2193,28 @@ function exportToExcel() {
     ];
     totalSectionRows.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
     formatData(totalSheet,totalRows,[0,1,2,3],totalHeaderRows,totalTotalRows,totalSectionRows);
+    // 結算總額區不要換行，並讓文字與金額有足夠空間。
+    totalTotalRows.forEach(r => {
+        for (let c = 0; c < 4; c++) {
+            const addr = XLSX.utils.encode_cell({r:r-1,c});
+            if (totalSheet[addr]) {
+                totalSheet[addr].s = {
+                    ...totalSheet[addr].s,
+                    alignment:{...totalSheet[addr].s.alignment,wrapText:false,vertical:'center'}
+                };
+            }
+        }
+        totalSheet['!rows'][r-1] = {hpt:30};
+    });
+    // 上方部門結算總表：項次置中、部門名稱靠左、金額靠右。
+    for (let r = 6; r < 6 + entries.length; r++) {
+        const a = XLSX.utils.encode_cell({r:r-1,c:0});
+        const b = XLSX.utils.encode_cell({r:r-1,c:1});
+        const c = XLSX.utils.encode_cell({r:r-1,c:2});
+        if (totalSheet[a]) totalSheet[a].s = {...totalSheet[a].s, alignment:{horizontal:'center',vertical:'center',wrapText:false}};
+        if (totalSheet[b]) totalSheet[b].s = {...totalSheet[b].s, alignment:{horizontal:'left',vertical:'center',wrapText:false}};
+        if (totalSheet[c]) totalSheet[c].s = {...totalSheet[c].s, alignment:{horizontal:'right',vertical:'center',wrapText:false}};
+    }
     totalSheet['!print_area'] = `A1:D${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
