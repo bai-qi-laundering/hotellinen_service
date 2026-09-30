@@ -504,21 +504,44 @@ let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
 
+// 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
+const LOCAL_CACHE_KEYS = {
+    financeMaster: 'baiqi_finance_master_v2',
+    pricingRules: 'baiqi_pricing_rules_v2',
+    itemOrder: 'baiqi_item_order_v2'
+};
+function readLocalJson(key) {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+function writeLocalJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) { console.warn('本機快取寫入失敗', key, e); }
+}
+function withTimeout(promise, ms, label='遠端資料') {
+    let timer;
+    return Promise.race([
+        Promise.resolve(promise).finally(()=>clearTimeout(timer)),
+        new Promise((_, reject)=>{ timer=setTimeout(()=>reject(new Error(`${label}連線逾時`)), ms); })
+    ]);
+}
+
 // 與「物流查帳後台」共用同一份 Firestore 品項排序範本。
 let logisticsMasterItems = [];
 let logisticsOrderFetchedAt = 0;
 let logisticsOrderPending = null;
 const MASTER_CACHE_MS = 1800000; // 價目表/客戶資料快取 30 分鐘 // 價目、客戶與品項排序快取 10 分鐘，降低重複讀取
+const cachedItemOrder = readLocalJson(LOCAL_CACHE_KEYS.itemOrder);
+if (cachedItemOrder?.items?.length) { logisticsMasterItems = cachedItemOrder.items; logisticsOrderFetchedAt = cachedItemOrder.at || 0; }
 async function ensureLogisticsItemOrder() {
     if (logisticsMasterItems.length && Date.now() - logisticsOrderFetchedAt < MASTER_CACHE_MS) return;
     if (logisticsOrderPending) return logisticsOrderPending;
     logisticsOrderPending = (async () => {
-        const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
+        const snap = await withTimeout(getDoc(doc(db, 'inventory_config', 'master_template')), 6000, '物流排序設定');
         if (!snap.exists() || !Array.isArray(snap.data().items) || !snap.data().items.length) {
             throw new Error('無法讀取物流查帳後台的品項排序設定（master_template），請稍後重試。');
         }
         logisticsMasterItems = snap.data().items;
         logisticsOrderFetchedAt = Date.now();
+        writeLocalJson(LOCAL_CACHE_KEYS.itemOrder, {at:logisticsOrderFetchedAt, items:logisticsMasterItems});
         renderPricingRules();
     })();
     try { return await logisticsOrderPending; }
@@ -540,6 +563,8 @@ function compareLogisticsItems(hotelName, itemA, itemB) {
 // 只儲存規則，不把春節調整價回寫到物流單據，避免重複加價。
 const PRICING_RULES_REF = doc(db, 'inventory_config', 'finance_annual_pricing');
 let pricingRules = {holidays:[], rebates:[], managementFees:[]};
+const cachedPricingRules = readLocalJson(LOCAL_CACHE_KEYS.pricingRules);
+if (cachedPricingRules?.data) pricingRules = cachedPricingRules.data;
 let pricingRulesPending = null, pricingRulesReady = false;
 const roundHolidayPrice = n => Math.round((Number(n) + Number.EPSILON) * 10) / 10;
 function activeHolidayRule(company, date) {
@@ -583,10 +608,11 @@ async function ensurePricingRules(force=false) {
   if (pricingRulesReady && !force) return;
   if (pricingRulesPending) return pricingRulesPending;
   pricingRulesPending = (async()=>{
-    const snap = await getDoc(PRICING_RULES_REF);
+    const snap = await withTimeout(getDoc(PRICING_RULES_REF), 6000, '春節／回饋設定');
     const data = snap.exists() ? snap.data() : {};
     pricingRules = {holidays:Array.isArray(data.holidays)?data.holidays:[], rebates:Array.isArray(data.rebates)?data.rebates:[], managementFees:Array.isArray(data.managementFees)?data.managementFees:[]};
     pricingRulesReady = true;
+    writeLocalJson(LOCAL_CACHE_KEYS.pricingRules, {at:Date.now(), data:pricingRules});
     renderPricingRules();
   })();
   try { await pricingRulesPending; } finally { pricingRulesPending=null; }
@@ -596,7 +622,8 @@ async function persistPricingRules() {
   status.textContent='正在儲存設定…';
   try {
     // 使用整份規則文件；同時更新時後寫者覆蓋，請勿於多台裝置同時編輯。
-    await setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, managementFees:pricingRules.managementFees, updatedAt:new Date().toISOString()});
+    await withTimeout(setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, managementFees:pricingRules.managementFees, updatedAt:new Date().toISOString()}), 7000, '設定儲存');
+    writeLocalJson(LOCAL_CACHE_KEYS.pricingRules, {at:Date.now(), data:pricingRules});
     status.textContent='✅ 規則已儲存；請重新載入明細／業績，使新設定套用到當期資料。';
     renderPricingRules();
   } catch(err) { status.textContent='❌ 儲存失敗：'+err.message; await ensurePricingRules(true); }
@@ -715,11 +742,12 @@ window.removeManagementFeeRule=async()=>{
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('holidayYear').value=new Date().getFullYear();
   document.getElementById('pricingRulesPanel').addEventListener('toggle', e => { if (e.target.open) refreshPricingActiveHotels(); });
-  const status=document.getElementById('pricingRulesStatus');
-  Promise.allSettled([ensurePricingRules(),syncMasterDataFromSheet(),ensureLogisticsItemOrder()]).then(results=>{
-    renderPricingRules();
-    if (results.every(r=>r.status==='rejected')) status.textContent='⚠ 飯店名單載入失敗，請檢查網路或重新同步設定。';
-  });
+  // 先使用本機快取立即繪製，不在開頁時與物流明細搶連線。
+  renderPricingRules();
+  // 遠端設定延後背景更新；失敗不阻塞財務結帳。
+  setTimeout(()=>ensurePricingRules().catch(console.warn), 1200);
+  setTimeout(()=>ensureLogisticsItemOrder().catch(console.warn), 1800);
+  setTimeout(()=>syncMasterDataFromSheet().catch(console.warn), 2400);
 });
 
 // ★ 待儲存更新陣列 (現在包含品項與價格)
@@ -1209,6 +1237,13 @@ function recalculateFinanceUI() {
 
 let financeMasterFetchedAt = 0;
 let financeMasterPending = null;
+const cachedFinanceMaster = readLocalJson(LOCAL_CACHE_KEYS.financeMaster);
+if (cachedFinanceMaster?.sheetPrices && cachedFinanceMaster?.sheetClients) {
+    sheetPrices = cachedFinanceMaster.sheetPrices;
+    sheetClients = cachedFinanceMaster.sheetClients;
+    customPrices = cachedFinanceMaster.customPrices || {};
+    financeMasterFetchedAt = cachedFinanceMaster.at || 0;
+}
 async function syncMasterDataFromSheet() {
     if (financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS) return;
     if (financeMasterPending) return financeMasterPending;
@@ -1226,8 +1261,8 @@ try {
 document.getElementById('syncStatus').innerText = "🔄 正在同步試算表資料...";
 document.getElementById('syncStatus').className = "text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full animate-pulse shadow-sm";
 const [res, priceDocResult] = await Promise.all([
-fetch(`${GAS_API_URL}?action=getFinanceMasterData`),
-getDoc(doc(db, 'inventory_config', 'custom_prices')).catch(err => { console.warn('載入自訂價格失敗', err); return null; })
+withTimeout(fetch(`${GAS_API_URL}?action=getFinanceMasterData`), 7000, '價目表同步'),
+withTimeout(getDoc(doc(db, 'inventory_config', 'custom_prices')), 6000, '自訂價格').catch(err => { console.warn('載入自訂價格失敗', err); return null; })
 ]);
 const json = await res.json();
 if(json.success) {
@@ -1276,13 +1311,20 @@ if (compSelect) {
 }
 
 financeMasterFetchedAt = Date.now();
+writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
 renderPricingRules(); // 客戶資料載入後立即刷新春節與回饋飯店下拉選單
 document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
 document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
 } else throw new Error(json.error);
 } catch(e) {
-document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
-document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
+  document.getElementById('syncStatus').innerText = "⚡ 使用上次成功快取";
+  document.getElementById('syncStatus').className = "text-sm font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-sm";
+  console.warn('試算表遠端同步失敗，沿用快取：', e);
+} else {
+  document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
+  document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+}
 }
 }
 
@@ -1314,7 +1356,7 @@ toast.classList.remove('opacity-0', 'translate-y-[-20px]');
 setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 }
 
-window.addEventListener('DOMContentLoaded', () => { syncMasterDataFromSheet(); });
+// 財務主檔改為延後背景同步，避免頁面開啟時阻塞物流資料。
 
 // 同一日期區間的三種日期格式查詢只做一次；選飯店與載入明細共用結果。
 // 同日期區間快取 5 分鐘；不同日期區間可同時保留，避免各功能互相清掉快取。
@@ -1324,12 +1366,13 @@ async function getLogisticsDocsForPeriod(startDate, endDate) {
     const key = `${startDate}|${endDate}`;
     const cached = logisticsPeriodCache.get(key);
     if (cached && (cached.promise || Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS)) return cached.promise || cached.docs;
+    const staleDocs = cached?.docs || null;
     const promise = (async () => {
         // 🚀 快速優先：目前系統的新單據日期皆使用 YYYY-MM-DD。
         // 先只做 1 次標準日期查詢；只有完全查不到時才啟用舊格式相容查詢，
         // 避免每次載入都固定打 3 次 Firestore range query。
         const qStandard = query(collection(db, 'logistics_records'), where('date', '>=', startDate), where('date', '<=', endDate));
-        const standardSnap = await getDocs(qStandard);
+        const standardSnap = await withTimeout(getDocs(qStandard), 10000, '物流明細');
         const docs = new Map();
         standardSnap.forEach(d => docs.set(d.id, d));
 
@@ -1339,7 +1382,7 @@ async function getLogisticsDocsForPeriod(startDate, endDate) {
             const unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
             const qUnpad = query(collection(db, 'logistics_records'), where('date', '>=', unpadStart), where('date', '<=', unpadEnd + '\uf8ff'));
             const qTs = query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59`)));
-            const legacySnaps = await Promise.all([getDocs(qUnpad), getDocs(qTs)]);
+            const legacySnaps = await withTimeout(Promise.all([getDocs(qUnpad), getDocs(qTs)]), 10000, '舊格式物流明細');
             legacySnaps.forEach(snap => snap.forEach(d => docs.set(d.id, d)));
         }
         return docs;
@@ -1356,6 +1399,12 @@ async function getLogisticsDocsForPeriod(startDate, endDate) {
         logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs});
         return docs;
     } catch (error) {
+        if (staleDocs) {
+            logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs:staleDocs});
+            showToast('⚡ 網路較慢，先使用上次成功的物流資料');
+            console.warn('物流遠端查詢失敗，沿用舊快取：', error);
+            return staleDocs;
+        }
         logisticsPeriodCache.delete(key);
         throw error;
     }
@@ -1431,13 +1480,13 @@ async function fetchRecordsForSelectedHotels() {
     
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
-    // 價目表、物流排序與物流資料彼此獨立，平行讀取，並避免重複下載。
-    const [, , , uniqueDocs] = await Promise.all([
-        syncMasterDataFromSheet(),
-        ensurePricingRules(),
-        ensureLogisticsItemOrder(),
-        getLogisticsDocsForPeriod(startDate, endDate)
-    ]);
+    // 🚀 結帳明細優先：只等待物流資料。價目／春節規則／排序使用快取並在背景更新，
+    // 避免任何一個設定服務暫時連不上時，把整個明細載入一起拖死。
+    const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+    const optionalSync = [syncMasterDataFromSheet(), ensurePricingRules(), ensureLogisticsItemOrder()];
+    Promise.allSettled(optionalSync).then(results => {
+        if (results.some(r=>r.status==='rejected')) console.warn('部分設定背景同步失敗，已沿用快取。', results);
+    });
 
     const selectedSet = new Set(selectedHotels);
     let results = [];
@@ -2092,56 +2141,58 @@ function exportToExcel() {
         ws['!pageSetup'] = {orientation:'portrait',paperSize:9,fitToWidth:1,fitToHeight:0};
         ws['!header'] = ''; ws['!footer'] = '';
     };
-    const grandTotalQty = entries.reduce((sum,[,dept]) => sum + dept.records.reduce((s,r)=>s+(Number(r.qty)||0),0), 0);
     const totalRows = [
-        ['百麒國際股份有限公司｜客戶對帳總表','','',''],
-        ['客戶名稱',document.getElementById('ciName').value || report.comp,'',''],
-        ['對帳期間',period,'',''],
+        ['百麒國際股份有限公司｜客戶對帳總表','',''],
+        ['客戶名稱',document.getElementById('ciName').value || report.comp,''],
+        ['對帳期間',period,''],
         [],
-        ['部門名稱','總數量','未稅金額','']
+        ['項次','部門名稱','未稅金額']
     ];
-    const totalHeaders = [5];
-    const totalSections = [];
-    const totalTotals = [];
-    entries.forEach(([name,dept]) => {
-        const deptQty = dept.records.reduce((sum,r)=>sum+(Number(r.qty)||0),0);
-        totalRows.push([name,deptQty,dept.total,'']);
+    entries.forEach(([name,dept], index) => {
+        totalRows.push([index + 1,name,dept.total]);
     });
     const hasManagementFee = report.managementFee.amount > 0;
     const hasRebate = report.rebate.amount > 0;
     totalRows.push([]);
-    totalTotals.push(totalRows.length + 1);
-    totalRows.push(['洗滌未稅金額','',report.rounded,'']);
-    if (hasManagementFee) { totalTotals.push(totalRows.length + 1); totalRows.push([`布巾洗滌管理費（${report.managementFee.percent}%）`,'',report.managementFee.amount,'']); }
-    if (hasRebate) { totalTotals.push(totalRows.length + 1); totalRows.push([`客戶回饋（${report.rebate.percent}%）`,'',-report.rebate.amount,'']); }
-    if (hasManagementFee || hasRebate) { totalTotals.push(totalRows.length + 1); totalRows.push(['調整後未稅金額','',report.afterRebate,'']); }
-    totalTotals.push(totalRows.length + 1);
-    totalRows.push(['營業稅（5%）','',report.tax,'']);
-    totalTotals.push(totalRows.length + 1);
-    totalRows.push(['含稅總金額','',report.afterRebate+report.tax,'']);
+    totalRows.push(['','未稅金額',report.rounded]);
+    if (hasManagementFee) totalRows.push(['',`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount]);
+    if (hasRebate) totalRows.push(['',`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount]);
+    if (hasManagementFee || hasRebate) totalRows.push(['','調整後未稅金額',report.afterRebate]);
+    totalRows.push(['','營業稅（5%）',report.tax]);
+    totalRows.push(['','含稅總金額',report.afterRebate+report.tax]);
+
+    // 結算總表上方維持簡潔的部門＋金額；下方再附各部門的月總量總結。
+    const totalHeaderRows = [5];
+    const totalTotalRows = [];
+    const totalSectionRows = [];
+    const summaryStart = 5 + entries.length + 2;
+    for (let r = summaryStart; r <= totalRows.length; r++) totalTotalRows.push(r);
+
     totalRows.push([]);
-    totalSections.push(totalRows.length + 1);
+    totalSectionRows.push(totalRows.length + 1);
     totalRows.push(['01　月總量總結','','','']);
+
     entries.forEach(([name,dept]) => {
         const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
-        totalSections.push(totalRows.length + 1);
+        totalSectionRows.push(totalRows.length + 1);
         totalRows.push([`${name}｜月總量總結`,'','','']);
-        totalHeaders.push(totalRows.length + 1);
+        totalHeaderRows.push(totalRows.length + 1);
         totalRows.push(['品項名稱','總數量','單價','未稅金額']);
         items.forEach(item => totalRows.push([item.item,item.qty,item.price,item.amt]));
-        totalTotals.push(totalRows.length + 1);
+        totalTotalRows.push(totalRows.length + 1);
         totalRows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
         totalRows.push([]);
     });
+
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch:32},{wch:18},{wch:18},{wch:22}];
+    totalSheet['!cols'] = [{wch:32},{wch:18},{wch:18},{wch:24}];
     totalSheet['!merges'] = [
         {s:{r:0,c:0},e:{r:0,c:3}},
         {s:{r:1,c:1},e:{r:1,c:3}},
         {s:{r:2,c:1},e:{r:2,c:3}}
     ];
-    totalSections.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
-    formatData(totalSheet,totalRows,[1,2,3],totalHeaders,totalTotals,totalSections);
+    totalSectionRows.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
+    formatData(totalSheet,totalRows,[0,1,2,3],totalHeaderRows,totalTotalRows,totalSectionRows);
     totalSheet['!print_area'] = `A1:D${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
