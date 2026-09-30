@@ -2080,24 +2080,58 @@ function exportToExcel() {
         ws['!header'] = ''; ws['!footer'] = '';
     };
     const grandTotalQty = entries.reduce((sum,[,dept]) => sum + dept.records.reduce((s,r)=>s+(Number(r.qty)||0),0), 0);
-    const totalRows = [['百麒國際股份有限公司｜客戶對帳總表'], ['客戶名稱',document.getElementById('ciName').value || report.comp,''], ['對帳期間',period,''], [], ['部門名稱','總數量','未稅金額']];
+    const totalRows = [
+        ['百麒國際股份有限公司｜客戶對帳總表','','',''],
+        ['客戶名稱',document.getElementById('ciName').value || report.comp,'',''],
+        ['對帳期間',period,'',''],
+        [],
+        ['部門名稱','總數量','未稅金額','']
+    ];
+    const totalHeaders = [5];
+    const totalSections = [];
+    const totalTotals = [];
     entries.forEach(([name,dept]) => {
         const deptQty = dept.records.reduce((sum,r)=>sum+(Number(r.qty)||0),0);
-        totalRows.push([name,deptQty,dept.total]);
+        totalRows.push([name,deptQty,dept.total,'']);
     });
     const hasManagementFee = report.managementFee.amount > 0;
     const hasRebate = report.rebate.amount > 0;
-    totalRows.push([],['洗滌總數量',grandTotalQty,''],['洗滌未稅金額','',report.rounded]);
-    if (hasManagementFee) totalRows.push([`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount]);
-    if (hasRebate) totalRows.push([`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount]);
-    if (hasManagementFee || hasRebate) totalRows.push(['調整後未稅金額',report.afterRebate]);
-    totalRows.push(['營業稅（5%）',report.tax],['含稅總金額',report.afterRebate+report.tax]);
+    totalRows.push([]);
+    totalTotals.push(totalRows.length + 1);
+    totalRows.push(['洗滌總數量',grandTotalQty,'','']);
+    totalTotals.push(totalRows.length + 1);
+    totalRows.push(['洗滌未稅金額','',report.rounded,'']);
+    if (hasManagementFee) { totalTotals.push(totalRows.length + 1); totalRows.push([`布巾洗滌管理費（${report.managementFee.percent}%）`,'',report.managementFee.amount,'']); }
+    if (hasRebate) { totalTotals.push(totalRows.length + 1); totalRows.push([`客戶回饋（${report.rebate.percent}%）`,'',-report.rebate.amount,'']); }
+    if (hasManagementFee || hasRebate) { totalTotals.push(totalRows.length + 1); totalRows.push(['調整後未稅金額','',report.afterRebate,'']); }
+    totalTotals.push(totalRows.length + 1);
+    totalRows.push(['營業稅（5%）','',report.tax,'']);
+    totalTotals.push(totalRows.length + 1);
+    totalRows.push(['含稅總金額','',report.afterRebate+report.tax,'']);
+    totalRows.push([]);
+    totalSections.push(totalRows.length + 1);
+    totalRows.push(['01　月總量總結','','','']);
+    entries.forEach(([name,dept]) => {
+        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
+        totalSections.push(totalRows.length + 1);
+        totalRows.push([`${name}｜月總量總結`,'','','']);
+        totalHeaders.push(totalRows.length + 1);
+        totalRows.push(['品項名稱','總數量','單價','未稅金額']);
+        items.forEach(item => totalRows.push([item.item,item.qty,item.price,item.amt]));
+        totalTotals.push(totalRows.length + 1);
+        totalRows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
+        totalRows.push([]);
+    });
     const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch:44},{wch:18},{wch:26}];
-    totalSheet['!merges'] = [{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:1},e:{r:1,c:2}},{s:{r:2,c:1},e:{r:2,c:2}}];
-    const totalsStart = 5 + entries.length + 2;
-    formatData(totalSheet,totalRows,[1,2],[5],Array.from({length:totalRows.length-totalsStart+1},(_,i)=>totalsStart+i),[]);
-    totalSheet['!print_area'] = `A1:C${totalRows.length}`;
+    totalSheet['!cols'] = [{wch:32},{wch:18},{wch:18},{wch:22}];
+    totalSheet['!merges'] = [
+        {s:{r:0,c:0},e:{r:0,c:3}},
+        {s:{r:1,c:1},e:{r:1,c:3}},
+        {s:{r:2,c:1},e:{r:2,c:3}}
+    ];
+    totalSections.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
+    formatData(totalSheet,totalRows,[1,2,3],totalHeaders,totalTotals,totalSections);
+    totalSheet['!print_area'] = `A1:D${totalRows.length}`;
     XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
     const usedNames = new Set(['結算總表']);
     const allocateName = raw => {
