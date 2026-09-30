@@ -744,6 +744,9 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('pricingRulesPanel').addEventListener('toggle', e => { if (e.target.open) refreshPricingActiveHotels(); });
   // 先使用本機快取立即繪製，不在開頁時與物流明細搶連線。
   renderPricingRules();
+  if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
+    setFinanceSyncStatus('✅ 大腦資料已就緒（快取）', 'green');
+  }
   // 遠端設定延後背景更新；失敗不阻塞財務結帳。
   setTimeout(()=>ensurePricingRules().catch(console.warn), 1200);
   setTimeout(()=>ensureLogisticsItemOrder().catch(console.warn), 1800);
@@ -1244,8 +1247,25 @@ if (cachedFinanceMaster?.sheetPrices && cachedFinanceMaster?.sheetClients) {
     customPrices = cachedFinanceMaster.customPrices || {};
     financeMasterFetchedAt = cachedFinanceMaster.at || 0;
 }
-async function syncMasterDataFromSheet() {
-    if (financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS) return;
+function setFinanceSyncStatus(text, mode='gray') {
+    const el = document.getElementById('syncStatus');
+    if (!el) return;
+    const classes = {
+        green: 'text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm',
+        blue: 'text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full animate-pulse shadow-sm',
+        amber: 'text-sm font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-sm',
+        red: 'text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm',
+        gray: 'text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm'
+    };
+    el.innerText = text;
+    el.className = classes[mode] || classes.gray;
+}
+async function syncMasterDataFromSheet(force=false) {
+    const hasCachedMaster = Object.keys(sheetPrices).length > 0 || Object.keys(sheetClients).length > 0;
+    if (!force && financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS) {
+        if (hasCachedMaster) setFinanceSyncStatus('✅ 大腦資料已就緒（快取）', 'green');
+        return;
+    }
     if (financeMasterPending) return financeMasterPending;
     financeMasterPending = fetchFinanceMasterData();
     try { return await financeMasterPending; }
@@ -1253,13 +1273,11 @@ async function syncMasterDataFromSheet() {
 }
 async function fetchFinanceMasterData() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
-document.getElementById('syncStatus').innerText = "⚠️ 未設定 API 網址";
-document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+setFinanceSyncStatus('⚠️ 未設定 API 網址', 'red');
 return;
 }
 try {
-document.getElementById('syncStatus').innerText = "🔄 正在同步試算表資料...";
-document.getElementById('syncStatus').className = "text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full animate-pulse shadow-sm";
+setFinanceSyncStatus('🔄 正在同步試算表資料...', 'blue');
 const [res, priceDocResult] = await Promise.all([
 withTimeout(fetch(`${GAS_API_URL}?action=getFinanceMasterData`), 7000, '價目表同步'),
 withTimeout(getDoc(doc(db, 'inventory_config', 'custom_prices')), 6000, '自訂價格').catch(err => { console.warn('載入自訂價格失敗', err); return null; })
@@ -1313,17 +1331,14 @@ if (compSelect) {
 financeMasterFetchedAt = Date.now();
 writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
 renderPricingRules(); // 客戶資料載入後立即刷新春節與回饋飯店下拉選單
-document.getElementById('syncStatus').innerText = "✅ 大腦資料同步完成";
-document.getElementById('syncStatus').className = "text-sm font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full shadow-sm";
+setFinanceSyncStatus('✅ 大腦資料同步完成', 'green');
 } else throw new Error(json.error);
 } catch(e) {
 if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
-  document.getElementById('syncStatus').innerText = "⚡ 使用上次成功快取";
-  document.getElementById('syncStatus').className = "text-sm font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-sm";
+  setFinanceSyncStatus('⚡ 使用上次成功快取', 'amber');
   console.warn('試算表遠端同步失敗，沿用快取：', e);
 } else {
-  document.getElementById('syncStatus').innerText = "❌ 試算表同步失敗";
-  document.getElementById('syncStatus').className = "text-sm font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full shadow-sm";
+  setFinanceSyncStatus('❌ 試算表同步失敗', 'red');
 }
 }
 }
