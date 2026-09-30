@@ -508,7 +508,7 @@ let customPrices = {};
 let logisticsMasterItems = [];
 let logisticsOrderFetchedAt = 0;
 let logisticsOrderPending = null;
-const MASTER_CACHE_MS = 600000; // 價目、客戶與品項排序快取 10 分鐘，降低重複讀取
+const MASTER_CACHE_MS = 1800000; // 價目表/客戶資料快取 30 分鐘 // 價目、客戶與品項排序快取 10 分鐘，降低重複讀取
 async function ensureLogisticsItemOrder() {
     if (logisticsMasterItems.length && Date.now() - logisticsOrderFetchedAt < MASTER_CACHE_MS) return;
     if (logisticsOrderPending) return logisticsOrderPending;
@@ -1318,22 +1318,30 @@ window.addEventListener('DOMContentLoaded', () => { syncMasterDataFromSheet(); }
 
 // 同一日期區間的三種日期格式查詢只做一次；選飯店與載入明細共用結果。
 // 同日期區間快取 5 分鐘；不同日期區間可同時保留，避免各功能互相清掉快取。
-const LOGISTICS_CACHE_MS = 300000; // 同日期區間物流資料快取 5 分鐘
+const LOGISTICS_CACHE_MS = 600000; // 同日期區間物流資料快取 10 分鐘
 const logisticsPeriodCache = new Map();
 async function getLogisticsDocsForPeriod(startDate, endDate) {
     const key = `${startDate}|${endDate}`;
     const cached = logisticsPeriodCache.get(key);
     if (cached && (cached.promise || Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS)) return cached.promise || cached.docs;
     const promise = (async () => {
-        const startParts = startDate.split('-'), endParts = endDate.split('-');
-        const unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-        const unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+        // 🚀 快速優先：目前系統的新單據日期皆使用 YYYY-MM-DD。
+        // 先只做 1 次標準日期查詢；只有完全查不到時才啟用舊格式相容查詢，
+        // 避免每次載入都固定打 3 次 Firestore range query。
         const qStandard = query(collection(db, 'logistics_records'), where('date', '>=', startDate), where('date', '<=', endDate));
-        const qUnpad = query(collection(db, 'logistics_records'), where('date', '>=', unpadStart), where('date', '<=', unpadEnd + '\uf8ff'));
-        const qTs = query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59`)));
-        const snapshots = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
+        const standardSnap = await getDocs(qStandard);
         const docs = new Map();
-        snapshots.forEach(snap => snap.forEach(d => docs.set(d.id, d)));
+        standardSnap.forEach(d => docs.set(d.id, d));
+
+        if (docs.size === 0) {
+            const startParts = startDate.split('-'), endParts = endDate.split('-');
+            const unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
+            const unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
+            const qUnpad = query(collection(db, 'logistics_records'), where('date', '>=', unpadStart), where('date', '<=', unpadEnd + '\uf8ff'));
+            const qTs = query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59`)));
+            const legacySnaps = await Promise.all([getDocs(qUnpad), getDocs(qTs)]);
+            legacySnaps.forEach(snap => snap.forEach(d => docs.set(d.id, d)));
+        }
         return docs;
     })();
     logisticsPeriodCache.set(key, {promise, fetchedAt:0, docs:null});
