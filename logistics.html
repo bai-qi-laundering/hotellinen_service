@@ -100,7 +100,7 @@
         }
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, addDoc, deleteDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, getDocFromServer, addDoc, deleteDoc, runTransaction, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
         const firebaseConfig = {
@@ -127,7 +127,9 @@
         let groupedData = {}; 
         let activeDeptKey = ""; 
         let masterTemplate = []; 
-        let globalItemOrder = {}; 
+        let globalItemOrder = {};
+        let signatureSaving = false;
+        let fetchSequence = 0; 
 
         const clientCanvas = document.getElementById('clientCanvas');
         const driverCanvas = document.getElementById('driverCanvas');
@@ -159,6 +161,7 @@
         window.resetCurrentDateData = async function() {
             if(!confirm(`⚠️ 警告：確定要重置 ${currentDate} 的點交紀錄嗎？\n這將會刪除當天的所有簽名與修改，並完全恢復為出貨原始數量！\n\n(僅建議在數量被系統異常覆蓋時使用)`)) return;
 
+            if (!confirm('再次確認：此操作會永久刪除當天物流單據及簽名，無法由此頁面復原。確定繼續？')) return;
             try {
                 showToastMsg("⏳ 正在還原原始資料中...");
                 let deletePromises = [];
@@ -229,8 +232,7 @@
 
                 await setDoc(docRef, {
                     date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
-                    items: safeItemsForDatabase, clientSig: groupedData[deptKey].clientSig || "", driverSig: groupedData[deptKey].driverSig || "",
-                    timestamp: new Date().toLocaleString(), forcedSync: true
+                    items: safeItemsForDatabase, timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
 
                 groupedData[deptKey].isSynced = true;
@@ -322,6 +324,7 @@
 
         async function fetchData(isBackground = false, forceServer = false) {
             const fetchTargetDate = currentDate;
+            const thisFetch = ++fetchSequence;
 
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
@@ -341,9 +344,10 @@
                 const fetchMethod = forceServer ? getDocsFromServer : getDocs;
                 if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
 
-                const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), fetchMethod(logQ)]);
+                // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
+                const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), getDocsFromServer(logQ)]);
 
-                if (currentDate !== fetchTargetDate) {
+                if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
                     return; 
                 }
 
@@ -436,7 +440,7 @@
                 processAndRenderData(rawData);
             } catch (err) {
                 console.error("Fetch Data Error:", err);
-                if (!isBackground) {
+                if (!isBackground && thisFetch === fetchSequence && !signatureSaving) {
                     document.getElementById('departmentsContainer').innerHTML = `
                     <div class="text-center py-10 bg-red-50 rounded-2xl border border-red-200 mt-6 mx-4">
                         <span class="text-4xl block mb-3">⚠️</span>
@@ -588,16 +592,8 @@
                             <span>⚠️ 逾期未簽收，且尚未進入財務系統</span><span class="text-sm text-red-500 font-bold">目前財務後台看不到這筆帳單</span>
                             <button onclick="forceSyncToFinance('${dept}')" class="mt-2 text-base bg-red-600 text-white font-bold px-6 py-2 rounded-lg shadow-md active:bg-red-700 animate-pulse">🔄 立即強制同步至財務系統</button>
                         </div>`;
-                        let safeItemsForDatabase = groupedData[dept].items.map(item => ({
-                            deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                            auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote || "系統自動結單"
-                        }));
-                        let docRef = doc(db, 'logistics_records', `${currentDate}_${currentHotel}_${dept}`);
-                        let p = setDoc(docRef, {
-                            date: currentDate, hotelKeyword: currentHotel, deptName: dept, items: safeItemsForDatabase, clientSig: "", driverSig: "", 
-                            timestamp: new Date().toLocaleString() + " (逾期系統自動結單)", isAutoSynced: true
-                        }, { merge: true }).then(() => { groupedData[dept].isSynced = true; });
-                        autoSyncPromises.push(p);
+                        // 不在「渲染畫面」時寫入資料庫：離線快取可能誤判未同步，
+                        // 舊版自動結單會把實際已簽收的簽名改寫成空字串。請由人工核對後再同步。
                     } else {
                         actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-2">
                             <span>🔒 逾期系統已自動結單</span><span class="text-sm text-gray-500 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
@@ -750,116 +746,88 @@
         function closeSignModal() { document.getElementById('signModal').classList.add('hidden'); }
 
         async function submitVerify() {
-            let existClient = groupedData[activeDeptKey].clientSig;
-            let existDriver = groupedData[activeDeptKey].driverSig;
-
-            let cBase64 = existClient || ""; 
-            if (clientCanvas.isModified) {
-                if (clientCanvas.isCleared) { cBase64 = ""; } 
-                else { cBase64 = clientCanvas.toDataURL('image/jpeg', 0.5); }
+            if (signatureSaving) return;
+            const dept = activeDeptKey;
+            const group = groupedData[dept];
+            if (!group) return;
+            const signingDate = currentDate;
+            const signingHotel = currentHotel;
+            const cNew = clientCanvas.isModified && !clientCanvas.isCleared;
+            const dNew = driverCanvas.isModified && !driverCanvas.isCleared;
+            // 「清除重簽」代表放棄畫布內容，不是刪除已存的簽名。
+            if (!cNew && !dNew) {
+                showToastMsg('沒有新的簽名需要儲存，原有簽名未變更。', true);
+                return;
             }
-
-            let dBase64 = existDriver || "";
-            if (driverCanvas.isModified) {
-                if (driverCanvas.isCleared) { dBase64 = ""; } 
-                else { dBase64 = driverCanvas.toDataURL('image/jpeg', 0.5); }
+            if (!group.clientSig && !cNew && !group.driverSig && !dNew) {
+                showToastMsg('請先完成簽名', true); return;
             }
-
-            if (!cBase64 && !dBase64) {
-                 showToastMsg("⚠️ 請至少一方完成簽名！(司機或飯店)", true); return;
-            }
-
-            closeSignModal();
-            showToastMsg("🔄 背景儲存中，您可以繼續作業...");
-
-            groupedData[activeDeptKey].clientSig = cBase64; 
-            groupedData[activeDeptKey].driverSig = dBase64;
-            
-            let isNewDriverSig = driverCanvas.isModified && !driverCanvas.isCleared && dBase64 !== ""; 
-            let syncDepts = [];
-
-            if (isNewDriverSig) {
-                for (let dept in groupedData) {
-                    if (dept !== activeDeptKey && !groupedData[dept].driverSig) {
-                        groupedData[dept].driverSig = dBase64;
-                        syncDepts.push(dept);
-                    }
-                }
-            }
-            renderDepartments(); 
-
+            const button = document.getElementById('submitBtn');
+            signatureSaving = true;
+            button.disabled = true;
+            button.textContent = '⏳ 正在確認雲端儲存...';
+            // 使儲存前的背景請求不能反向覆蓋新簽名畫面。
+            ++fetchSequence;
             try {
-                let clientSigUrl = await uploadSignatureToStorage(cBase64, `${currentHotel}_${activeDeptKey}_client_${Date.now()}`);
-                let driverSigUrl = await uploadSignatureToStorage(dBase64, `${currentHotel}_driver_${Date.now()}`);
-
-                let payloads = []; 
-
-                let safeItemsForDatabase = groupedData[activeDeptKey].items.map(item => ({
-                    deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                    auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
-                }));
-
-                payloads.push({
-                    date: currentDate, hotelKeyword: currentHotel, deptName: activeDeptKey,
-                    items: safeItemsForDatabase, 
-                    clientSig: clientSigUrl, 
-                    driverSig: driverSigUrl  
-                });
-
-                if (isNewDriverSig) {
-                    for (let dept of syncDepts) {
-                        let deptItemsSafe = groupedData[dept].items.map(item => ({
-                            deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
-                            auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote
-                        }));
-                        payloads.push({
-                            date: currentDate, hotelKeyword: currentHotel, deptName: dept,
-                            items: deptItemsSafe, 
-                            clientSig: groupedData[dept].clientSig || "", 
-                            driverSig: driverSigUrl 
-                        });
+                const clientBlob = cNew ? clientCanvas.toDataURL('image/jpeg',0.7) : null;
+                const driverBlob = dNew ? driverCanvas.toDataURL('image/jpeg',0.7) : null;
+                // 只上傳本次實際重新簽名的圖片；不得重寫原有 URL。
+                const clientUrl = clientBlob ? await uploadSignatureToStorage(clientBlob,`${signingHotel}_${dept}_client_${Date.now()}`) : null;
+                const driverUrl = driverBlob ? await uploadSignatureToStorage(driverBlob,`${signingHotel}_driver_${Date.now()}`) : null;
+                const saveDept = async (targetDept, main) => {
+                    const refDoc = doc(db,'logistics_records',`${signingDate}_${signingHotel}_${targetDept}`);
+                    const items = groupedData[targetDept]?.items.map(i=>({
+                        deptName:i.deptName,itemName:i.itemName,originalQty:i.originalQty,
+                        auntNote:i.auntNote,actualQty:i.actualQty,driverNote:i.driverNote||''
+                    })) || [];
+                    await runTransaction(db, async tx => {
+                        const old = await tx.get(refDoc);
+                        const prior = old.exists() ? old.data() : {};
+                        const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
+                            timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
+                        if (main) {
+                            update.items=items;
+                            if(clientUrl) update.clientSig=clientUrl;
+                            if(driverUrl) update.driverSig=driverUrl;
+                        } else {
+                            // 將司機簽名帶到尚無司機簽名的部門，不動飯店簽名及數量。
+                            if (!prior.driverSig && driverUrl) update.driverSig=driverUrl;
+                            else return;
+                        }
+                        tx.set(refDoc,update,{merge:true});
+                    });
+                };
+                await saveDept(dept,true);
+                const synced = [];
+                if (driverUrl) {
+                    for (const other of Object.keys(groupedData)) {
+                        if(other===dept || groupedData[other].driverSig) continue;
+                        try { await saveDept(other,false); synced.push(other); }
+                        catch(err) { console.warn('其他部門簽名同步失敗',other,err); }
                     }
                 }
-
-                const savePromises = payloads.map(p => {
-                    const docId = `${p.date}_${p.hotelKeyword}_${p.deptName}`;
-                    const docRef = doc(db, 'logistics_records', docId);
-
-                    addDoc(collection(db, 'history_logs'), {
-                        logDate: getTodayString(), timestamp: Date.now(), timeString: getExactTimeString(),
-                        operator: "🚚 物流點收系統", date: p.date, hotel: `${p.hotelKeyword} ${p.deptName}`,
-                        item: "物流點收單", field: "點交狀態", oldValue: "更新前", newValue: "已更新簽收狀態"
-                    });
-
-                    return setDoc(docRef, {
-                        date: p.date, hotelKeyword: p.hotelKeyword, deptName: p.deptName,
-                        items: p.items, clientSig: p.clientSig, driverSig: p.driverSig,
-                        timestamp: new Date().toLocaleString()
-                    }, { merge: true });
-                });
-
-                await Promise.all(savePromises);
-
-                groupedData[activeDeptKey].clientSig = clientSigUrl; 
-                groupedData[activeDeptKey].driverSig = driverSigUrl;
-                groupedData[activeDeptKey].isSynced = true; 
-                
-                if (isNewDriverSig && syncDepts.length > 0) {
-                    syncDepts.forEach(dept => {
-                        groupedData[dept].driverSig = driverSigUrl; groupedData[dept].isSynced = true; 
-                    });
+                // 再從伺服器讀取簽名，確定 Firestore 已保存才提示完成。
+                const verified = await getDocFromServer(doc(db,'logistics_records',`${signingDate}_${signingHotel}_${dept}`));
+                if (!verified.exists() || (clientUrl && verified.data().clientSig!==clientUrl) ||
+                    (driverUrl && verified.data().driverSig!==driverUrl)) {
+                    throw new Error('簽名寫入後驗證失敗，請重新載入確認');
                 }
-
-                fetchData(true); 
-                
-                if (isNewDriverSig && syncDepts.length > 0) {
-                    showToastMsg(`✅ 已點收，並同步簽名至 ${syncDepts.length + 1} 個部門！`);
-                } else {
-                    showToastMsg("✅ 點收簽單已成功更新！");
-                }
-            } catch (e) {
-                console.error(e);
-                showToastMsg("⚠️ 背景上傳失敗：" + e.message, true);
+                const saved = verified.data();
+                group.clientSig=saved.clientSig||'';
+                group.driverSig=saved.driverSig||'';
+                group.isSynced=true;
+                synced.forEach(k=>{if(groupedData[k] && !groupedData[k].driverSig)groupedData[k].driverSig=driverUrl;});
+                closeSignModal();
+                showToastMsg('✅ 已由雲端確認簽名儲存成功');
+                renderDepartments();
+            } catch(err) {
+                console.error('簽名儲存失敗',err);
+                showToastMsg('❌ 簽名尚未確認儲存，請勿離開：'+err.message,true);
+                alert('簽名未完成雲端確認。請檢查網路後重新送出，勿當成已簽收。\n'+err.message);
+            } finally {
+                signatureSaving=false;
+                button.disabled=false;
+                button.textContent='確認送出';
             }
         }
 
