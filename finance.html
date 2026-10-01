@@ -374,14 +374,25 @@ body { background: white; padding: 0; margin: 0; }
 <!-- ==================== 【系統 3：司機業績計算】 ==================== -->
 <div id="sysDriver" class="hidden">
 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
-<div class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
+<div class="border-b border-gray-200 pb-4 mb-6">
+<div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
 <div>
 <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
 <p class="text-sm text-gray-500 font-bold mt-1">系統將根據「物流查帳後台」中所指派的司機，自動計算各司機業績。</p>
 </div>
-<button onclick="calculateDriverPerformance()" id="calcDriverBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 py-3 rounded-full shadow-lg transition-transform hover:scale-105">
+<div class="flex flex-col sm:flex-row sm:items-end gap-3">
+<label class="block text-sm font-black text-indigo-900">統計起始日
+<input type="date" id="driverStartDate" class="block mt-1 border-2 border-indigo-200 rounded-lg px-3 py-2.5 font-bold text-gray-700 bg-white focus:border-indigo-500 outline-none min-w-[165px]">
+</label>
+<label class="block text-sm font-black text-indigo-900">統計結束日
+<input type="date" id="driverEndDate" class="block mt-1 border-2 border-indigo-200 rounded-lg px-3 py-2.5 font-bold text-gray-700 bg-white focus:border-indigo-500 outline-none min-w-[165px]">
+</label>
+<button onclick="calculateDriverPerformance()" id="calcDriverBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-7 py-3 rounded-full shadow-lg transition-transform hover:scale-105 whitespace-nowrap">
 ▶ 開始計算業績
 </button>
+</div>
+</div>
+<div id="driverPeriodLabel" class="mt-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-1.5 text-sm font-bold">📅 請選擇統計區間</div>
 </div>
 <div id="driverCardsContainer" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
 <div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">請確認日期後，點擊上方「開始計算業績」</div>
@@ -745,6 +756,18 @@ window.removeManagementFeeRule=async()=>{
 };
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('holidayYear').value=new Date().getFullYear();
+  const ds=document.getElementById('driverStartDate'), de=document.getElementById('driverEndDate');
+  if (ds && de) {
+    const financeStart=document.getElementById('startDate')?.value;
+    const financeEnd=document.getElementById('endDate')?.value;
+    const now=new Date();
+    ds.value = financeStart || getLocalDateString(new Date(now.getFullYear(),now.getMonth(),1));
+    de.value = financeEnd || getLocalDateString(now);
+    const label=document.getElementById('driverPeriodLabel');
+    if (label) label.textContent=`📅 統計區間：${ds.value} ～ ${de.value}`;
+    const update=()=>{ if(label) label.textContent=`📅 統計區間：${ds.value || '未選'} ～ ${de.value || '未選'}`; };
+    ds.addEventListener('change',update); de.addEventListener('change',update);
+  }
   document.getElementById('pricingRulesPanel').addEventListener('toggle', e => { if (e.target.open) refreshPricingActiveHotels(); });
   // 先使用本機快取立即繪製，不在開頁時與物流明細搶連線。
   renderPricingRules();
@@ -2450,30 +2473,24 @@ function exportToExcel() {
 // 🚀 【系統 3】司機業績
 // ==========================================
 async function calculateDriverPerformance() {
-const startDate = document.getElementById('startDate').value;
-const endDate = document.getElementById('endDate').value;
+const startDate = document.getElementById('driverStartDate').value;
+const endDate = document.getElementById('driverEndDate').value;
+if (!startDate || !endDate) { alert('請先選擇司機業績的起始日與結束日！'); return; }
+if (startDate > endDate) { alert('司機業績起始日不可晚於結束日！'); return; }
 const btn = document.getElementById('calcDriverBtn');
-btn.innerHTML = `計算中...`; btn.disabled = true;
-
-// 雖然司機業績不再依賴表單排班，但可能仍需要取得價格表，因此保留 syncMasterData
-await syncMasterDataFromSheet();
+const periodLabel = document.getElementById('driverPeriodLabel');
+btn.innerHTML = `⏳ 計算中...`; btn.disabled = true;
+if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～ ${endDate}`;
 
 try {
-let startParts = startDate.split('-'); let endParts = endDate.split('-');
-let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-const startTs = new Date(`${startDate}T00:00:00`);
-const endTs = new Date(`${endDate}T23:59:59`);
-const qTs = query(collection(db, "logistics_records"), where("date", ">=", startTs), where("date", "<=", endTs));
-
-const [snapStandard, snapUnpad, snapTs] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qTs)]);
-
-let uniqueDocs = new Map();
-snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
-snapTs.forEach(doc => uniqueDocs.set(doc.id, doc));
+// 直接共用財務系統已優化的物流快取；不再另外發出三組 Firestore 查詢。
+const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+// 價目表只在背景補同步；已有快取時不阻塞司機業績。
+if (!Object.keys(sheetPrices || {}).length) {
+    try { await syncMasterDataFromSheet(); } catch (err) { console.warn('司機業績價目表同步失敗，沿用現有資料', err); }
+} else {
+    void syncMasterDataFromSheet().catch(console.warn);
+}
 
 currentDriverStats = {};
 currentUnassignedStats = { totalAmt: 0, details: [] };
@@ -2488,18 +2505,13 @@ if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 // 過濾掉回洗
 if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
 
-// 💡 關鍵變更：直接從單據資料抓取負責的司機
-let driverName = d.assignedDriver || null; 
-
+let driverName = d.assignedDriver || null;
 (d.items || []).forEach(item => {
-// 司機業績也以實收數量為準；0 或尚未填寫不計入。
 const actual = Number(item.actualQty) || 0;
-
 if (actual > 0 && !String(item.itemName).includes("回洗")) {
-let price = item.price !== undefined ? item.price : (getPrice(hotelName, item.itemName) || 0);
-let amt = actual * price; // ★ 復原：明細小計不四捨五入
+let price = item.price !== undefined && item.price !== null && item.price !== '' ? Number(item.price) : (getPrice(hotelName, item.itemName) || 0);
+let amt = actual * price;
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };
-
 if (driverName) {
 if (!currentDriverStats[driverName]) currentDriverStats[driverName] = { totalAmt: 0, details: [] };
 currentDriverStats[driverName].totalAmt += amt;
