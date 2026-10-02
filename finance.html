@@ -281,13 +281,13 @@ body { background: white; padding: 0; margin: 0; }
         <div class="p-4 bg-gray-50 flex flex-col xl:flex-row justify-between items-start xl:items-center border-b border-gray-200 rounded-t-xl gap-4">
             <div class="flex flex-col gap-1">
                 <h3 class="font-black text-gray-800 text-xl flex items-center gap-2">💰 內部核對與對帳單產出</h3>
-                <span class="text-xs text-blue-600 font-bold">💡 您可以直接修改品項名稱與單價，系統將會自動計算，點擊「批次儲存」即可完整更新資料庫。</span>
+                <span class="text-xs text-blue-600 font-bold">💡 直接修改某日單價，該日及往後沿用新價格，直到下次調價；以前的單價不變。修改後請按「批次儲存」。</span>
             </div>
             <div class="flex flex-wrap gap-3">
                 <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg shadow transition-colors disabled:opacity-50">
                     🔄 載入/更新明細
                 </button>
-                <label class="flex gap-2 items-center text-sm font-bold text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-2">單價生效日 <input id="priceEffectiveDate" type="date" class="p-2 border rounded bg-white" title="只影響此日期起的出貨資料"></label>
+
                 <button onclick="batchSavePrices()" id="batchSaveBtn" class="bg-gray-400 text-white font-bold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-all duration-300 disabled:opacity-50 pointer-events-none">
                     💾 尚未修改內容
                 </button>
@@ -812,11 +812,12 @@ async function ensureEffectivePrices(force=false) {
 }
 let effectivePricesReady=false;
 function newPriceStart(record) {
-    return document.getElementById('priceEffectiveDate')?.value || record.date;
+    // 修改哪一天的明細，哪一天起就沿用新單價，直到下一次調價。
+    return record.date;
 }
 function queueEffectivePrice(record,hotel,price) {
     const start=newPriceStart(record);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('請選擇有效的單價生效日');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('此筆出貨日期無效，請先確認日期');
     const key=`${hotel}_${record.item}`;
     const rule={key,start,price:Number(price)};
     pendingEffectivePrices.set(`${key}|${start}`,rule);
