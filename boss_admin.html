@@ -315,7 +315,7 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -847,10 +847,10 @@
                             items: []
                         };
                     }
-                    invRawDataMap[matchKey].items.push({
-                        itemName: cleanItem,
-                        qty: qty
-                    });
+                    const invItems = invRawDataMap[matchKey].items;
+                    // 標準日期與非補零查詢可能同時取得同一筆盤點資料。
+                    const oldInv = invItems.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(cleanItem));
+                    if (oldInv) { oldInv.qty = qty; } else invItems.push({itemName: cleanItem, qty});
                 };
                 snapInvStandard.forEach(processInv);
                 snapInvUnpad.forEach(processInv);
@@ -888,7 +888,9 @@
                         const signatureReviewNeeded = !isSigned && !!(d.driverSig || d.clientSig) && !!d.timestamp;
 
                         let validItems = [];
-                        const existingLogItems = Array.isArray(d.items) ? d.items.map(i => ({...i})) : [];
+                        const originalLogItems = Array.isArray(d.items) ? d.items.map(i => ({...i})) : [];
+                        const existingLogItems = uniqueLogItems(originalLogItems);
+                        const hasDuplicates = existingLogItems.length !== originalLogItems.length;
                         existingLogItems.forEach(item => {
                             let orig = item.originalQty || "0";
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
@@ -916,12 +918,13 @@
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
                         if (invGroup && Array.isArray(invGroup.items)) {
-                            const existingNames = new Set(existingLogItems.map(i => String(i.itemName || '').trim()));
+                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.itemName)));
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim();
                                 const qty = String(invItem.qty ?? '0');
-                                if (!itemName || qty === '0' || existingNames.has(itemName)) return;
-                                existingNames.add(itemName);
+                                const normItem = normalizedLogItemName(itemName);
+                                if (!normItem || qty === '0' || existingNames.has(normItem)) return;
+                                existingNames.add(normItem);
                                 validItems.push({ itemName, bqQty: qty, actualQty: qty });
                                 missingToPersist.push({
                                     itemName,
@@ -932,15 +935,20 @@
                                 });
                             });
                         }
-                        if (missingToPersist.length) {
-                            const repairedItems = [...existingLogItems, ...missingToPersist];
-                            logisticsRepairPromises.push(
-                                setDoc(doc(db, 'logistics_records', docSnap.id), {
-                                    items: repairedItems,
-                                    autoRepairedFromInventory: true,
-                                    autoRepairTime: getLocalTimeString(new Date())
-                                }, { merge: true }).catch(err => console.error('自動補齊物流品項失敗', docSnap.id, err))
-                            );
+                        if (missingToPersist.length || hasDuplicates) {
+                            // 只對最新伺服器內容去重；交易確保不會覆蓋同時改過的數量或簽名。
+                            logisticsRepairPromises.push(runTransaction(db, async tx => {
+                                const refDoc = doc(db, 'logistics_records', docSnap.id);
+                                const freshSnap = await tx.get(refDoc);
+                                if (!freshSnap.exists()) return;
+                                const latest = uniqueLogItems(freshSnap.data().items || []);
+                                const names = new Set(latest.map(i => normalizedLogItemName(i.itemName)));
+                                missingToPersist.forEach(i => {
+                                    const key = normalizedLogItemName(i.itemName);
+                                    if (!names.has(key)) {latest.push(i);names.add(key);}
+                                });
+                                tx.update(refDoc,{items:latest,autoRepairedFromInventory:true,autoRepairTime:getLocalTimeString(new Date())});
+                            }).catch(err => console.error('物流去重同步失敗', docSnap.id, err)));
                         }
 
                         let status = "green";
@@ -1448,40 +1456,54 @@
             }
         };
 
+        // 同品項只保留一筆：如果有實收修改，優先採用已修改的數量；
+        // 若都有修改，保留最後一筆。空格、全形空白不造成兩種品項。
+        const normalizedLogItemName = name => String(name || '').replace(/[\s\u3000]+/g, '').trim();
+        function uniqueLogItems(items) {
+            const map = new Map();
+            for (const item of (Array.isArray(items) ? items : [])) {
+                const key = normalizedLogItemName(item.itemName);
+                if (!key) continue;
+                const old = map.get(key);
+                const changed = v => v.actualQty !== undefined && v.actualQty !== null && String(v.actualQty) !== String(v.originalQty ?? '0');
+                if (!old || changed(item) || !changed(old)) map.set(key, {...item});
+            }
+            return [...map.values()];
+        }
         window.updateLogQty = async function(docId, itemName, newValue, inputElement, bqQty) {
             const finalNewValue = String(newValue).trim();
-            if (finalNewValue === "") return;
+            if (finalNewValue === '' || !Number.isFinite(Number(finalNewValue)) || Number(finalNewValue) < 0) {
+                await customAlert('請輸入有效且不小於零的實收數量。'); return;
+            }
+            inputElement.disabled = true;
             inputElement.style.opacity = '0.5';
-
             try {
                 const docRef = doc(db, 'logistics_records', docId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    let data = docSnap.data();
-                    let items = data.items || [];
-                    let itemFound = false;
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].itemName === itemName) {
-                            items[i].actualQty = finalNewValue;
-                            itemFound = true;
-                            break;
-                        }
-                    }
-                    if (itemFound) {
-                        await setDoc(docRef, { items: items }, { merge: true });
-                        showToast("物流實收數量已更新！(財務將自動連動)");
-                        let localRecord = logRecords.find(r => r.id === docId);
-                        if(localRecord) {
-                           let localItem = localRecord.items.find(i => i.itemName === itemName);
-                           if(localItem) localItem.actualQty = finalNewValue;
-                        }
-                    }
+                await runTransaction(db, async tx => {
+                    const snap = await tx.get(docRef);
+                    if (!snap.exists()) throw new Error('找不到物流單據，請重新載入');
+                    const items = uniqueLogItems(snap.data().items || []);
+                    const target = items.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName));
+                    if (!target) throw new Error('找不到原品項，請重新載入');
+                    target.actualQty = finalNewValue;
+                    // 整筆陣列只會存在一個相同品項；其他單據欄位（簽名等）不碰。
+                    tx.update(docRef, {items});
+                });
+                lastLogFetchKey = '';
+                const localRecord = logRecords.find(r=>r.id===docId);
+                if (localRecord) {
+                    localRecord.items = localRecord.items.filter((i,idx,arr)=>
+                        arr.findIndex(x=>normalizedLogItemName(x.itemName)===normalizedLogItemName(i.itemName))===idx);
+                    const localItem=localRecord.items.find(i=>normalizedLogItemName(i.itemName)===normalizedLogItemName(itemName));
+                    if(localItem)localItem.actualQty=finalNewValue;
                 }
-            } catch (err) {
-                console.error("更新物流數量失敗:", err);
-                await customAlert("更新失敗，請檢查網路！");
+                showToast('✅ 已更新實收數量，同品項只保留一筆');
+            } catch(err) {
+                console.error('實收更新失敗',err);
+                await customAlert('更新失敗：'+err.message);
             } finally {
-                inputElement.style.opacity = '1';
+                inputElement.disabled=false;
+                inputElement.style.opacity='1';
                 applyLogFilters();
             }
         };
