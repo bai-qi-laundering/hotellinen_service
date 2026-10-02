@@ -287,6 +287,7 @@ body { background: white; padding: 0; margin: 0; }
                 <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg shadow transition-colors disabled:opacity-50">
                     🔄 載入/更新明細
                 </button>
+                <label class="flex gap-2 items-center text-sm font-bold text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-2">單價生效日 <input id="priceEffectiveDate" type="date" class="p-2 border rounded bg-white" title="只影響此日期起的出貨資料"></label>
                 <button onclick="batchSavePrices()" id="batchSaveBtn" class="bg-gray-400 text-white font-bold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-all duration-300 disabled:opacity-50 pointer-events-none">
                     💾 尚未修改內容
                 </button>
@@ -609,11 +610,18 @@ function managementFeeForReport(company, records) {
   return {percent:Number(rule.percent)||0, amount:Math.round(base * (Number(rule.percent)||0) / 100), base};
 }
 function baseRecordPrice(r) {
+  // 儲存在單據裡的價格優先當作歷史基礎價；沒有才用試算表。
   if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
-  return Number(getPrice(r.hotel,r.item)) || 0;
+  return Number(getPrice(r.hotel,r.item,r.date)) || 0;
 }
 function reportRecordPrice(r) {
   // 手動改價為該筆最終結帳價；春節價格只對原始價運算一次。
+  // 新版生效日價格優先；舊版手動單據只在未有有效日期規則時保留。
+  const effective = datedPriceFor(r.hotel,r.item,r.date);
+  if (effective !== null) {
+    const holiday=activeHolidayRule(r.parentCompany,r.date);
+    return holiday ? roundHolidayPrice(effective*(1+holiday.percent/100)) : effective;
+  }
   if (r.manualPriceOverride) return Number(r.currentPrice !== undefined ? r.currentPrice : r.savedPrice) || 0;
   const original = baseRecordPrice(r);
   const rule = activeHolidayRule(r.parentCompany, r.date);
@@ -780,8 +788,46 @@ window.addEventListener('DOMContentLoaded',()=>{
   setTimeout(()=>syncMasterDataFromSheet().catch(console.warn), 2400);
 });
 
+// 生效日價目歷史：每個飯店部門與品項可有多次調價。既有帳單不重寫。
+const EFFECTIVE_PRICE_REF = doc(db, 'inventory_config', 'finance_effective_prices');
+let effectivePriceRules = [];
+let effectivePricesPending = null;
+let pendingEffectivePrices = new Map();
+function datedPriceFor(hotel, item, date) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const key = `${hotel}_${item}`;
+    const rule = effectivePriceRules.filter(x => x.key===key && x.start<=date)
+      .sort((a,b)=>b.start.localeCompare(a.start))[0];
+    return rule ? Number(rule.price) : null;
+}
+async function ensureEffectivePrices(force=false) {
+    if (effectivePricesPending) return effectivePricesPending;
+    if (!force && effectivePricesReady) return;
+    effectivePricesPending = (async()=>{
+        const snap=await getDoc(EFFECTIVE_PRICE_REF);
+        effectivePriceRules=snap.exists() && Array.isArray(snap.data().rules) ? snap.data().rules : [];
+        effectivePricesReady=true;
+    })();
+    try { await effectivePricesPending; } finally { effectivePricesPending=null; }
+}
+let effectivePricesReady=false;
+function newPriceStart(record) {
+    return document.getElementById('priceEffectiveDate')?.value || record.date;
+}
+function queueEffectivePrice(record,hotel,price) {
+    const start=newPriceStart(record);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('請選擇有效的單價生效日');
+    const key=`${hotel}_${record.item}`;
+    const rule={key,start,price:Number(price)};
+    pendingEffectivePrices.set(`${key}|${start}`,rule);
+    // 畫面即時反映待儲存價目；按儲存後才會同步到雲端。
+    effectivePriceRules = effectivePriceRules.filter(x=>!(x.key===key && x.start===start));
+    effectivePriceRules.push(rule);
+}
+
 // ★ 待儲存更新陣列 (現在包含品項與價格)
-let pendingUpdatesArray = []; 
+let pendingUpdatesArray = [];
+ 
 let customPricesDirty = false;
 
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
@@ -1042,7 +1088,7 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
     inputEl.style.backgroundColor = '#fef08a';
 
     // 去大腦查新名稱的單價
-    let fetchedPrice = getPrice(hotelName, newItemName);
+    let fetchedPrice = getPrice(hotelName, newItemName, record.date);
     let newPrice = fetchedPrice !== null ? fetchedPrice : 0;
     
     record.currentPrice = newPrice;
@@ -1071,14 +1117,12 @@ window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, input
     let record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
     if(!record) return;
 
-    record.savedPrice = newPrice;
     record.currentPrice = newPrice;
-    record.manualPriceOverride = true;
+    record.manualPriceOverride = false;
 
-    // 把手動修改的價格記進 customPrices
-    let key = `${hotelName}_${record.item}`;
-    if (newVal.trim() === "") delete customPrices[key];
-    else customPrices[key] = newPrice;
+    // 從生效日起適用到下一個調價日；不改寫整段歷史價目。
+    if (newVal.trim() !== '') queueEffectivePrice(record,hotelName,newPrice);
+    // 不再寫入全期間共用的 customPrices。
 
     inputEl.style.backgroundColor = '#fef08a';
     
@@ -1109,11 +1153,10 @@ window.batchSavePrices = async function() {
                     let data = docSnap.data();
                     let changed = false;
                     for (let update of updatesByDoc[docId]) {
-                        // 使用 receiptOrder 精準更新陣列內的那個物件
-                        if (data.items && data.items[update.receiptOrder]) {
+                        // 單價僅寫入生效日價目設定，不覆蓋物流單及歷史單價。
+                        if (data.items && data.items[update.receiptOrder] &&
+                            data.items[update.receiptOrder].itemName !== update.newItemName) {
                             data.items[update.receiptOrder].itemName = update.newItemName;
-                            data.items[update.receiptOrder].price = update.newPrice;
-                            data.items[update.receiptOrder].manualFinancePrice = true;
                             changed = true;
                         }
                     }
@@ -1125,8 +1168,15 @@ window.batchSavePrices = async function() {
             promises.push(promise);
         }
 
-        if (customPricesDirty) {
-            promises.push(setDoc(doc(db, 'inventory_config', 'custom_prices'), { prices: customPrices }, { merge: true }));
+        if (pendingEffectivePrices.size) {
+            // 單一設定文件；從伺服器最新版本合併以避免覆蓋其他帳期。
+            const latest = await getDoc(EFFECTIVE_PRICE_REF);
+            const rules = latest.exists() && Array.isArray(latest.data().rules) ? latest.data().rules : [];
+            for (const rule of pendingEffectivePrices.values()) {
+                const index=rules.findIndex(x=>x.key===rule.key && x.start===rule.start);
+                if(index<0) rules.push(rule); else rules[index]=rule;
+            }
+            promises.push(setDoc(EFFECTIVE_PRICE_REF,{rules,updatedAt:new Date().toISOString()},{merge:true}));
         }
 
         await Promise.all(promises);
@@ -1134,6 +1184,7 @@ window.batchSavePrices = async function() {
         logisticsPeriodCache.clear(); // 儲存單價或品項後，下次載入讀取最新單據。
         pendingUpdatesArray = [];
         customPricesDirty = false;
+        pendingEffectivePrices.clear();
 
         document.querySelectorAll('.price-input, .item-input').forEach(el => el.style.backgroundColor = 'white');
         
@@ -1362,7 +1413,9 @@ if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
 // ----------------------------------------------------
 // ★ 更新後的 getPrice：加入「統一折扣」降級搜尋機制
 // ----------------------------------------------------
-function getPrice(hotelName, item) {
+function getPrice(hotelName, item, date=null) {
+    const dated=datedPriceFor(hotelName,item,date);
+    if (dated !== null) return dated;
     // 1. 原本的精準比對 (尋找特定的飯店+品項)
     let exactKey = `${hotelName}_${item}`;
     if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
@@ -1513,7 +1566,7 @@ async function fetchRecordsForSelectedHotels() {
 
     // 🚀 結帳明細優先：只等待物流資料。價目／春節規則／排序使用快取並在背景更新，
     // 避免任何一個設定服務暫時連不上時，把整個明細載入一起拖死。
-    const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+    const [uniqueDocs] = await Promise.all([getLogisticsDocsForPeriod(startDate, endDate),ensureEffectivePrices()]);
     const optionalSync = [syncMasterDataFromSheet(), ensurePricingRules(), ensureLogisticsItemOrder()];
     Promise.allSettled(optionalSync).then(results => {
         if (results.some(r=>r.status==='rejected')) console.warn('部分設定背景同步失敗，已沿用快取。', results);
@@ -1696,7 +1749,7 @@ async function loadBossData() {
     try {
         const periods=getBossPeriods();
         const startDate=periods.queryStart, endDate=periods.queryEnd;
-        const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate)]);
+        const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate),ensureEffectivePrices()]);
         const groups = {'25th':[], month:[]};
         const unmatched = new Set();
         const overlaps = new Set();
