@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     
-    <title>百麒物流 - 飯店點收簽單 (極速版)</title>
+    <title>百麒物流 - 飯店點收簽單 (載入修正版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #f8fafc; touch-action: manipulation; }
@@ -86,22 +86,31 @@
         </div>
     </div>
 
+    <script>
+        window.signPageStarted = false;
+        window.signBootTimer = setTimeout(function () {
+            if (window.signPageStarted) return;
+            const box = document.getElementById('departmentsContainer');
+            box.textContent = '連線較慢，尚未完成載入。請確認網路，或按下方重試。';
+            const button = document.createElement('button');
+            button.textContent = '重新整理';
+            button.style.cssText = 'display:block;margin:16px auto;padding:12px 24px;background:#2563eb;color:white;border-radius:8px';
+            button.onclick = function () { location.reload(); };
+            box.appendChild(button);
+        }, 20000);
+    </script>
     <script type="module">
-        // 🌟 【自動急救機制】清除手機裡舊的巨大垃圾檔案
-        if (!localStorage.getItem('clear_base64_cache_v3')) {
-            try {
-                // 刪除 Firebase 殘留的肥大 IndexedDB 檔案
-                window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
-                localStorage.setItem('clear_base64_cache_v3', 'true');
-                console.log("舊版肥大快取已清除！準備重新載入乾淨系統...");
-                // 清除後強制刷新
-                window.location.reload();
-            } catch(e) {}
-        }
-
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, getDocFromServer, addDoc, deleteDoc, runTransaction, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+        // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
+        try {
+        const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
+            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js"),
+            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js"),
+            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js")
+        ]);
+        const { initializeApp } = firebaseApp;
+        const { collection, query, where, getDocsFromServer, doc, setDoc,
+            getDocFromServer, deleteDoc, runTransaction, initializeFirestore, memoryLocalCache } = firestoreSDK;
+        const { getStorage, ref, uploadString, getDownloadURL } = storageSDK;
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -115,11 +124,9 @@
 
         const app = initializeApp(firebaseConfig);
         
-        // 🌟 恢復永久快取設定，享受「秒開」載入速度！
-        const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-        });
-        
+        // 單據需確認伺服器資料，使用記憶體快取避免依賴手機 IndexedDB。
+        const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+
         const storage = getStorage(app);
         
         let currentHotel = "";
@@ -129,7 +136,20 @@
         let masterTemplate = []; 
         let globalItemOrder = {};
         let signatureSaving = false;
-        let fetchSequence = 0; 
+        let fetchSequence = 0;
+        let dataReady = false;
+        let templatePromise;
+        function withReadTimeout(promise, label, ms = 15000) {
+            let timer;
+            return Promise.race([promise, new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(label + '逾時，請確認網路後按重新載入')), ms);
+            })]).finally(() => clearTimeout(timer));
+        }
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function finishBoot() { window.signPageStarted = true; clearTimeout(window.signBootTimer); }
+ 
 
         const clientCanvas = document.getElementById('clientCanvas');
         const driverCanvas = document.getElementById('driverCanvas');
@@ -159,6 +179,7 @@
         }
 
         window.resetCurrentDateData = async function() {
+            if (!dataReady || signatureSaving) return;
             if(!confirm(`⚠️ 警告：確定要重置 ${currentDate} 的點交紀錄嗎？\n這將會刪除當天的所有簽名與修改，並完全恢復為出貨原始數量！\n\n(僅建議在數量被系統異常覆蓋時使用)`)) return;
 
             if (!confirm('再次確認：此操作會永久刪除當天物流單據及簽名，無法由此頁面復原。確定繼續？')) return;
@@ -202,7 +223,9 @@
             }
         }
 
-        function dateChanged() { 
+        function dateChanged() {
+            if (signatureSaving) { document.getElementById('datePicker').value = currentDate; return; }
+            closeSignModal();
             updateDateDisplay(); 
             fetchData(false); 
         }
@@ -215,8 +238,9 @@
             setTimeout(() => toast.classList.add('opacity-0'), 3000);
         }
 
-        window.forceSyncToFinance = async function(deptKey) {
-            const btn = event.currentTarget;
+        window.forceSyncToFinance = async function(deptKey, clickEvent) {
+            if (!dataReady || signatureSaving) return;
+            const btn = clickEvent.currentTarget;
             const originalText = btn.innerText;
             btn.innerText = "傳送中..."; btn.disabled = true;
 
@@ -260,6 +284,7 @@
             let queryDate = urlParams.get('date'); 
             
             if (!currentHotel || currentHotel.trim() === "") {
+                finishBoot();
                 document.getElementById('hotelTitle').innerText = "連結錯誤";
                 document.getElementById('departmentsContainer').innerHTML = `
                     <div class="text-center py-16 bg-red-50 rounded-2xl border-2 border-red-200">
@@ -280,20 +305,17 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            try {
-                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
-                if (templateDoc.exists() && templateDoc.data().items) {
-                    masterTemplate = templateDoc.data().items;
-                    globalItemOrder = {};
-                    masterTemplate.forEach((t, idx) => {
-                        if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
-                    });
-                }
-            } catch(e) {
-                console.error("Template load error:", e);
-            }
-
-            fetchData(false);
+            // 排序設定與單據同時讀取；設定較慢不阻擋單據顯示。
+            templatePromise = withReadTimeout(getDocFromServer(doc(db, 'inventory_config', 'master_template')), '品項設定', 8000)
+                .then(templateDoc => {
+                    if (templateDoc.exists() && Array.isArray(templateDoc.data().items)) {
+                        masterTemplate = templateDoc.data().items;
+                        masterTemplate.forEach((t, idx) => {
+                            if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
+                        });
+                    }
+                }).catch(e => console.warn('品項排序設定未載入，使用現有順序', e));
+            await fetchData(false);
         }
 
         function extractQty(obj) {
@@ -319,10 +341,13 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">極速雲端載入中...</div>
+                <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">正在確認雲端單據...</div>
             </div>`;
 
         async function fetchData(isBackground = false, forceServer = false) {
+            if (signatureSaving) { showToastMsg('正在儲存簽名，請稍候'); return; }
+            if (!currentHotel || !currentDate) return;
+            dataReady = false;
             const fetchTargetDate = currentDate;
             const thisFetch = ++fetchSequence;
 
@@ -341,11 +366,13 @@
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
                 const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
-                const fetchMethod = forceServer ? getDocsFromServer : getDocs;
+                // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
+                // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
+                const fetchMethod = getDocsFromServer;
                 if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
 
                 // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
-                const [invSnap, logSnap] = await Promise.all([fetchMethod(invQ), getDocsFromServer(logQ)]);
+                const [invSnap, logSnap] = await Promise.all([withReadTimeout(fetchMethod(invQ), '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
 
                 if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
                     return; 
@@ -437,18 +464,23 @@
                     }
                 }
 
+                dataReady = true;
+                finishBoot();
                 processAndRenderData(rawData);
             } catch (err) {
+                if (thisFetch === fetchSequence) dataReady = false;
                 console.error("Fetch Data Error:", err);
                 if (!isBackground && thisFetch === fetchSequence && !signatureSaving) {
+                    finishBoot();
                     document.getElementById('departmentsContainer').innerHTML = `
                     <div class="text-center py-10 bg-red-50 rounded-2xl border border-red-200 mt-6 mx-4">
                         <span class="text-4xl block mb-3">⚠️</span>
                         <div class="text-red-600 font-black text-xl mb-2">讀取失敗</div>
                         <div class="text-red-500 font-bold text-sm mb-4">請檢查網路連線或重新整理頁面</div>
                         <div class="text-xs text-left bg-white p-3 rounded text-red-400 mx-4 overflow-auto font-mono border border-red-100">
-                            System Error:<br>${err.message || 'Unknown Network Error'}
+                            System Error:<br>${escapeHtml(err.message || 'Unknown Network Error')}
                         </div>
+                        <button onclick="fetchData(false, true)" class="bg-blue-600 text-white px-5 py-3 rounded-lg mt-4">重新載入</button>
                     </div>`;
                 }
             }
@@ -584,20 +616,20 @@
                 if (isCompleted) {
                     actionButton = `<div class="w-full mt-2 py-4 text-green-700 font-black text-2xl text-center bg-green-50 rounded-xl border-2 border-green-200 shadow-sm flex flex-col items-center justify-center gap-2">
                         <div class="flex items-center justify-center gap-2"><span>✅ 已點收完畢</span><button onclick="openSignModal('${dept}')" class="text-sm bg-white text-green-700 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-100 ml-2">查看簽名</button></div>
-                        <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手持同步至財務系統</button>
+                        <button onclick="forceSyncToFinance('${dept}', event)" class="mt-1 text-xs bg-green-200 text-green-800 border border-green-300 px-3 py-1 rounded shadow-sm active:bg-green-300">🔄 重新手持同步至財務系統</button>
                     </div>`;
                 } else if (isSystemLocked) {
                     if (!isSynced) {
                         actionButton = `<div class="w-full mt-4 py-4 text-red-700 font-black text-xl text-center bg-red-50 rounded-xl border-2 border-red-300 shadow-sm flex flex-col items-center justify-center gap-2">
                             <span>⚠️ 逾期未簽收，且尚未進入財務系統</span><span class="text-sm text-red-500 font-bold">目前財務後台看不到這筆帳單</span>
-                            <button onclick="forceSyncToFinance('${dept}')" class="mt-2 text-base bg-red-600 text-white font-bold px-6 py-2 rounded-lg shadow-md active:bg-red-700 animate-pulse">🔄 立即強制同步至財務系統</button>
+                            <button onclick="forceSyncToFinance('${dept}', event)" class="mt-2 text-base bg-red-600 text-white font-bold px-6 py-2 rounded-lg shadow-md active:bg-red-700 animate-pulse">🔄 立即強制同步至財務系統</button>
                         </div>`;
                         // 不在「渲染畫面」時寫入資料庫：離線快取可能誤判未同步，
                         // 舊版自動結單會把實際已簽收的簽名改寫成空字串。請由人工核對後再同步。
                     } else {
                         actionButton = `<div class="w-full mt-4 py-4 text-gray-500 font-black text-xl text-center bg-gray-200 rounded-xl border-2 border-gray-300 shadow-sm flex flex-col items-center justify-center gap-2">
                             <span>🔒 逾期系統已自動結單</span><span class="text-sm text-gray-500 font-bold">數量已鎖定並連動財務，飯店無法再修改</span>
-                            <button onclick="forceSyncToFinance('${dept}')" class="mt-1 text-xs bg-gray-300 text-gray-700 border border-gray-400 px-3 py-1 rounded shadow-sm active:bg-gray-400">🔄 重新手動同步至財務</button>
+                            <button onclick="forceSyncToFinance('${dept}', event)" class="mt-1 text-xs bg-gray-300 text-gray-700 border border-gray-400 px-3 py-1 rounded shadow-sm active:bg-gray-400">🔄 重新手動同步至財務</button>
                         </div>`;
                     }
                 } else if (hasClientSig && !hasDriverSig) {
@@ -713,6 +745,7 @@
         }
 
         function openSignModal(deptName) {
+            if (!dataReady || signatureSaving || !groupedData[deptName]) return;
             activeDeptKey = deptName;
             document.getElementById('modalDeptTitle').innerText = deptName;
             let existClient = groupedData[deptName].clientSig;
@@ -743,10 +776,10 @@
             });
         }
         
-        function closeSignModal() { document.getElementById('signModal').classList.add('hidden'); }
+        function closeSignModal() { if (signatureSaving) return; document.getElementById('signModal').classList.add('hidden'); }
 
         async function submitVerify() {
-            if (signatureSaving) return;
+            if (signatureSaving || !dataReady) return;
             const dept = activeDeptKey;
             const group = groupedData[dept];
             if (!group) return;
@@ -764,6 +797,7 @@
             }
             const button = document.getElementById('submitBtn');
             signatureSaving = true;
+            document.getElementById('datePicker').disabled = true;
             button.disabled = true;
             button.textContent = '⏳ 正在確認雲端儲存...';
             // 使儲存前的背景請求不能反向覆蓋新簽名畫面。
@@ -817,7 +851,7 @@
                 group.driverSig=saved.driverSig||'';
                 group.isSynced=true;
                 synced.forEach(k=>{if(groupedData[k] && !groupedData[k].driverSig)groupedData[k].driverSig=driverUrl;});
-                closeSignModal();
+                document.getElementById('signModal').classList.add('hidden');
                 showToastMsg('✅ 已由雲端確認簽名儲存成功');
                 renderDepartments();
             } catch(err) {
@@ -826,13 +860,26 @@
                 alert('簽名未完成雲端確認。請檢查網路後重新送出，勿當成已簽收。\n'+err.message);
             } finally {
                 signatureSaving=false;
+                document.getElementById('datePicker').disabled = false;
                 button.disabled=false;
                 button.textContent='確認送出';
             }
         }
 
         // 啟動系統
-        init();
+        await init();
+        } catch (err) {
+            console.error('簽收頁啟動失敗', err);
+            window.signPageStarted = true;
+            clearTimeout(window.signBootTimer);
+            document.getElementById('hotelTitle').textContent = '載入未完成';
+            const box = document.getElementById('departmentsContainer');
+            box.textContent = '無法啟動簽收單，請確認網路後重新整理。錯誤：' + (err.message || err);
+            const button = document.createElement('button');
+            button.textContent = '重新整理';
+            button.onclick = () => location.reload();
+            box.appendChild(button);
+        }
     </script>
 </body>
 </html>
