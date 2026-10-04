@@ -494,7 +494,8 @@ body { background: white; padding: 0; margin: 0; }
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes } from './logistics-items.js';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -1063,7 +1064,9 @@ function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newP
         existing.newItemName = newItemName;
         existing.newPrice = newPrice;
     } else {
-        pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice });
+        const record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+        pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice,
+            originalItemName: record.originalItemName, sourceItemName: record.sourceItemName });
     }
     customPricesDirty = true;
     
@@ -1085,6 +1088,11 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
         return;
     }
 
+    if (rawLogisticsData.some(r => r.docId === docId && r !== record && normalizeItemName(r.item) === normalizeItemName(newItemName))) {
+        inputEl.value = record.item;
+        alert('同一張單已有這個品項名稱，請使用不同名稱，避免重複計算。');
+        return;
+    }
     record.item = newItemName; // 更新本地記憶體
     inputEl.style.backgroundColor = '#fef08a';
 
@@ -1149,41 +1157,38 @@ window.batchSavePrices = async function() {
         let promises = [];
         
         for (let docId in updatesByDoc) {
-            let promise = getDoc(doc(db, 'logistics_records', docId)).then(docSnap => {
-                if (docSnap.exists()) {
-                    let data = docSnap.data();
-                    let changed = false;
-                    for (let update of updatesByDoc[docId]) {
-                        // 單價僅寫入生效日價目設定，不覆蓋物流單及歷史單價。
-                        if (data.items && data.items[update.receiptOrder] &&
-                            data.items[update.receiptOrder].itemName !== update.newItemName) {
-                            data.items[update.receiptOrder].itemName = update.newItemName;
-                            changed = true;
-                        }
-                    }
-                    if (changed) {
-                        return setDoc(doc(db, 'logistics_records', docId), { items: data.items }, { merge: true });
-                    }
-                }
+            let promise = runTransaction(db, async tx => {
+                const refDoc = doc(db, 'logistics_records', docId);
+                const docSnap = await tx.get(refDoc);
+                if (!docSnap.exists()) throw new Error('原物流單已不存在，請重新載入。');
+                const data = docSnap.data();
+                const items = applyFinanceItemNames(data.items || [], updatesByDoc[docId]);
+                if (JSON.stringify(items) !== JSON.stringify(data.items || [])) tx.update(refDoc, {items});
             });
             promises.push(promise);
         }
 
         if (pendingEffectivePrices.size) {
             // 單一設定文件；從伺服器最新版本合併以避免覆蓋其他帳期。
-            const latest = await getDoc(EFFECTIVE_PRICE_REF);
+            const pendingRules = [...pendingEffectivePrices.values()];
+            promises.push(runTransaction(db, async tx => {
+            const latest = await tx.get(EFFECTIVE_PRICE_REF);
             const rules = latest.exists() && Array.isArray(latest.data().rules) ? latest.data().rules : [];
-            for (const rule of pendingEffectivePrices.values()) {
+            for (const rule of pendingRules) {
                 const index=rules.findIndex(x=>x.key===rule.key && x.start===rule.start);
                 if(index<0) rules.push(rule); else rules[index]=rule;
             }
-            promises.push(setDoc(EFFECTIVE_PRICE_REF,{rules,updatedAt:new Date().toISOString()},{merge:true}));
+            tx.set(EFFECTIVE_PRICE_REF,{rules,updatedAt:new Date().toISOString()},{merge:true});
+            }));
         }
 
-        await Promise.all(promises);
+        const saveResults = await Promise.allSettled(promises);
+        const failure = saveResults.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
 
         logisticsPeriodCache.clear(); // 儲存單價或品項後，下次載入讀取最新單據。
         pendingUpdatesArray = [];
+        rawLogisticsData.forEach(r => { r.originalItemName = r.item; });
         customPricesDirty = false;
         pendingEffectivePrices.clear();
 
@@ -1197,7 +1202,7 @@ window.batchSavePrices = async function() {
         showToast("✅ 所有修改 (含品項與單價) 已批次儲存完畢！");
     } catch (err) {
         console.error("批次儲存失敗:", err);
-        alert("儲存失敗，請檢查網路連線後重試！");
+        alert("儲存未全部完成，請保留修改並重試：" + err.message);
         btn.innerHTML = `💾 批次儲存失敗 (點擊重試)`;
         btn.disabled = false;
     }
@@ -1444,32 +1449,24 @@ setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 // 財務主檔改為延後背景同步，避免頁面開啟時阻塞物流資料。
 
 // 同一日期區間的三種日期格式查詢只做一次；選飯店與載入明細共用結果。
-// 同日期區間快取 5 分鐘；不同日期區間可同時保留，避免各功能互相清掉快取。
+// 背景操作可共用快取；手動更新明細必須讀取伺服器最新版本。
 const LOGISTICS_CACHE_MS = 600000; // 同日期區間物流資料快取 10 分鐘
 const logisticsPeriodCache = new Map();
-async function getLogisticsDocsForPeriod(startDate, endDate) {
+async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
     const key = `${startDate}|${endDate}`;
     const cached = logisticsPeriodCache.get(key);
-    if (cached && (cached.promise || Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS)) return cached.promise || cached.docs;
+    if (cached && (cached.promise || (!force && Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS))) return cached.promise || cached.docs;
     const staleDocs = cached?.docs || null;
     const promise = (async () => {
-        // 🚀 快速優先：目前系統的新單據日期皆使用 YYYY-MM-DD。
-        // 先只做 1 次標準日期查詢；只有完全查不到時才啟用舊格式相容查詢，
-        // 避免每次載入都固定打 3 次 Firestore range query。
-        const qStandard = query(collection(db, 'logistics_records'), where('date', '>=', startDate), where('date', '<=', endDate));
-        const standardSnap = await withTimeout(getDocs(qStandard), 10000, '物流明細');
+        const dateQueries = legacyDatePrefixes(startDate, endDate).map(prefix =>
+            query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')));
+        dateQueries.push(query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59.999`))));
+        const snapshots = await withTimeout(Promise.all(dateQueries.map(q => getDocsFromServer(q))), 15000, '物流明細');
         const docs = new Map();
-        standardSnap.forEach(d => docs.set(d.id, d));
-
-        if (docs.size === 0) {
-            const startParts = startDate.split('-'), endParts = endDate.split('-');
-            const unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-            const unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-            const qUnpad = query(collection(db, 'logistics_records'), where('date', '>=', unpadStart), where('date', '<=', unpadEnd + '\uf8ff'));
-            const qTs = query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59`)));
-            const legacySnaps = await withTimeout(Promise.all([getDocs(qUnpad), getDocs(qTs)]), 10000, '舊格式物流明細');
-            legacySnaps.forEach(snap => snap.forEach(d => docs.set(d.id, d)));
-        }
+        snapshots.forEach(snap => snap.forEach(d => {
+            const date = standardizeDate(d.data().date);
+            if (date >= startDate && date <= endDate) docs.set(d.id, d);
+        }));
         return docs;
     })();
     logisticsPeriodCache.set(key, {promise, fetchedAt:0, docs:null});
@@ -1484,8 +1481,8 @@ async function getLogisticsDocsForPeriod(startDate, endDate) {
         logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs});
         return docs;
     } catch (error) {
-        if (staleDocs) {
-            logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs:staleDocs});
+        if (staleDocs && !force) {
+            logisticsPeriodCache.set(key, {promise:null, fetchedAt:0, docs:staleDocs});
             showToast('⚡ 網路較慢，先使用上次成功的物流資料');
             console.warn('物流遠端查詢失敗，沿用舊快取：', error);
             return staleDocs;
@@ -1502,7 +1499,7 @@ try {
 const startDate = document.getElementById('startDate').value;
 const endDate = document.getElementById('endDate').value;
 if(!startDate || !endDate) return;
-const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
 // 使用者切換日期期間，避免舊請求稍晚完成而蓋掉最新選單。
 if (document.getElementById('startDate').value !== startDate || document.getElementById('endDate').value !== endDate) return;
 
@@ -1567,7 +1564,7 @@ async function fetchRecordsForSelectedHotels() {
 
     // 🚀 結帳明細優先：只等待物流資料。價目／春節規則／排序使用快取並在背景更新，
     // 避免任何一個設定服務暫時連不上時，把整個明細載入一起拖死。
-    const [uniqueDocs] = await Promise.all([getLogisticsDocsForPeriod(startDate, endDate),ensureEffectivePrices()]);
+    const [uniqueDocs] = await Promise.all([getLogisticsDocsForPeriod(startDate, endDate, true),ensureEffectivePrices()]);
     const optionalSync = [syncMasterDataFromSheet(), ensurePricingRules(), ensureLogisticsItemOrder()];
     Promise.allSettled(optionalSync).then(results => {
         if (results.some(r=>r.status==='rejected')) console.warn('部分設定背景同步失敗，已沿用快取。', results);
@@ -1592,6 +1589,7 @@ async function fetchRecordsForSelectedHotels() {
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                             date: dDate, item: item.itemName, qty: actual,
                             receiptOrder: idx, 
+                            originalItemName: item.itemName, sourceItemName: item.inventoryItemName || item.itemName,
                             savedPrice: item.price, manualPriceOverride: !!item.manualFinancePrice 
                         });
                     }
@@ -1750,7 +1748,7 @@ async function loadBossData() {
     try {
         const periods=getBossPeriods();
         const startDate=periods.queryStart, endDate=periods.queryEnd;
-        const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate),ensureEffectivePrices()]);
+        const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate,true),ensureEffectivePrices()]);
         const groups = {'25th':[], month:[]};
         const unmatched = new Set();
         const overlaps = new Set();
@@ -2538,7 +2536,7 @@ if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～
 
 try {
 // 直接共用財務系統已優化的物流快取；不再另外發出三組 Firestore 查詢。
-const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate);
+const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
 // 價目表只在背景補同步；已有快取時不阻塞司機業績。
 if (!Object.keys(sheetPrices || {}).length) {
     try { await syncMasterDataFromSheet(); } catch (err) { console.warn('司機業績價目表同步失敗，沿用現有資料', err); }

@@ -100,6 +100,7 @@
         }, 20000);
     </script>
     <script type="module">
+        import { itemMatchesName, mergeSignedItems } from './logistics-items.js';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -250,14 +251,20 @@
                 const docRef = doc(db, 'logistics_records', docId);
 
                 let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
+                    ...item,
                     deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
                     auntNote: item.auntNote, actualQty: item.actualQty, driverNote: item.driverNote || "手動強制同步"
                 }));
 
-                await setDoc(docRef, {
+                await runTransaction(db, async tx => {
+                const snap = await tx.get(docRef);
+                tx.set(docRef, {
                     date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
-                    items: safeItemsForDatabase, timestamp: new Date().toLocaleString(), forcedSync: true
+                    items: mergeSignedItems(snap.exists() ? snap.data().items || [] : [], safeItemsForDatabase),
+                    timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
+                });
+                groupedData[deptKey].items.forEach(item => { item.loadedActualQty = item.actualQty; });
 
                 groupedData[deptKey].isSynced = true;
                 renderDepartments();
@@ -417,6 +424,7 @@
                     let invItem = inventoryMap[key];
                     let actualQty = invItem.originalQty; 
                     let driverNote = ""; let clientSig = ""; let driverSig = "";
+                    let savedItem = null;
 
                     let savedDept = savedLogistics[invItem.deptName];
                     if (!savedDept) {
@@ -429,7 +437,7 @@
                     if (savedDept) {
                         clientSig = savedDept.clientSig || ""; driverSig = savedDept.driverSig || "";
                         if (savedDept.items) {
-                            let savedItem = savedDept.items.find(i => i.itemName === invItem.itemName);
+                            savedItem = savedDept.items.find(i => itemMatchesName(i, invItem.itemName));
                             if (savedItem) {
                                 if (savedItem.actualQty !== undefined && savedItem.actualQty !== "") actualQty = String(savedItem.actualQty);
                                 driverNote = savedItem.driverNote || "";
@@ -438,7 +446,10 @@
                     }
 
                     rawData.push({
-                        deptName: invItem.deptName, itemName: invItem.itemName,
+                        ...(savedItem || {}),
+                        deptName: invItem.deptName, itemName: savedItem?.itemName || invItem.itemName,
+                        inventoryItemName: savedItem?.inventoryItemName || invItem.itemName,
+                        loadedActualQty: savedItem ? String(savedItem.actualQty ?? '') : String(actualQty),
                         originalQty: invItem.originalQty, auntNote: invItem.auntNote,
                         actualQty: actualQty, driverNote: driverNote,
                         clientSig: clientSig, driverSig: driverSig, isSynced: !!savedDept
@@ -450,15 +461,14 @@
                     if (savedDept.items) {
                         savedDept.items.forEach(savedItem => {
                             if (!isValidItemName(savedItem.itemName)) return;
-                            let key = `${savedDept.deptName}_${savedItem.itemName}`;
-                            if (!inventoryMap[key]) {
-                                if (savedItem.driverNote === "司機臨時新增") {
+                            if (!rawData.some(i => i.deptName === savedDept.deptName && itemMatchesName(savedItem, i.inventoryItemName || i.itemName))) {
                                     rawData.push({
-                                        deptName: savedDept.deptName, itemName: savedItem.itemName, originalQty: "0", 
+                                        ...savedItem,
+                                        loadedActualQty: String(savedItem.actualQty ?? ''),
+                                        deptName: savedDept.deptName, itemName: savedItem.itemName, originalQty: savedItem.originalQty ?? "0",
                                         auntNote: savedItem.auntNote || "", actualQty: savedItem.actualQty !== undefined ? savedItem.actualQty : "0",
                                         driverNote: savedItem.driverNote || "", clientSig: savedDept.clientSig || "", driverSig: savedDept.driverSig || "", isSynced: true
                                     });
-                                }
                             }
                         });
                     }
@@ -515,6 +525,7 @@
                 let finalActualQty = (item.actualQty !== undefined && item.actualQty !== "" && item.actualQty !== null) ? item.actualQty : item.originalQty;
 
                 groupedData[item.deptName].items.push({
+                    ...item,
                     deptName: item.deptName, itemName: item.itemName, originalQty: item.originalQty,
                     auntNote: item.auntNote, actualQty: finalActualQty, driverNote: item.driverNote
                 });
@@ -811,6 +822,7 @@
                 const saveDept = async (targetDept, main) => {
                     const refDoc = doc(db,'logistics_records',`${signingDate}_${signingHotel}_${targetDept}`);
                     const items = groupedData[targetDept]?.items.map(i=>({
+                        ...i,
                         deptName:i.deptName,itemName:i.itemName,originalQty:i.originalQty,
                         auntNote:i.auntNote,actualQty:i.actualQty,driverNote:i.driverNote||''
                     })) || [];
@@ -820,7 +832,7 @@
                         const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
-                            update.items=items;
+                            update.items=mergeSignedItems(prior.items || [], items);
                             if(clientUrl) update.clientSig=clientUrl;
                             if(driverUrl) update.driverSig=driverUrl;
                         } else {
@@ -850,6 +862,7 @@
                 group.clientSig=saved.clientSig||'';
                 group.driverSig=saved.driverSig||'';
                 group.isSynced=true;
+                group.items = (saved.items || []).map(item => ({...item, loadedActualQty: String(item.actualQty ?? '')}));
                 synced.forEach(k=>{if(groupedData[k] && !groupedData[k].driverSig)groupedData[k].driverSig=driverUrl;});
                 document.getElementById('signModal').classList.add('hidden');
                 showToastMsg('✅ 已由雲端確認簽名儲存成功');

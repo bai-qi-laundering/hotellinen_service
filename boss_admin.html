@@ -315,7 +315,8 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { itemMatchesName, legacyDatePrefixes } from './logistics-items.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -496,11 +497,6 @@
             const hotelKey = document.getElementById('invFetchHotel').value.trim();
 
             const currentKey = `${startDate}_${endDate}_${hotelKey}`;
-            if (lastInvFetchKey === currentKey && invRecords.length > 0) {
-                showToast("🔄 已顯示最新快取資料");
-                applyInvFilters();
-                return;
-            }
 
             const tbody = document.getElementById('invTableBody');
             const btn = document.getElementById('invLoadBtn');
@@ -510,19 +506,10 @@
             try {
                 await ensureMasterData();
 
-                let startParts = startDate.split('-');
-                let endParts = endDate.split('-');
-                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-
-                // 移除資料庫的精準要求，只過濾日期省流量
-                const qStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-
-                const [snapStandard, snapUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad)]);
+                const snapshots = await Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
+                    getDocsFromServer(query(collection(db, 'inventory_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
                 let uniqueDocs = new Map();
-                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+                snapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
                 invRecords = [];
                 uniqueDocs.forEach((docSnap) => {
@@ -664,7 +651,7 @@
 
             let oldLogData = oldLogSnap.exists() ? oldLogSnap.data() : null;
             let oldItems = oldLogData ? [...(oldLogData.items || [])] : [];
-            const oldItemIndex = oldItems.findIndex(i => String(i.itemName || '').trim() === String(item || '').trim());
+            const oldItemIndex = oldItems.findIndex(i => itemMatchesName(i, item));
             let movedItem = null;
             if (oldItemIndex > -1) {
                 movedItem = { ...oldItems[oldItemIndex] };
@@ -680,7 +667,6 @@
                     driverNote: '後台修改盤點日期同步新增'
                 };
             } else {
-                movedItem.itemName = item;
                 movedItem.originalQty = qtyToSync;
                 if (movedItem.actualQty === undefined || movedItem.actualQty === null || movedItem.actualQty === '') {
                     movedItem.actualQty = qtyToSync;
@@ -690,7 +676,7 @@
 
             const newLogData = newLogSnap.exists() ? newLogSnap.data() : null;
             let newItems = newLogData ? [...(newLogData.items || [])] : [];
-            const newItemIndex = newItems.findIndex(i => String(i.itemName || '').trim() === String(item || '').trim());
+            const newItemIndex = newItems.findIndex(i => itemMatchesName(i, item));
             if (newItemIndex > -1) {
                 // 同日期已有相同品項時，以搬移過來的資料為主，但保留既有欄位。
                 newItems[newItemIndex] = { ...newItems[newItemIndex], ...movedItem };
@@ -780,11 +766,6 @@
             const hotelKey = document.getElementById('logFetchHotel').value.trim();
 
             const currentKey = `${startDate}_${endDate}_${hotelKey}`;
-            if (lastLogFetchKey === currentKey && logRecords.length > 0) {
-                showToast("🔄 已顯示最新快取資料");
-                applyLogFilters();
-                return;
-            }
 
             const tbody = document.getElementById('logTableBody');
             const btn = document.getElementById('logLoadBtn');
@@ -794,18 +775,9 @@
             try {
                 await ensureMasterData();
 
-                let startParts = startDate.split('-');
-                let endParts = endDate.split('-');
-                let unpadStart = `${startParts[0]}-${parseInt(startParts[1])}-${parseInt(startParts[2])}`;
-                let unpadEnd = `${endParts[0]}-${parseInt(endParts[1])}-${parseInt(endParts[2])}`;
-
-                const qStandard = query(collection(db, "logistics_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qUnpad = query(collection(db, "logistics_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-
-                const qInvStandard = query(collection(db, "inventory_records"), where("date", ">=", startDate), where("date", "<=", endDate));
-                const qInvUnpad = query(collection(db, "inventory_records"), where("date", ">=", unpadStart), where("date", "<=", unpadEnd + '\uf8ff'));
-
-                const [snapStandard, snapUnpad, snapInvStandard, snapInvUnpad] = await Promise.all([getDocs(qStandard), getDocs(qUnpad), getDocs(qInvStandard), getDocs(qInvUnpad)]);
+                const readPeriod = name => Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
+                    getDocsFromServer(query(collection(db, name), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const [logSnapshots, invSnapshots] = await Promise.all([readPeriod('logistics_records'), readPeriod('inventory_records')]);
 
                 let invMap = {}; 
                 let invRawDataMap = {}; 
@@ -813,6 +785,7 @@
                 const processInv = (docSnap) => {
                     let d = docSnap.data();
                     let dDate = standardizeDate(d.date);
+                    if (dDate < startDate || dDate > endDate) return;
                     let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
                     let cleanHotel = (d.hotel || "").replace(/\s+/g, '');
                     let cleanItem = (d.item || "").trim();
@@ -852,12 +825,10 @@
                     const oldInv = invItems.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(cleanItem));
                     if (oldInv) { oldInv.qty = qty; } else invItems.push({itemName: cleanItem, qty});
                 };
-                snapInvStandard.forEach(processInv);
-                snapInvUnpad.forEach(processInv);
+                invSnapshots.forEach(snap => snap.forEach(processInv));
 
                 let uniqueDocs = new Map();
-                snapStandard.forEach(doc => uniqueDocs.set(doc.id, doc));
-                snapUnpad.forEach(doc => uniqueDocs.set(doc.id, doc));
+                logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
                 logRecords = [];
                 let processedLogKeys = new Set();
@@ -894,7 +865,7 @@
                         existingLogItems.forEach(item => {
                             let orig = item.originalQty || "0";
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
-                            let cleanItemName = (item.itemName || "").trim();
+                            let cleanItemName = (item.inventoryItemName || item.itemName || "").trim();
 
                             let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
                             if (trueOrig === undefined) trueOrig = orig;
@@ -923,7 +894,7 @@
                                 const itemName = String(invItem.itemName || '').trim();
                                 const qty = String(invItem.qty ?? '0');
                                 const normItem = normalizedLogItemName(itemName);
-                                if (!normItem || qty === '0' || existingNames.has(normItem)) return;
+                                if (!normItem || qty === '0' || existingLogItems.some(i => itemMatchesName(i, itemName)) || existingNames.has(normItem)) return;
                                 existingNames.add(normItem);
                                 validItems.push({ itemName, bqQty: qty, actualQty: qty });
                                 missingToPersist.push({
@@ -942,10 +913,8 @@
                                 const freshSnap = await tx.get(refDoc);
                                 if (!freshSnap.exists()) return;
                                 const latest = uniqueLogItems(freshSnap.data().items || []);
-                                const names = new Set(latest.map(i => normalizedLogItemName(i.itemName)));
                                 missingToPersist.forEach(i => {
-                                    const key = normalizedLogItemName(i.itemName);
-                                    if (!names.has(key)) {latest.push(i);names.add(key);}
+                                    if (!latest.some(saved => itemMatchesName(saved, i.itemName))) latest.push(i);
                                 });
                                 tx.update(refDoc,{items:latest,autoRepairedFromInventory:true,autoRepairTime:getLocalTimeString(new Date())});
                             }).catch(err => console.error('物流去重同步失敗', docSnap.id, err)));
@@ -1481,13 +1450,21 @@
                 const docRef = doc(db, 'logistics_records', docId);
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
-                    if (!snap.exists()) throw new Error('找不到物流單據，請重新載入');
-                    const items = uniqueLogItems(snap.data().items || []);
-                    const target = items.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName));
+                    const local = logRecords.find(r => r.id === docId);
+                    if (!snap.exists() && !local) throw new Error('找不到物流單據，請重新載入');
+                    const items = uniqueLogItems(snap.exists() ? snap.data().items || [] : local.items.map(i => ({
+                        itemName: i.itemName, originalQty: String(i.bqQty), actualQty: String(i.actualQty),
+                        auntNote: '', driverNote: '後台修改實收同步建立'
+                    })));
+                    const target = items.find(i => itemMatchesName(i, itemName));
                     if (!target) throw new Error('找不到原品項，請重新載入');
                     target.actualQty = finalNewValue;
                     // 整筆陣列只會存在一個相同品項；其他單據欄位（簽名等）不碰。
-                    tx.update(docRef, {items});
+                    if (snap.exists()) tx.update(docRef, {items});
+                    else tx.set(docRef, {date: local.date, hotelKeyword: local.hotelKeyword,
+                        deptName: local.deptName || '房務', items, forcedSync: true,
+                        assignedDriver: local.assignedDriver || '', timestamp: getLocalTimeString(new Date()),
+                        clientSig: '', driverSig: ''});
                 });
                 lastLogFetchKey = '';
                 const localRecord = logRecords.find(r=>r.id===docId);
@@ -1542,22 +1519,18 @@
                 let qtyToSync = (record.doubleCount !== undefined && record.doubleCount !== null && record.doubleCount !== "") ? record.doubleCount : record.count;
                 if (!qtyToSync) qtyToSync = "0";
 
-                let hotelKeyword = category;
-                let deptName = "房務";
-                let catParts = category.split(' ');
-                if (catParts.length > 1) {
-                    deptName = catParts.pop();
-                    hotelKeyword = catParts.join(' ');
-                }
+                await ensureMasterData();
+                const {hotelKeyword, deptName} = resolveLogisticsHotelParts(category);
 
                 const logDocId = `${dateStr}_${hotelKeyword}_${deptName}`;
                 const logDocRef = doc(db, 'logistics_records', logDocId);
-                const logSnap = await getDoc(logDocRef);
+                await runTransaction(db, async tx => {
+                const logSnap = await tx.get(logDocRef);
 
                 if (logSnap.exists()) {
                     let logData = logSnap.data();
                     let logItems = logData.items || [];
-                    let itemIndex = logItems.findIndex(i => i.itemName === item);
+                    let itemIndex = logItems.findIndex(i => itemMatchesName(i, item));
                     if (itemIndex > -1) {
                         logItems[itemIndex].originalQty = String(qtyToSync);
                         logItems[itemIndex].actualQty = String(qtyToSync);
@@ -1571,9 +1544,9 @@
                             driverNote: "後台強制同步新增"
                         });
                     }
-                    await setDoc(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
+                    tx.set(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
                 } else {
-                    await setDoc(logDocRef, {
+                    tx.set(logDocRef, {
                         date: dateStr,
                         hotelKeyword: hotelKeyword,
                         deptName: deptName,
@@ -1591,6 +1564,8 @@
                         }]
                     });
                 }
+                });
+                lastLogFetchKey = '';
                 showToast("✅ 強制同步成功，財務系統現可讀取此筆數量！");
                 btn.innerHTML = `<span class="text-green-500">✅ 已同步</span>`;
                 setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
