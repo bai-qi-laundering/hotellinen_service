@@ -207,6 +207,7 @@
         const todayHotels = ["歐遊", "H2O", "花季Ａ館", "花季Ｃ館", "花季", "文七", "好六", "媚力泊"]; 
         const yesterdayHotels = ["捷中正"]; 
 
+        let deliverySchedules = [];
         let masterData = []; 
         let userInputs = {}; 
         let hotelStructure = {}; 
@@ -247,14 +248,13 @@
         function saveToLocal() {
             try {
                 localStorage.setItem('inventory_masterData', JSON.stringify(masterData));
+                localStorage.setItem('inventory_deliverySchedules', JSON.stringify(deliverySchedules));
                 let keys = Object.keys(userInputs).sort().reverse();
                 
-                let memoryInputs = {};  
                 let storageInputs = {}; 
                 
-                for (let i = 0; i < Math.min(4, keys.length); i++) {
+                for (let i = 0; i < Math.min(10, keys.length); i++) {
                     let d = keys[i];
-                    memoryInputs[d] = userInputs[d];
                     storageInputs[d] = {};
                     
                     for (let hotel in userInputs[d]) {
@@ -272,7 +272,7 @@
                     }
                 }
                 
-                userInputs = memoryInputs; 
+                // 保留記憶體中的所有已載入日期，避免固定收送日資料被截掉。 
                 localStorage.setItem('inventory_userInputs', JSON.stringify(storageInputs)); 
                 
             } catch (e) { console.error("Local storage 存檔失敗", e); }
@@ -284,6 +284,8 @@
             document.getElementById('homeDateDisplay').innerText = `${today.getMonth() + 1}月${today.getDate()}日`;
 
             try {
+                const cachedSchedules = localStorage.getItem('inventory_deliverySchedules');
+                if (cachedSchedules) deliverySchedules = JSON.parse(cachedSchedules);
                 const cachedMaster = localStorage.getItem('inventory_masterData');
                 const cachedInputs = localStorage.getItem('inventory_userInputs');
                 if (cachedMaster) {
@@ -298,13 +300,66 @@
         
         instantBoot();
 
-        function getTargetDateStr(baseName, refDateStr) {
+        function normalizeScheduleName(value) {
+            return String(value || '').normalize('NFKC').replace(/\s+/g, '').trim();
+        }
+
+        function normalizeScheduleDept(value) {
+            const dept = normalizeScheduleName(value);
+            return ['餐飲部', '房務部'].includes(dept) ? dept.slice(0, -1) : dept;
+        }
+
+        function parseDeliveryDays(value) {
+            if (Array.isArray(value)) value = value.join('、');
+            const days = new Set();
+            const map = { '日': 0, '天': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
+            const parts = String(value || '').normalize('NFKC').replace(/星期|禮拜|週|周/g, '')
+                .split(/[、,，;；/|\s]+/).filter(Boolean);
+            parts.forEach(part => {
+                if (Object.prototype.hasOwnProperty.call(map, part)) days.add(map[part]);
+                else if (/^[0-7]$/.test(part)) days.add(Number(part) % 7);
+                else throw new Error(`無法辨識固定收送日「${part}」，請使用二、四、六、日的格式。`);
+            });
+            return [...days];
+        }
+
+        function validateDeliverySchedules(rows) {
+            if (!Array.isArray(rows)) throw new Error('收送日設定格式錯誤，請更新後端程式。');
+            const seen = new Set();
+            return rows.map(row => {
+                const hotel = String(row.hotel || '').trim();
+                const department = String(row.department || '').trim();
+                const rule = String(row.rule || '').trim();
+                const days = parseDeliveryDays(row.days);
+                if (!hotel || !department || !days.length || rule !== '收件後的下一個收送日') {
+                    throw new Error(`收送日設定不完整或規則不支援：${hotel}／${department}`);
+                }
+                const key = JSON.stringify([normalizeScheduleName(hotel), normalizeScheduleDept(department)]);
+                if (seen.has(key)) throw new Error(`收送日設定重複：${hotel}／${department}`);
+                seen.add(key);
+                return { hotel, department, days, rule };
+            });
+        }
+
+        function getTargetDateStr(baseName, refDateStr, department) {
             let d;
             if (refDateStr) {
                 const parts = refDateStr.split('-');
                 d = new Date(parts[0], parts[1] - 1, parts[2]);
             } else {
                 d = new Date();
+            }
+
+            const selectedDept = department === undefined ? getDefaultDept(baseName) : department;
+            const setting = deliverySchedules.find(row =>
+                normalizeScheduleName(row.hotel) === normalizeScheduleName(baseName) &&
+                normalizeScheduleDept(row.department) === normalizeScheduleDept(selectedDept));
+            if (setting && setting.days.length && setting.rule === '收件後的下一個收送日') {
+                // 從隔天開始找；收件當天即使是收送日，也不使用當天。
+                for (let offset = 1; offset <= 7; offset++) {
+                    d.setDate(d.getDate() + 1);
+                    if (setting.days.includes(d.getDay())) return getLocalDateString(d);
+                }
             }
 
             if (todayHotels.some(keyword => baseName.includes(keyword))) {
@@ -488,11 +543,25 @@
             }
         };
 
+        function getDefaultDept(baseName) {
+            const depts = hotelStructure[baseName] || [];
+            return depts.includes('房務') ? '房務' : (depts[0] || '');
+        }
+
+        function applyDepartmentDate() {
+            const refDate = document.getElementById('homeDatePicker').value;
+            document.getElementById('datePicker').value = getTargetDateStr(currentBaseHotel, refDate, currentDept);
+            const parts = document.getElementById('datePicker').value.split('-');
+            document.getElementById('dateDisplay').innerText = `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日`;
+            if (window.attachRealtimeListener) window.attachRealtimeListener(refDate);
+        }
+
         function goToHotel(baseName) {
             currentBaseHotel = baseName;
             
+            currentDept = getDefaultDept(baseName);
             const baseDateStr = document.getElementById('homeDatePicker').value;
-            const targetDateStr = getTargetDateStr(baseName, baseDateStr);
+            const targetDateStr = getTargetDateStr(baseName, baseDateStr, currentDept);
             
             document.getElementById('datePicker').value = targetDateStr;
             const parts = targetDateStr.split('-');
@@ -514,6 +583,7 @@
             document.getElementById('deptSelect').innerHTML = html;
 
             updateCurrentHotelName();
+            applyDepartmentDate();
             renderItems(true); 
             window.updateBorderBtnState(); 
         }
@@ -523,7 +593,13 @@
             currentHotelName = target ? target.hotel : (currentDept === "房務" ? currentBaseHotel : (currentBaseHotel + " " + currentDept));
         }
 
-        function changeDept(newDept) { currentDept = newDept; updateCurrentHotelName(); renderItems(true); }
+        function changeDept(newDept) {
+            currentDept = newDept;
+            updateCurrentHotelName();
+            applyDepartmentDate();
+            renderItems(true);
+            window.updateBorderBtnState();
+        }
         
         function goHome() { 
             document.getElementById('homeView').classList.remove('hidden'); 
@@ -542,6 +618,7 @@
         function dateChanged() { 
             const parts = document.getElementById('datePicker').value.split('-');
             document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
+            if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
             if(currentHotelName) { renderItems(true); window.updateBorderBtnState(); } 
         }
 
@@ -931,7 +1008,15 @@
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterData = templateDoc.data().items;
+                    deliverySchedules = validateDeliverySchedules(templateDoc.data().deliverySchedules || []);
                     buildHotelStructure();
+                    saveToLocal();
+                    renderHome(true);
+                    if (currentBaseHotel) {
+                        updateCurrentHotelName();
+                        applyDepartmentDate();
+                        renderItems(true);
+                    }
                 }
 
                 window.attachRealtimeListener = function(baseDateStr) {
@@ -942,12 +1027,15 @@
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
                     
                     const datesToListen = [];
-                    for(let i = -2; i <= 1; i++) {
+                    for(let i = -2; i <= 7; i++) {
                         let tmp = new Date(d);
                         tmp.setDate(tmp.getDate() + i);
                         datesToListen.push(getLocalDateString(tmp));
                     }
                     
+                    // 手動改日期時仍讀取使用者選定的單子。
+                    const selectedDate = document.getElementById('datePicker').value;
+                    if (selectedDate && !datesToListen.includes(selectedDate)) datesToListen.push(selectedDate);
                     const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
                     currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
@@ -1112,7 +1200,10 @@
                         }
                         const data = await res.json();
                         if (data.template && data.template.length > 0) {
-                            await setDoc(doc(db, 'inventory_config', 'master_template'), { items: data.template });
+                            const schedules = validateDeliverySchedules(data.deliverySchedules);
+                            await setDoc(doc(db, 'inventory_config', 'master_template'), {
+                                items: data.template, deliverySchedules: schedules
+                            }, { merge: true });
                             showToast("✅ 設定同步完成！"); 
                             setTimeout(()=>location.reload(), 1000);
                         } else if (data.error) {
