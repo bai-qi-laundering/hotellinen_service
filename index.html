@@ -22,6 +22,9 @@
         #calcModal { transition: transform 0.3s ease-in-out; }
         .calc-btn { user-select: none; transition: background 0.1s; }
         .calc-btn:active { background-color: #d1d5db; transform: scale(0.95); }
+        /* 儲存／鎖定狀態文字換行時，保持品項高度與位置一致。 */
+        .item-action { height: 3.75rem; display: flex; align-items: stretch; }
+        .item-action > * { display: flex; align-items: center; justify-content: center; }
     </style>
 </head>
 <body class="p-3 pb-32 relative overflow-x-hidden">
@@ -625,14 +628,14 @@
         function renderItems(forceRebuild = false) {
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
-            let displayItems = masterData.filter(d => d.hotel === currentHotelName).map(d => d.item);
+            let displayItems = [...new Set(masterData.filter(d => d.hotel === currentHotelName).map(d => d.item))];
             
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             for (let itemName in todayInputs) { if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_') displayItems.push(itemName); }
 
             const itemsList = document.getElementById('itemsList');
             
-            let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.children.length !== displayItems.length || itemsList.dataset.hotel !== currentHotelName;
+            let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.children.length !== displayItems.length || itemsList.dataset.hotel !== currentHotelName || itemsList.dataset.date !== dateStr;
 
             if (!needsRebuild) {
                 displayItems.forEach(itemName => {
@@ -642,7 +645,7 @@
 
             if (needsRebuild) {
                 itemsList.dataset.hotel = currentHotelName;
-                itemsList.innerHTML = ""; 
+                itemsList.dataset.date = dateStr;
             }
 
             let htmlContent = "";
@@ -706,7 +709,7 @@
                 }
 
                 // ★ 卡片變成粉紅色的條件，改為：【有簽名 && 有輸入數量】
-                let cardClass = isSupFullyDone ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border border-gray-200 shadow-sm";
+                let cardClass = isSupFullyDone ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border-2 border-gray-200 shadow-sm";
 
                 if (needsRebuild) {
                     htmlContent += `
@@ -716,12 +719,12 @@
                             <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}">
                                 <div class="text-sm font-bold text-gray-500 mb-2 text-center">現場數量</div>
                                 <div id="aunt_box_${safeId}" onclick="handleItemClick('${itemName}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}">${auntText}</div>
-                                <div id="aunt_action_${safeId}">${auntActionButton}</div>
+                                <div id="aunt_action_${safeId}" class="item-action">${auntActionButton}</div>
                             </div>
                             <div class="flex-1 bg-blue-50 rounded-xl p-3 border border-blue-200 flex flex-col justify-between">
                                 <div class="text-sm font-bold text-blue-700 mb-2 text-center">複點數量</div>
                                 <div id="sup_box_${safeId}" onclick="handleItemClick('${itemName}', 'sup')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${supDisplayClass}">${supText}</div>
-                                <div id="sup_action_${safeId}">${supActionButton}</div>
+                                <div id="sup_action_${safeId}" class="item-action">${supActionButton}</div>
                             </div>
                         </div>
                         <input type="text" id="note_${safeId}" oninput="handleInput('${dateStr}', '${currentHotelName}', '${itemName}', 'note', this.value)" onchange="window.firebaseSubmit('${currentHotelName}', '${itemName}')" value="${u.note || ''}" ${isSaving ? 'disabled' : ''} class="w-full p-3 border border-gray-200 rounded-xl text-base outline-none bg-gray-50 relative z-20 focus:border-blue-500" placeholder="📝 點此可寫備註(寫完自動存)">
@@ -875,7 +878,7 @@
             handleInput(dateStr, currentCat, currentItm, 'saveError', false);
             
             closeSign(); 
-            renderItems(true); 
+            renderItems(false); 
             openCalc(currentCat, currentItm, currentRol);
 
             if (!window.uploadPromises) window.uploadPromises = {};
@@ -932,7 +935,7 @@
             } else {
                 handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             }
-            closeCalc(); renderItems(true); window.firebaseSubmit(activeCategory, activeItem);
+            closeCalc(); renderItems(false); window.firebaseSubmit(activeCategory, activeItem);
         }
 
         function addNewItem() {
@@ -1270,3 +1273,4 @@
     </script>
 </body>
 </html>
+
