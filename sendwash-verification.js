@@ -18,11 +18,44 @@
  if(!pending.length)return null; // Received items use the original two-signature inventory card.
  const id=window.getSafeId(item),total=Number(u.count || 0)+pending.reduce((s,r)=>s+Number(r.items.find(x=>x.item===item).quantity),0);
  const card=document.createElement('div');card.id=`card_${id}`;card.className='bg-white border-2 border-blue-200 rounded-2xl p-4';
- card.innerHTML=`<div class="font-black text-2xl mb-3">${escape(item)}</div><div class="flex gap-3 mb-4"><div class="flex-1 bg-gray-50 rounded-xl p-3 text-center border"><div class="text-sm text-gray-500 font-bold">現場數量（收回）</div><div class="text-3xl font-black py-3">${escape(total)}</div><div class="text-xs text-gray-500">已帶入飯店送洗數量，可修改</div></div><div class="flex-1 bg-blue-50 rounded-xl p-3 text-center border"><div class="text-sm text-blue-700 font-bold">複點數量（出貨）</div><div class="text-xl font-bold py-3 text-blue-400">等待洗滌完成</div><div class="text-xs text-gray-500">先完成現場數量與簽名</div></div></div>`;
- pending.forEach(r=>{const b=document.createElement('button');b.className='w-full mt-3 p-3 bg-blue-600 text-white rounded-xl font-bold';b.textContent=`第一步－現場點收與簽名（${r.sourceDate} 送洗）`;b.dataset.sendwashId=r.id;card.append(b);});
+ const first=pending[0],sourceId=escape(first.id),note=first.notes?.[item] ?? u.note ?? '';
+ card.innerHTML=`<div class="font-black text-2xl text-gray-800 mb-3">${escape(item)}</div>
+ <div class="flex gap-2 mb-4">
+  <div class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between min-w-0">
+   <div class="text-sm font-bold text-gray-500 mb-2 text-center">廠內實點</div>
+   <button type="button" data-sendwash-id="${sourceId}" class="w-full px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg mb-3 bg-white text-gray-800 border-blue-300 shadow-inner">${escape(total)}</button>
+   <div class="item-action" data-sendwash-first-actions></div>
+  </div>
+  <div class="flex-1 bg-blue-50 rounded-xl p-3 border border-blue-200 flex flex-col justify-between min-w-0">
+   <div class="text-sm font-bold text-blue-700 mb-2 text-center">複點確認</div>
+   <button type="button" data-sendwash-outbound class="w-full px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg mb-3 bg-white text-blue-400 border-blue-200">等待輸入</button>
+   <div class="item-action"><button type="button" data-sendwash-outbound class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button></div>
+  </div>
+ </div>
+ <input type="text" id="note_${id}" data-sendwash-note="${sourceId}" data-sendwash-item="${escape(item)}" value="${escape(note)}" class="w-full p-3 border border-gray-200 rounded-xl text-base outline-none bg-gray-50 focus:border-blue-500" placeholder="📝 點此可寫備註(寫完自動存)">`;
+ const actions=card.querySelector('[data-sendwash-first-actions]');
+ pending.forEach(r=>{const button=document.createElement('button');button.type='button';button.className='w-full py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-blue-700';button.textContent=pending.length>1 ? `第一步-簽名（${r.sourceDate}）` : '第一步-簽名';button.dataset.sendwashId=r.id;actions.append(button);});
  return card.outerHTML;
  };
- document.addEventListener('click',e=>{const button=e.target.closest('[data-sendwash-id]');if(button)open(button.dataset.sendwashId);});
+ document.addEventListener('click',e=>{
+  if(e.target.closest('[data-sendwash-outbound]')) { showMessage('請先完成左側廠內實點數量及簽名，再進行右側複點確認'); return; }
+  const button=e.target.closest('[data-sendwash-id]');if(button)open(button.dataset.sendwashId);
+ });
+ document.addEventListener('change',async e=>{
+  const input=e.target.closest('[data-sendwash-note]');if(!input)return;
+  const value=input.value,item=input.dataset.sendwashItem,sourceId=input.dataset.sendwashNote;
+  try {
+   await api.runTransaction(db,async tx=>{
+    const recordRef=api.doc(db,'sendwash_records',sourceId),snap=await tx.get(recordRef);
+    if(!snap.exists())throw new Error('來源單已不存在，請重新載入');
+    const latest=snap.data();
+    if(latest.acceptedAt)throw new Error('來源單已完成點收，請在更新後的卡片填寫備註');
+    if(!latest.items.some(row=>row.item===item))throw new Error('此品項已從送洗單移除，請重新載入');
+    tx.update(recordRef,{notes:{...(latest.notes || {}),[item]:value}});
+   });
+   showToast('✅ 備註已儲存');
+  } catch(error) { showMessage(error.message); }
+ });
  async function open(id){
  if(saving)return;
  try{
@@ -53,10 +86,11 @@
    if(old.doubleSignature) throw new Error('此品項已完成出貨複點，不能再加入收回數量，請由管理員核對');
    if(old.sendwashSources && String(old.count) !== String(Object.values(old.sendwashSources).reduce((sum,x)=>sum+Number(x.actual),0))) throw new Error('現場數量已有人工調整，請由管理員核對後合併');
    const merged=core.mergeVerification(old,r.id,r.items[i].quantity,actual[i]);
-   tx.set(ref,{date:r.targetDate,hotel:r.inventoryHotel,item:r.items[i].item,sendwashSources:merged.sendwashSources,count:merged.doubleCount,doubleCount:'',countSource:'sendwash',sendwashStage:'received',signature,doubleSignature:'',doubleSignDate:'',timestamp:acceptedAt},{merge:true});
+   tx.set(ref,{date:r.targetDate,hotel:r.inventoryHotel,item:r.items[i].item,sendwashSources:merged.sendwashSources,count:merged.doubleCount,doubleCount:'',countSource:'sendwash',sendwashStage:'received',...(current.notes && Object.prototype.hasOwnProperty.call(current.notes,r.items[i].item) ? {note:current.notes[r.items[i].item]} : {}),signature,doubleSignature:'',doubleSignDate:'',timestamp:acceptedAt},{merge:true});
   });
   tx.update(recordRef,{acceptedAt,receivedAt:acceptedAt,signature,actualQuantities:actual});
  });
  }
 })();
+
 

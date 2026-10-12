@@ -205,7 +205,7 @@
     </div>
 
     <script src="sendwash-core.js?v=20261012-two-stages"></script>
-    <script src="sendwash-verification.js?v=20261012-two-stages"></script>
+    <script src="sendwash-verification.js?v=20261012-uniform-cards"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -727,12 +727,12 @@
                         <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">${itemName}</div>
                         <div class="flex gap-2 mb-4 relative z-20">
                             <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}">
-                                <div class="text-sm font-bold text-gray-500 mb-2 text-center">現場數量</div>
+                                <div class="text-sm font-bold text-gray-500 mb-2 text-center">廠內實點</div>
                                 <div id="aunt_box_${safeId}" onclick="handleItemClick('${itemName}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}">${auntText}</div>
                                 <div id="aunt_action_${safeId}" class="item-action">${auntActionButton}</div>
                             </div>
                             <div class="flex-1 bg-blue-50 rounded-xl p-3 border border-blue-200 flex flex-col justify-between">
-                                <div class="text-sm font-bold text-blue-700 mb-2 text-center">複點數量</div>
+                                <div class="text-sm font-bold text-blue-700 mb-2 text-center">複點確認</div>
                                 <div id="sup_box_${safeId}" onclick="handleItemClick('${itemName}', 'sup')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${supDisplayClass}">${supText}</div>
                                 <div id="sup_action_${safeId}" class="item-action">${supActionButton}</div>
                             </div>
@@ -1308,6 +1308,7 @@
     </script>
 </body>
 </html>
+
 
 
 

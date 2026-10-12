@@ -71,7 +71,7 @@ function verificationFixture(source, inventory={}) {
  const ctx=vm.createContext({window:{SendwashCore:core,getSafeId:s=>s},document,currentHotelName:source.inventoryHotel,renderItems(){},getLocalTimeString:()=> '2026-10-01 08:00:00',showMessage:msg=>ctx.message=msg,showToast:msg=>ctx.toast=msg,apiFixture:api,console});
  const script=fs.readFileSync('sendwash-verification.js','utf8').replace("await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js')",'apiFixture');
  vm.runInContext(script,ctx);
- return {ctx,tables,elements,events,get wrote(){return wrote},async open(){await ctx.window.startSendwashVerification({});await ctx.window.attachSendwashListener([source.targetDate]);events.click({target:{closest:()=>({dataset:{sendwashId:source.id}})}});for(let i=0;i<10&&!elements.has('sendwashVerifyForm');i++)await new Promise(resolve=>setImmediate(resolve));assert(elements.has('sendwashVerifyForm'),ctx.message);const canvas=elements.get('sendwashSign');canvas.onpointerdown({preventDefault(){},pointerId:1,clientX:10,clientY:10});canvas.onpointermove({preventDefault(){},clientX:30,clientY:30});canvas.onpointerup();},async submit(){await elements.get('sendwashVerifyForm').onsubmit({preventDefault(){}});}};
+ return {ctx,tables,elements,events,get wrote(){return wrote},async open(){await ctx.window.startSendwashVerification({});await ctx.window.attachSendwashListener([source.targetDate]);events.click({target:{closest:selector=>selector==='[data-sendwash-id]'?({dataset:{sendwashId:source.id}}):null}});for(let i=0;i<10&&!elements.has('sendwashVerifyForm');i++)await new Promise(resolve=>setImmediate(resolve));assert(elements.has('sendwashVerifyForm'),ctx.message);const canvas=elements.get('sendwashSign');canvas.onpointerdown({preventDefault(){},pointerId:1,clientX:10,clientY:10});canvas.onpointermove({preventDefault(){},clientX:30,clientY:30});canvas.onpointerup();},async submit(){await elements.get('sendwashVerifyForm').onsubmit({preventDefault(){}});}};
 }
 const incoming=()=>({id:'source',hotel:'驛館',department:'房務',inventoryHotel:'驛館',sourceDate:'2026-09-30',targetDate:'2026-10-01',revision:1,items:[{item:'浴巾',quantity:'100',unit:'條'},{item:'中毛',quantity:'0',unit:'條'}]});
 test('plant receipt saves actual count and first signature without completing outbound check',async()=>{
@@ -101,3 +101,23 @@ test('sheet order is preserved within departments with blank numeric order and i
  assert.deepEqual(result.filter(r=>r.hotel==='驛館').map(r=>r.item),['中毛','浴巾']);
 });
 
+test('pending notes save independently and survive receipt confirmation even when edited after opening dialog',async()=>{
+ const f=verificationFixture(incoming());await f.open();
+ const input={value:'髒污需加強清洗',dataset:{sendwashNote:'source',sendwashItem:'浴巾'}};
+ await f.events.change({target:{closest:()=>input}});
+ assert.equal(f.tables.sendwash_records.source.notes.浴巾,input.value);
+ assert.equal(Object.keys(f.tables.inventory_records).length,0);
+ await f.submit();assert.equal(f.tables.inventory_records['2026-10-01_驛館_浴巾'].note,input.value);
+ input.value='不能覆蓋已點收';await f.events.change({target:{closest:()=>input}});
+ assert.equal(f.tables.inventory_records['2026-10-01_驛館_浴巾'].note,'髒污需加強清洗');
+});
+test('pending card uses two independent action areas and the same note field below them',async()=>{
+ const f=verificationFixture(incoming());await f.ctx.window.startSendwashVerification({});await f.ctx.window.attachSendwashListener(['2026-10-01']);
+ f.ctx.document.createElement=tag=>{
+  const actions={buttons:[],append(button){this.buttons.push(button)}};
+  return {dataset:{},className:'',textContent:'',html:'',set innerHTML(v){this.html=v;},get innerHTML(){return this.html},querySelector(){return actions},get outerHTML(){return this.html.replace('<div class="item-action" data-sendwash-first-actions></div>',`<div class="item-action" data-sendwash-first-actions>${actions.buttons.map(b=>`<button>${b.textContent}</button>`).join('')}</div>`);}};
+ };
+ const card=f.ctx.window.sendwashCard('浴巾','2026-10-01','驛館',{});
+ assert(card.includes('廠內實點'));assert(card.includes('複點確認'));assert(card.includes('第一步-簽名'));assert(card.includes('第二步-複點簽名'));assert(card.indexOf('第一步-簽名')<card.indexOf('複點確認'));
+ assert(card.indexOf('data-sendwash-note')>card.indexOf('第二步-複點簽名'));assert(card.includes('寫完自動存'));assert(!card.includes('等待洗滌完成'));
+});
