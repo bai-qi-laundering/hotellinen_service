@@ -14,7 +14,7 @@
   if(!userInputs[date])userInputs[date]={};if(!userInputs[date][hotel])userInputs[date][hotel]={};
   for(const item of window.sendwashPendingItems(date,hotel)){
    const old=userInputs[date][hotel][item] || {};
-   if(old.isSaving || old.hasSigned || old.doubleHasSigned)continue;
+   if(old.isSaving || old.hasSigned || old.doubleHasSigned || (!old.sendwashPending && (old.signature || old.doubleSignature)))continue;
    const sources=pending(date,hotel,item).filter(r=>!old.sendwashSources?.[r.id]);if(!sources.length)continue;
    const loadedCount=old.sendwashPending ? old.sendwashLoadedCount : (old.count ?? '');
    const loadedDoubleCount=old.sendwashPending ? old.sendwashLoadedDoubleCount : (old.doubleCount ?? '');
@@ -30,15 +30,23 @@
  };
  window.persistPendingSendwash=async(date,hotel,item,payload,expectedSources,expectedCount,expectedDoubleCount)=>{
   if(!ready)throw new Error('連線中，請稍後重試');
-  const count=core.quantity(payload.count);if(!payload.signature || payload.signature==='CACHED')throw new Error('請先簽名');
-  if(payload.doubleSignature || payload.doubleCount!=='')throw new Error('請先儲存廠內實點，再另做複點確認');
+  const count=core.quantity(payload.count);
   const recordRef=api.doc(db,'inventory_records',core.inventoryId(date,hotel,item));
   return api.runTransaction(db,async tx=>{
    const inv=await tx.get(recordRef),old=inv.exists()?inv.data():{};
-   const refs=expectedSources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
    if(inv.exists()&&(old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項來源不一致，請重新載入');
-   const retry=expectedSources.every(r=>old.sendwashSources?.[r.id])&&String(old.count)===count&&old.signature===payload.signature;
-   if(retry)return old; // A retry of the same successful item save does not add quantity again.
+   // A successful receipt can leave a stale pending flag in local storage.
+   // Read the saved signatures before deciding this is a first receipt.
+   const received=expectedSources.length>0&&expectedSources.every(r=>old.sendwashSources?.[r.id]);
+   if(received){
+    const unchanged=String(old.count)===count&&String(old.doubleCount ?? '')===String(payload.doubleCount ?? '')&&(!payload.signature||old.signature===payload.signature)&&(!payload.doubleSignature||old.doubleSignature===payload.doubleSignature)&&String(old.note ?? '')===String(payload.note ?? '');
+    if(unchanged&&old.countSource==='sendwash'&&old.signature&&(!payload.doubleCount||old.doubleSignature))return old;
+    const updated=core.sendwashInventoryPatch(old,payload,String(old.count)===count?old.count:expectedCount,expectedDoubleCount);
+    const value={...updated,timestamp:new Date().toISOString()};tx.set(recordRef,value,{merge:true});return {...old,...value};
+   }
+   if(!payload.signature || payload.signature==='CACHED')throw new Error('簽名尚未成功儲存，請點開簽名重新簽署後儲存');
+   if(payload.doubleSignature || payload.doubleCount!=='')throw new Error('請先儲存廠內實點，再另做複點確認');
+   const refs=expectedSources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
    if(old.doubleSignature)throw new Error('此品項已完成複點，廠內數量已鎖定');
    if(inv.exists()&&old.countSource!=='sendwash'&&[old.count,old.doubleCount,old.signature,old.doubleSignature].some(v=>v!==undefined&&v!==null&&v!==''))throw new Error('已有人工點收資料，請先核對，系統不會覆蓋');
    if(String(old.count ?? '')!==String(expectedCount ?? '')||String(old.doubleCount ?? '')!==String(expectedDoubleCount ?? ''))throw new Error('此品項數量已由其他人更新，請重新載入後確認');
@@ -58,3 +66,4 @@
   });
  };
 })();
+

@@ -25,6 +25,20 @@ test('retrying same item save is idempotent; ordinary manual/supervisor-signed d
  const f=fixture();await f.start();await f.save();const count=f.writes;await f.save();assert.equal(f.writes,count);
  for(const old of [{date:'2026-10-13',hotel:'hotel',item:'廚衣',count:'5',signature:'existing'},{date:'2026-10-13',hotel:'hotel',item:'廚衣',count:'1',doubleSignature:'sup'}]){const g=fixture();await g.start();g.tables.inventory_records['2026-10-13_hotel_廚衣']=old;await assert.rejects(g.save());assert.equal(g.writes,0);assert.equal(g.tables.inventory_records['2026-10-13_hotel_廚衣'].count,old.count);}
 });
+test('cached first signature and stale pending flag allow independent supervisor save without rewriting sources',async()=>{
+ const f=fixture();await f.start();await f.save('廚衣','22');const u=f.inputs['2026-10-13'].hotel.廚衣;
+ const sourceBefore=structuredClone(f.tables.sendwash_records.source),writes=f.writes;
+ const saved=await f.context.window.persistPendingSendwash('2026-10-13','hotel','廚衣',{date:'2026-10-13',hotel:'hotel',item:'廚衣',count:'22',doubleCount:'21',doubleSignature:'supervisor',note:''},u.sendwashPending,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+ assert.equal(saved.signature,'signature-廚衣');assert.equal(saved.doubleSignature,'supervisor');assert.equal(saved.doubleCount,'21');assert.equal(saved.sendwashStage,'ready');assert.equal(f.writes,writes+1);assert.equal(JSON.stringify(f.tables.sendwash_records.source),JSON.stringify(sourceBefore));
+ // Retrying again with both signature URLs omitted retains the database signatures.
+ const again=await f.context.window.persistPendingSendwash('2026-10-13','hotel','廚衣',{date:'2026-10-13',hotel:'hotel',item:'廚衣',count:'22',doubleCount:'21',note:''},u.sendwashPending,'','');assert.equal(again.doubleSignature,'supervisor');assert.equal(f.writes,writes+1);
+});
+test('pending source cannot replace a signed inventory quantity or signatures during rendering',async()=>{
+ const f=fixture();await f.start();const old={countSource:'sendwash',count:'22',doubleCount:'22',signature:'CACHED',doubleSignature:'CACHED',isSubmitted:true};f.inputs['2026-10-13'].hotel.廚衣=old;f.context.window.prepareSendwashInputs('2026-10-13','hotel');assert.equal(f.inputs['2026-10-13'].hotel.廚衣,old);assert.equal(old.sendwashPending,undefined);
+});
+test('cached placeholder alone cannot authorize a new receipt',async()=>{
+ const f=fixture();await f.start();const u=f.inputs['2026-10-13'].hotel.廚衣;await assert.rejects(f.context.window.persistPendingSendwash('2026-10-13','hotel','廚衣',{count:'1',doubleCount:'',note:''},u.sendwashPending,'',''),/簽名尚未成功儲存/);assert.equal(f.writes,0);
+});
 test('note before signature saves without inventory write, and survives individual item save',async()=>{
  const f=fixture();await f.start();await f.context.window.savePendingSendwashNote('2026-10-13','hotel','廚衣','破損');assert.equal(Object.keys(f.tables.inventory_records).length,0);f.inputs['2026-10-13'].hotel.廚衣.note='破損';await f.save();assert.equal(f.tables.inventory_records['2026-10-13_hotel_廚衣'].note,'破損');
 });
@@ -39,4 +53,11 @@ test('actual original openSign, confirmSignature, calculator and firebaseSubmit 
  // closeSign is part of the original UI; only DOM cleanup is stubbed here.
  ctx.closeSign=()=>{};await ctx.confirmSignature();assert.equal(el.calcDisplay.innerText,'1');vm.runInContext("calcExpr='2'",ctx);ctx.calcConfirm();for(let i=0;i<20&&!f.tables.inventory_records['2026-10-13_hotel_廚衣'];i++)await new Promise(resolve=>setImmediate(resolve));
  const saved=f.tables.inventory_records['2026-10-13_hotel_廚衣'];assert(saved,ctx.error);assert.equal(saved.count,'2');assert.equal(saved.signature,'uploaded-signature');assert.equal(saved.doubleCount,'');assert.equal(Object.keys(f.tables.inventory_records).length,1);
+});
+
+test('actual red-button retry with CACHED signatures saves supervisor quantity',async()=>{
+ const f=fixture();await f.start();await f.save('廚衣','22');const ctx=f.context,u=f.inputs['2026-10-13'].hotel.廚衣;Object.assign(u,{count:'22',doubleCount:'21',signature:'CACHED',doubleSignature:'supervisor',doubleHasSigned:true,saveError:true});
+ Object.assign(ctx,{document:{getElementById:()=>({value:'2026-10-13'})},isFirebaseLoaded:true,db:{},handleInput:(date,hotel,item,key,value)=>f.inputs[date][hotel][item][key]=value,saveToLocal(){},doc:f.api.doc,runTransaction:f.api.runTransaction,addDoc:async()=>{},collection(){},getLocalDateString:()=> '2026-10-12',getLocalTimeString:()=> '2026-10-12 23:00:00',SendwashCore:core});
+ const code=fs.readFileSync('index.html','utf8'),start=code.indexOf('                window.firebaseSubmit = async function('),end=code.indexOf('                window.syncSettingsFromSheet =',start);vm.runInContext(code.slice(start,end),ctx);await ctx.window.firebaseSubmit('hotel','廚衣');
+ const saved=f.tables.inventory_records['2026-10-13_hotel_廚衣'];assert.equal(saved.count,'22');assert.equal(saved.doubleCount,'21');assert.equal(saved.signature,'signature-廚衣');assert.equal(saved.doubleSignature,'supervisor');assert.equal(u.saveError,false);assert.equal(u.sendwashPending,null);assert.equal(u.doubleHasSigned,false);assert.equal(ctx.error,undefined);
 });
