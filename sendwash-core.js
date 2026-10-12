@@ -14,6 +14,13 @@
         if (!/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new Error('請填入完整的非負整數；沒有送洗請填 0');
         return String(Number(value));
     }
+    function submissionItems(rows, values) {
+        if (!Array.isArray(rows) || !Array.isArray(values) || rows.length !== values.length) throw new Error('品項數量欄位不一致，請重新載入');
+        return rows.flatMap((row, index) => {
+            const value = String(values[index] ?? '').trim();
+            return value === '' ? [] : [{item:row.item, quantity:quantity(value), unit:row.unit}];
+        });
+    }
     function targetDate(hotel, dept, sourceDate, schedules) {
         const d = date(sourceDate);
         if (!Array.isArray(schedules)) throw new Error('收送日設定尚未載入');
@@ -50,7 +57,8 @@
         const values = Object.values(sources);
         return {sendwashSources:sources,count:quantity(values.reduce((s,r)=>s+Number(r.declared),0)),doubleCount:quantity(values.reduce((s,r)=>s+Number(r.actual),0))};
     }
-    const api = {normalize,department,quantity,targetDate,settings,submissionId,inventoryId,mergeVerification};
+    const api = {normalize,department,quantity,submissionItems,targetDate,settings,submissionId,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);
+

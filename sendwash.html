@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Cache-Control" content="no-store"><title>飯店送洗對點單</title>
 <style>body{font-family:system-ui;background:#f3f4f6;color:#1f2937;margin:0;padding:20px}main{max-width:500px;margin:auto}section{background:white;border-radius:16px;padding:20px;margin:16px 0}h1{font-size:24px}label{display:block;margin:14px 0;font-weight:700}input,select{font:inherit;padding:12px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;width:100%;margin-top:8px}button,a.button{font:inherit;display:block;border:0;border-radius:10px;padding:16px;background:#2563eb;color:white;width:100%;box-sizing:border-box;font-weight:700;text-align:center;text-decoration:none;margin:12px 0}button:disabled{opacity:.5}.muted{color:#64748b;font-size:14px}#message{white-space:pre-wrap;color:#92400e}#target{font-weight:700;color:#1d4ed8}</style></head>
-<body><main><h1 id="title">送洗對點單</h1><p class="muted">填寫這次送到洗衣場的數量。沒有送洗請填 0。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
-<script src="sendwash-core.js"></script>
+<body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
+<script src="sendwash-core.js?v=20261012-optional"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
@@ -26,17 +26,17 @@ async function load(){
   current=snap.exists()?snap.data():null;
   $('target').textContent=`預計送回／寫入登記單：${target}`;
   $('items').replaceChildren();
-  rows.forEach((r,i)=>{const label=document.createElement('label');label.textContent=`${r.item}（${r.unit}）`;const input=document.createElement('input');input.id=`qty${i}`;input.type='number';input.min='0';input.step='1';input.inputMode='numeric';input.required=true;input.value=current?.items.find(x=>x.item===r.item)?.quantity ?? r.defaultQuantity;input.disabled=Boolean(current?.acceptedAt);label.append(input);$('items').append(label);});
+  rows.forEach((r,i)=>{const label=document.createElement('label');label.textContent=`${r.item}（${r.unit}）`;const input=document.createElement('input');input.id=`qty${i}`;input.type='number';input.min='0';input.step='1';input.inputMode='numeric';input.required=false;input.placeholder='本次未送洗，可留白';input.value=current ? (current.items.find(x=>x.item===r.item)?.quantity ?? '') : r.defaultQuantity;input.disabled=Boolean(current?.acceptedAt);label.append(input);$('items').append(label);});
   disable(false);
   if(current?.acceptedAt){$('submit').disabled=true;$('message').textContent='場內已確認並簽名，這張單已鎖定。';}
-  else if(current){$('message').textContent='本次已填寫。再次送出會更新同一張單，不會重複加總。';}
+  else if(current){$('message').textContent=current.noSendwash ? '已登記本次無送洗。如之後有送洗，可填入數量再送出。' : '本次已填寫。再次送出會更新同一張單，不會重複加總。';}
  }catch(e){showError(e);$('items').textContent='無法載入；請確認設定後重試。';$('department').disabled=false;$('sourceDate').disabled=false;}
 }
 $('department').onchange=load;$('sourceDate').onchange=load;
 $('form').onsubmit=async e=>{
  e.preventDefault(); if(busy)return; busy=true; disable(true); $('message').textContent='正在送出…';
  try{
-  const dept=$('department').value,sourceDate=$('sourceDate').value,items=rows.map((r,i)=>({item:r.item,quantity:core.quantity($(`qty${i}`).value),unit:r.unit}));
+  const dept=$('department').value,sourceDate=$('sourceDate').value,items=core.submissionItems(rows,rows.map((_,i)=>$(`qty${i}`).value));
   const template=await getDocFromServer(doc(db,'inventory_config','master_template'));
   if(!template.exists())throw new Error('找不到設定');
   const latest=template.data(),latestRows=core.settings(latest.sendwashSettings || [],latest.items).filter(r=>r.hotel===hotel&&r.department===dept);
@@ -46,8 +46,8 @@ $('form').onsubmit=async e=>{
   const id=core.submissionId(hotel,dept,sourceDate);
   const ref=doc(db,'sendwash_records',id);
   const expected=current?.revision || 0;
-  await runTransaction(db,async tx=>{const snap=await tx.get(ref);const old=snap.exists()?snap.data():{};if(old.acceptedAt)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,sourceDate,targetDate:target,items,revision:expected+1,submittedAt:new Date().toISOString()});});
-  await load(); $('message').textContent='已送出！場內人員可以確認數量並簽名。';
+  await runTransaction(db,async tx=>{const snap=await tx.get(ref);const old=snap.exists()?snap.data():{};if(old.acceptedAt)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,sourceDate,targetDate:target,items,noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
+  await load(); $('message').textContent=items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。';
  }catch(e){showError(e);disable(false);}finally{busy=false;}
 };
 try{
@@ -60,3 +60,4 @@ try{
  await load();
 }catch(e){showError(e);$('items').textContent='請由場內管理人員確認試算表對點設定。';}
 </script></body></html>
+
