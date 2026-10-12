@@ -87,3 +87,16 @@ test('actual transaction refuses manual inventory collision atomically across al
 test('actual transaction merges previous sendwash contributions while preserving notes',async()=>{
  const id='2026-10-01_驛館_浴巾',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'浴巾',count:'20',doubleCount:'19',note:'保留備註',sendwashSources:{earlier:{declared:'20',actual:'19'}}}});await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();assert.equal(f.tables.inventory_records[id].count,'120');assert.equal(f.tables.inventory_records[id].doubleCount,'117');assert.equal(f.tables.inventory_records[id].note,'保留備註');
 });
+
+test('sendwash display follows sheet rows even when legacy numeric order conflicts',()=>{
+ const rows=[{hotel:'驛館',department:'房務',item:'中毛',order:99},{hotel:'驛館',department:'房務',item:'浴巾',order:1}];
+ const result=core.settings(rows,template);
+ assert.deepEqual(result.map(row=>row.item),['中毛','浴巾']);
+ assert.deepEqual(core.settings([...rows].reverse(),template).map(row=>row.item),['浴巾','中毛']);
+});
+test('sheet order is preserved within departments with blank numeric order and interleaved hotels',()=>{
+ const other={baseName:'另家飯店',deptName:'制服',hotel:'另家飯店 制服',item:'制服'};
+ const rows=[{hotel:'驛館',department:'房務',item:'中毛',order:''},{hotel:'另家飯店',department:'制服',item:'制服',order:''},{hotel:'驛館',department:'房務',item:'浴巾',order:''}];
+ const result=core.settings(rows,[...template,other]);
+ assert.deepEqual(result.filter(r=>r.hotel==='驛館').map(r=>r.item),['中毛','浴巾']);
+});

@@ -40,7 +40,7 @@
             if (seen.has(key)) throw new Error('對點設定有重複品項'); seen.add(key);
             const t = matches[0];
             return {hotel:t.baseName, department:t.deptName || '房務', inventoryHotel:t.hotel, item:t.item, unit:String(r.unit || '件'), order:Number(r.order || 0), defaultQuantity:r.defaultQuantity === '' || r.defaultQuantity == null ? '' : quantity(r.defaultQuantity)};
-        }).sort((a,b)=>a.order-b.order);
+        }); // Preserve spreadsheet row order; legacy numeric order is ignored.
     }
     const submissionId = (hotel,dept,sourceDate) => encodeURIComponent(JSON.stringify([hotel,dept,sourceDate]));
     const inventoryId = (target,hotel,item) => `${target}_${hotel}_${item.replace(/\//g,'-')}`;
