@@ -204,8 +204,8 @@
         </div>
     </div>
 
-    <script src="sendwash-core.js"></script>
-    <script src="sendwash-verification.js"></script>
+    <script src="sendwash-core.js?v=20261012-two-stages"></script>
+    <script src="sendwash-verification.js?v=20261012-two-stages"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -775,7 +775,8 @@
         function handleItemClick(item, role) {
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
-            if (u.isSaving) return; 
+            if (u.isSaving) return;
+            if (u.countSource === 'sendwash' && role === 'sup' && !u.signature) return showMessage('請先完成回廠現場點收及簽名');
             
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
@@ -821,6 +822,8 @@
         }
         
         function openSign(category, item, role) { 
+            const before = (userInputs[document.getElementById('datePicker').value] && userInputs[document.getElementById('datePicker').value][category] && userInputs[document.getElementById('datePicker').value][category][item]) || {};
+            if (before.countSource === 'sendwash' && role === 'sup' && !before.signature) return showMessage('請先完成回廠現場點收及簽名');
             activeCategory = category; activeItem = item; activeRole = role; document.getElementById('signModal').classList.remove('hidden'); 
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || {};
@@ -914,7 +917,7 @@
             const dateStr = document.getElementById('datePicker').value;
             document.getElementById('calcTitle').innerText = `${role === 'aunt' ? '現場人員' : '複點人員'}正在計算：${item}`;
             const u = (userInputs[dateStr] && userInputs[dateStr][hotel] && userInputs[dateStr][hotel][item]) || {};
-            let c = (role === 'aunt') ? u.count : u.doubleCount;
+            let c = (role === 'aunt') ? u.count : (u.countSource === 'sendwash' && (u.doubleCount === '' || u.doubleCount == null) ? u.count : u.doubleCount);
             calcExpr = String((c !== undefined && c !== null && c !== '') ? c : "");
             document.getElementById('calcDisplay').innerText = calcExpr || "0";
             document.getElementById('calcModal').classList.remove('translate-y-full');
@@ -941,7 +944,7 @@
             if (activeRole === 'aunt') {
                 handleInput(dateStr, activeCategory, activeItem, 'count', finalValue);
                 const u = (userInputs[dateStr] && userInputs[dateStr][activeCategory] && userInputs[dateStr][activeCategory][activeItem]) || {};
-                if (!u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+                if (u.countSource !== 'sendwash' && !u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             } else {
                 handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             }
@@ -976,7 +979,7 @@
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
                 const { getStorage, ref, uploadString, getDownloadURL } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js");
 
                 const firebaseConfig = {
@@ -1115,6 +1118,9 @@
                                 
                                 userInputs[dDate][r.hotel][r.item] = { 
                                     countSource: r.countSource || '',
+                                    sendwashStage: r.sendwashStage || '',
+                                    sendwashLoadedCount: r.count ?? '',
+                                    sendwashLoadedDoubleCount: r.doubleCount ?? '',
                                     sendwashSources: r.sendwashSources || null,
                                     count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
                                     note: r.note || "", 
@@ -1163,7 +1169,6 @@
 
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
-                    if (u && u.countSource === 'sendwash') return showMessage('送洗對點單已驗收，數量與簽名請由管理員核對；此頁不會覆蓋。');
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
@@ -1183,7 +1188,19 @@
 
                     try {
                         const safeItem = item.replace(/\//g, '-');
-                        await setDoc(doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`), payload, { merge: true });
+                        const recordRef = doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`);
+                        if (u.countSource === 'sendwash') {
+                            await runTransaction(db, async tx => {
+                                const latest = await tx.get(recordRef);
+                                if (!latest.exists()) throw new Error('來源單已不存在，請重新載入');
+                                const updated = SendwashCore.sendwashInventoryPatch(latest.data(), payload, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
+                                tx.set(recordRef, {...updated, timestamp:new Date().toISOString()}, {merge:true});
+                            });
+                            handleInput(dateStr, category, item, 'sendwashLoadedCount', payload.count);
+                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', payload.doubleCount);
+                        } else {
+                            await setDoc(recordRef, payload, { merge: true });
+                        }
 
                         try {
                             await addDoc(collection(db, 'history_logs'), {
@@ -1202,7 +1219,7 @@
                         renderItems(false); 
                     } catch(e) {
                         handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);
-                        saveToLocal(); renderItems(false); showMessage("⚠️ 網路連線不穩！請點擊紅色按鈕重傳！");
+                        saveToLocal(); renderItems(false); showMessage(u.countSource === 'sendwash' ? e.message : '⚠️ 網路連線不穩！請點擊紅色按鈕重傳！');
                     }
                 };
 
@@ -1291,5 +1308,6 @@
     </script>
 </body>
 </html>
+
 
 

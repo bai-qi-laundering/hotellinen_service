@@ -74,9 +74,9 @@ function verificationFixture(source, inventory={}) {
  return {ctx,tables,elements,events,get wrote(){return wrote},async open(){await ctx.window.startSendwashVerification({});await ctx.window.attachSendwashListener([source.targetDate]);events.click({target:{closest:()=>({dataset:{sendwashId:source.id}})}});for(let i=0;i<10&&!elements.has('sendwashVerifyForm');i++)await new Promise(resolve=>setImmediate(resolve));assert(elements.has('sendwashVerifyForm'),ctx.message);const canvas=elements.get('sendwashSign');canvas.onpointerdown({preventDefault(){},pointerId:1,clientX:10,clientY:10});canvas.onpointermove({preventDefault(){},clientX:30,clientY:30});canvas.onpointerup();},async submit(){await elements.get('sendwashVerifyForm').onsubmit({preventDefault(){}});}};
 }
 const incoming=()=>({id:'source',hotel:'驛館',department:'房務',inventoryHotel:'驛館',sourceDate:'2026-09-30',targetDate:'2026-10-01',revision:1,items:[{item:'浴巾',quantity:'100',unit:'條'},{item:'中毛',quantity:'0',unit:'條'}]});
-test('real plant flow atomically writes declared/actual/signature into existing fields and accepts source',async()=>{
+test('plant receipt saves actual count and first signature without completing outbound check',async()=>{
  const f=verificationFixture(incoming());await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();
- const bath=f.tables.inventory_records['2026-10-01_驛館_浴巾'];assert.equal(bath.count,'100');assert.equal(bath.doubleCount,'98');assert.equal(bath.countSource,'sendwash');assert(bath.doubleSignature);assert(f.tables.sendwash_records.source.acceptedAt);assert.equal(f.wrote,3);
+ const bath=f.tables.inventory_records['2026-10-01_驛館_浴巾'];assert.equal(bath.count,'98');assert.equal(bath.doubleCount,'');assert.equal(bath.countSource,'sendwash');assert(bath.signature);assert.equal(bath.doubleSignature,'');assert.equal(bath.sendwashStage,'received');assert.equal(bath.sendwashSources.source.declared,'100');assert(f.tables.sendwash_records.source.acceptedAt);assert.equal(f.wrote,3);
 });
 test('actual transaction refuses concurrent hotel edit or acceptance with no partial inventory writes',async()=>{
  for(const change of [{revision:2},{acceptedAt:'other staff signed'}]){const f=verificationFixture(incoming());await f.open();Object.assign(f.tables.sendwash_records.source,change);await f.submit();assert.equal(f.wrote,0);assert.equal(Object.keys(f.tables.inventory_records).length,0);assert(f.elements.get('sendwashVerifyError').textContent);}
@@ -85,7 +85,7 @@ test('actual transaction refuses manual inventory collision atomically across al
  const id='2026-10-01_驛館_中毛',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'中毛',count:'0',signature:'existing'}});await f.open();await f.submit();assert.equal(f.wrote,0);assert.equal(f.tables.inventory_records[id].signature,'existing');assert(!f.tables.sendwash_records.source.acceptedAt);
 });
 test('actual transaction merges previous sendwash contributions while preserving notes',async()=>{
- const id='2026-10-01_驛館_浴巾',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'浴巾',count:'20',doubleCount:'19',note:'保留備註',sendwashSources:{earlier:{declared:'20',actual:'19'}}}});await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();assert.equal(f.tables.inventory_records[id].count,'120');assert.equal(f.tables.inventory_records[id].doubleCount,'117');assert.equal(f.tables.inventory_records[id].note,'保留備註');
+ const id='2026-10-01_驛館_浴巾',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'浴巾',count:'19',doubleCount:'',note:'保留備註',sendwashSources:{earlier:{declared:'20',actual:'19'}}}});await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();assert.equal(f.tables.inventory_records[id].count,'117');assert.equal(f.tables.inventory_records[id].doubleCount,'');assert.equal(f.tables.inventory_records[id].note,'保留備註');
 });
 
 test('sendwash display follows sheet rows even when legacy numeric order conflicts',()=>{
@@ -100,3 +100,4 @@ test('sheet order is preserved within departments with blank numeric order and i
  const result=core.settings(rows,[...template,other]);
  assert.deepEqual(result.filter(r=>r.hotel==='驛館').map(r=>r.item),['中毛','浴巾']);
 });
+

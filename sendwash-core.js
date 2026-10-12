@@ -57,7 +57,20 @@
         const values = Object.values(sources);
         return {sendwashSources:sources,count:quantity(values.reduce((s,r)=>s+Number(r.declared),0)),doubleCount:quantity(values.reduce((s,r)=>s+Number(r.actual),0))};
     }
-    const api = {normalize,department,quantity,submissionItems,targetDate,settings,submissionId,inventoryId,mergeVerification};
+    function sendwashInventoryPatch(latest, payload, expectedCount, expectedDoubleCount) {
+        if (latest.countSource !== 'sendwash') throw new Error('來源單已變更，請重新載入');
+        if (String(latest.count ?? '') !== String(expectedCount ?? '') || String(latest.doubleCount ?? '') !== String(expectedDoubleCount ?? '')) throw new Error('數量已由其他人更新，請重新載入後確認');
+        const count = quantity(payload.count);
+        const doubleCount = payload.doubleCount === '' ? '' : quantity(payload.doubleCount);
+        if (latest.doubleSignature && (count !== String(latest.count) || (payload.signature && payload.signature !== latest.signature))) throw new Error('已完成出貨複點，現場數量與簽名已鎖定');
+        const firstSignature = payload.signature || latest.signature;
+        const secondSignature = payload.doubleSignature || latest.doubleSignature;
+        if (!firstSignature) throw new Error('請先完成回廠現場簽名');
+        if (secondSignature && doubleCount === '') throw new Error('請填入出貨複點數量');
+        if (doubleCount !== '' && !secondSignature) throw new Error('請完成出貨複點簽名');
+        return {...payload, count, doubleCount, countSource:'sendwash', sendwashStage:secondSignature && doubleCount !== '' ? 'ready' : 'received'};
+    }
+    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,targetDate,settings,submissionId,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -350,6 +350,8 @@
 
         function extractQty(obj) {
             if (!obj) return "0";
+            // 回廠點收不等於洗完出貨；送洗品項必須另有複點數量與簽名。
+            if (obj.countSource === 'sendwash' && (!obj.doubleSignature || obj.doubleCount === '' || obj.doubleCount == null)) return "0";
             if (obj.doubleCount !== undefined && obj.doubleCount !== null && obj.doubleCount !== "") return String(obj.doubleCount);
             if (obj.count !== undefined && obj.count !== null && obj.count !== "") return String(obj.count);
             if (obj.quantity !== undefined && obj.quantity !== null && obj.quantity !== "") return String(obj.quantity);
@@ -923,4 +925,5 @@
     </script>
 </body>
 </html>
+
 
