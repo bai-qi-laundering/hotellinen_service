@@ -17,10 +17,10 @@ test('stale values and incomplete signatures cannot save outbound completion',()
  assert.throws(()=>core.sendwashInventoryPatch(received,{count:'98',doubleCount:'',doubleSignature:'sup'},'98',''),/複點數量/);
  assert.throws(()=>core.sendwashInventoryPatch({...received,signature:''},{count:'98',doubleCount:''},'98',''),/現場簽名/);
 });
-test('logistics never treats received dirty count as outbound; original non-sendwash records stay compatible',()=>{
+test('logistics uses identical quantity fallback for sendwash and ordinary items without requiring signatures',()=>{
  const source=fs.readFileSync('logistics.html','utf8');const code=source.slice(source.indexOf('        function extractQty(obj)'),source.indexOf('        function isValidItemName'));
  const ctx=vm.createContext({});vm.runInContext(code,ctx);
- assert.equal(ctx.extractQty(received),'0');assert.equal(ctx.extractQty({...received,doubleCount:'98'}),'0');assert.equal(ctx.extractQty({...received,doubleSignature:'sup'}),'0');assert.equal(ctx.extractQty({...received,doubleSignature:'sup',doubleCount:'97'}),'97');assert.equal(ctx.extractQty({...received,doubleSignature:'sup',doubleCount:'0'}),'0');assert.equal(ctx.extractQty({count:'98'}),'98');
+ assert.equal(ctx.extractQty(received),'98');assert.equal(ctx.extractQty({...received,doubleCount:'96'}),'96');assert.equal(ctx.extractQty({...received,doubleSignature:'sup'}),'98');assert.equal(ctx.extractQty({...received,doubleSignature:'sup',doubleCount:'97'}),'97');assert.equal(ctx.extractQty({...received,doubleSignature:'sup',doubleCount:'0'}),'0');assert.equal(ctx.extractQty({count:'98'}),'98');assert.equal(ctx.extractQty({...received,doubleCount:'0',doubleSignature:''}),'0');assert.equal(ctx.extractQty({...received,count:'',doubleCount:''}),'0');
 });
 test('original calculator prefills second check from first actual but does not auto-save second count',()=>{
  const source=fs.readFileSync('index.html','utf8');
@@ -40,3 +40,4 @@ test('actual inventory save transaction persists supervisor completion with a se
  vm.runInContext(source.slice(start,end),ctx);await ctx.window.firebaseSubmit('hotel','浴巾');assert(!ctx.error,ctx.error);assert.equal(stored.count,'98');assert.equal(stored.doubleCount,'97');assert.equal(stored.signature,'receiver-signature');assert.equal(stored.doubleSignature,'supervisor-signature');assert.equal(stored.sendwashStage,'ready');
  input.count='96';input.signature='new-receiver';await ctx.window.firebaseSubmit('hotel','浴巾');assert(ctx.error.includes('鎖定'));assert.equal(stored.count,'98');assert.equal(stored.signature,'receiver-signature');
 });
+
