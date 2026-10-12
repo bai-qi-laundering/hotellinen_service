@@ -204,6 +204,8 @@
         </div>
     </div>
 
+    <script src="sendwash-core.js"></script>
+    <script src="sendwash-verification.js"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -211,6 +213,7 @@
         const yesterdayHotels = ["捷中正"]; 
 
         let deliverySchedules = [];
+        let sendwashEnabled = false;
         let masterData = []; 
         let userInputs = {}; 
         let hotelStructure = {}; 
@@ -633,6 +636,7 @@
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             for (let itemName in todayInputs) { if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_') displayItems.push(itemName); }
 
+            if (window.sendwashPendingItems) displayItems = [...new Set([...displayItems, ...window.sendwashPendingItems(dateStr, currentHotelName)])];
             const itemsList = document.getElementById('itemsList');
             
             let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.children.length !== displayItems.length || itemsList.dataset.hotel !== currentHotelName || itemsList.dataset.date !== dateStr;
@@ -652,6 +656,12 @@
             displayItems.forEach(itemName => {
                 const safeId = window.getSafeId(itemName);
                 const u = todayInputs[itemName] || {};
+                const sendwashCard = window.sendwashCard && window.sendwashCard(itemName, dateStr, currentHotelName, u);
+                if (sendwashCard) {
+                    if (needsRebuild) htmlContent += sendwashCard;
+                    else document.getElementById(`card_${safeId}`).outerHTML = sendwashCard;
+                    return;
+                }
                 
                 const count = (u.count !== undefined && u.count !== null && u.count !== '') ? u.count : '';
                 const doubleCount = (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? u.doubleCount : '';
@@ -983,6 +993,7 @@
                 
                 storage = getStorage(app);
                 isFirebaseLoaded = true;
+                if (window.startSendwashVerification) window.sendwashVerificationReady = window.startSendwashVerification(db);
 
                 window.uploadSignatureToStorage = async function(base64Data, fileName) {
                     if (!base64Data || base64Data.startsWith('http')) return base64Data;
@@ -1011,6 +1022,7 @@
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterData = templateDoc.data().items;
+                    sendwashEnabled = Array.isArray(templateDoc.data().sendwashSettings) && templateDoc.data().sendwashSettings.length > 0;
                     deliverySchedules = validateDeliverySchedules(templateDoc.data().deliverySchedules || []);
                     buildHotelStructure();
                     saveToLocal();
@@ -1039,6 +1051,7 @@
                     // 手動改日期時仍讀取使用者選定的單子。
                     const selectedDate = document.getElementById('datePicker').value;
                     if (selectedDate && !datesToListen.includes(selectedDate)) datesToListen.push(selectedDate);
+                    if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(datesToListen);
                     const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
                     currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
@@ -1101,6 +1114,8 @@
                                 }
                                 
                                 userInputs[dDate][r.hotel][r.item] = { 
+                                    countSource: r.countSource || '',
+                                    sendwashSources: r.sendwashSources || null,
                                     count: (r.count !== undefined && r.count !== null && r.count !== "") ? String(r.count) : "", 
                                     note: r.note || "", 
                                     hasSigned: false, 
@@ -1148,6 +1163,7 @@
 
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
+                    if (u && u.countSource === 'sendwash') return showMessage('送洗對點單已驗收，數量與簽名請由管理員核對；此頁不會覆蓋。');
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
@@ -1204,9 +1220,11 @@
                         const data = await res.json();
                         if (data.template && data.template.length > 0) {
                             const schedules = validateDeliverySchedules(data.deliverySchedules);
-                            await setDoc(doc(db, 'inventory_config', 'master_template'), {
-                                items: data.template, deliverySchedules: schedules
-                            }, { merge: true });
+                            const settingsUpdate = { items: data.template, deliverySchedules: schedules };
+                            if (data.sendwashSettings !== undefined) {
+                                settingsUpdate.sendwashSettings = SendwashCore.settings(data.sendwashSettings, data.template);
+                            }
+                            await setDoc(doc(db, 'inventory_config', 'master_template'), settingsUpdate, { merge: true });
                             showToast("✅ 設定同步完成！"); 
                             setTimeout(()=>location.reload(), 1000);
                         } else if (data.error) {
@@ -1273,4 +1291,5 @@
     </script>
 </body>
 </html>
+
 
