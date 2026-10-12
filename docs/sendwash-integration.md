@@ -4,16 +4,16 @@
 
 ## 必須完成的後端設定
 
-GitHub 目前只有網頁，沒有正在部署的 Apps Script、試算表 ID 或 Firebase 規則。請先取得現行 Apps Script 原始碼再整合，不能用本檔取代現行 doGet。
+已依使用者提供的現行 Apps Script 完成整合，完整程式在 `hotellinen-apps-script.gs`，包含原試算表 ID。現行 Firebase 規則尚未提供；Apps Script 部署亦尚未更新。
 
-1. 在原本試算表新增「送洗對點設定」分頁，第一列如下：
+1. 備份原 Apps Script 程式碼，使用 `hotellinen-apps-script.gs` 完整內容取代原程式碼檔並儲存。此檔已包含讀取函式，請勿再重複貼上 `sendwash-settings.gs`，也不要新增第二個 doGet／doPost。執行 `baiqiSetupSendwashSettingsSheet` 建立空白「送洗對點設定」分頁；第一列如下：
 
    飯店｜部門｜品項｜預設數量｜單位｜排列順序｜是否啟用
 
    飯店、部門、品項須對應原本登記清單。每日不同的數量留白；固定數量可預填。是否啟用填「是」或「否」。例如：驛館／房務／浴巾／留白／條／1／是。不要把不存在於原清單的示範品項當正式設定。
 
-2. 將 `sendwash-settings.gs` 加入原 Apps Script 專案。在原本 `getInventoryData` 的 JSON 回應物件中加入 `sendwashSettings: readSendwashSettings(ss)`。`ss` 必須用現行讀取清單及收送日的 Spreadsheet 物件，不能另猜 Spreadsheet ID。
-3. 更新現有 Web App 部署版本，沿用目前網址。到登記頁按原本的「更新設定」，才會將試算表的對點設定同步至 Firebase。後端未提供新欄位時，網頁保留現有設定，不會清空。
+2. 填入對點設定。完整程式已在 `getInventoryData` 回應加入 `sendwashSettings`，並沿用同一試算表。新分頁不存在時才建立，不改原本數量欄、收送日設定或價格資料。
+3. 在 Apps Script「部署 → 管理部署 → 選擇目前 Web App → 編輯（鉛筆）→ 版本選擇新版本 → 部署」更新現有 Web App，沿用目前網址。到登記頁按原本的「更新設定」，才會將試算表的對點設定同步至 Firebase。後端未提供新欄位時，網頁保留現有設定，不會清空。
 4. 在現有 Firebase 規則中評估並允許 `sendwash_records` 的讀取、建立與受限制的修改。不能將整個資料庫改成公開讀寫；新集合的權限需配合現有登入／飯店連結授權方式。已驗收來源單必須禁止飯店修改，場內驗收需有相應權限。現行網頁未登入，因此若現有規則不允許新集合，必須先完成授權設計；前端交易檢查不等於伺服器授權。
 5. 用一間飯店、一個部門測試後再開其他品項。未設定對點品項時不顯示新入口，也不查詢新集合。
 
@@ -31,6 +31,13 @@ GitHub 目前只有網頁，沒有正在部署的 Apps Script、試算表 ID 或
 
 ## 驗證
 
-執行 `TZ=Asia/Taipei node --test tests/sendwash-regressions.cjs` 及 `node tests/audit-regressions.mjs`。測試不連線正式 Firebase、不寫正式飯店資料。
+執行 `TZ=Asia/Taipei node --test tests/sendwash-regressions.cjs` 、`node --test tests/sendwash-apps-script.cjs` 及 `node tests/audit-regressions.mjs`。測試不連線正式 Firebase、不寫正式飯店資料。
 
 尚需在現行 Apps Script 和 Firebase 規則完成後，驗證實際飯店設定讀取、手機送出、場內驗收、出貨與財務查詢。不能把離線測試通過描述為正式環境已上線。
+
+## 整合範圍核對
+
+- 原 `getFinanceMasterData`／`getDeliverySchedules` 回應及 `doPost` 盤點、物流寫入流程保留。
+- 新增空白設定分頁初始化，以及 `getInventoryData` 的 `sendwashSettings` 回應欄。
+- 上傳的 Markdown 包含跳脫的反引號、比較符號、斜線正規表達式，完整程式已還原可執行的 JavaScript。
+- GitHub PR 仍為草稿，尚未合併至 main；後端更新不代表新網頁已上線。
