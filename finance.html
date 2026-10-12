@@ -1555,6 +1555,27 @@ const keywords = type === '25th' ? group25th : groupEndOfMonth;
 checkboxes.forEach(cb => { const hotel=[...settlementHotels()].sort((a,b)=>b.length-a.length).find(n=>cb.value===n||cb.value.startsWith(n+' '))||cb.value; if (settlementGroupOf(hotel)===(type==='25th'?'25th':'month')) cb.checked=true; });
 }
 
+// 同日同品項可有多張出貨單；只去除同一來源列被重複讀取的情況。
+function distinctShipmentRows(records) {
+    const seen = new Set();
+    return records.filter(record => {
+        if (!record.docId || !Number.isInteger(record.receiptOrder) || record.receiptOrder < 0) return true;
+        const sourceKey = JSON.stringify([record.docId, record.receiptOrder]);
+        if (seen.has(sourceKey)) return false;
+        seen.add(sourceKey);
+        return true;
+    });
+}
+
+function shipmentCountsByDate(records) {
+    const receipts = new Map();
+    records.forEach(record => {
+        if (!receipts.has(record.date)) receipts.set(record.date, new Set());
+        if (record.docId) receipts.get(record.date).add(record.docId);
+    });
+    return new Map([...receipts].map(([date, ids]) => [date, ids.size]));
+}
+
 async function fetchRecordsForSelectedHotels() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
@@ -1585,7 +1606,7 @@ async function fetchRecordsForSelectedHotels() {
 
                     if (actual > 0 && !String(item.itemName).includes("回洗")) {
                         results.push({
-                            docId: docSnap.id,  
+                            docId: docSnap.id, rowId: JSON.stringify([docSnap.id, idx]),
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                             date: dDate, item: item.itemName, qty: actual,
                             receiptOrder: idx, 
@@ -1597,7 +1618,7 @@ async function fetchRecordsForSelectedHotels() {
             }
         }
     });
-    return results;
+    return distinctShipmentRows(results);
 }
 
 // 💰 系統1：財務載入
@@ -1638,11 +1659,12 @@ async function loadFinanceData() {
             let records = deptsData[deptName];
             records.sort((a,b) => { 
                 if(a.date !== b.date) return a.date < b.date ? -1 : 1; 
-                return a.receiptOrder - b.receiptOrder; 
+                return String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder; 
             });
 
             html += `<tr class="dept-header"><td colspan="5" class="font-black text-blue-900 text-base py-2 pl-4 border-y-2 border-blue-200">🏨 ${deptName}</td></tr>`;
 
+            const shipmentCounts = shipmentCountsByDate(records);
             let lastDate = ""; let deptSubtotal = 0;
             records.forEach(r => {
                 let price = reportRecordPrice(r);
@@ -1672,7 +1694,7 @@ async function loadFinanceData() {
                     subtotalDisplay = `$${subtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
                 }
 
-                let dateDisplay = (r.date !== lastDate) ? r.date : "";
+                let dateDisplay = (shipmentCounts.get(r.date) > 1 || r.date !== lastDate) ? r.date : "";
                 lastDate = r.date;
 
                 html += `<tr class="main-row" data-dept="${safeDeptAttr}" data-docid="${safeDocId}">
@@ -2245,7 +2267,7 @@ function buildInvoiceReport() {
     if (!logisticsMasterItems.length) { alert('尚未載入物流後台的品項排序，請重新載入明細。'); return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 }; }
     const comp = document.getElementById('invoiceTargetCompany').value;
     // 鼎王依分館精準篩選；其他飯店依母公司合併所有部門。
-    const matches = rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === comp);
+    const matches = distinctShipmentRows(rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === comp));
     const depts = {};
     let grandTotal = 0;
     matches.forEach(r => {
@@ -2254,7 +2276,7 @@ function buildInvoiceReport() {
         const price = reportRecordPrice(r);
         const qty = Number(r.qty) || 0;
         const amount = qty * price;
-        depts[name].records.push({ date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
+        depts[name].records.push({ docId: r.docId, rowId: r.rowId, date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
         // 同品項若有不同單價，分開列示，避免月總量的單價與金額不一致。
         const key = JSON.stringify([r.item, price]);
         // 月總量的排序由物流查帳後台 master_template 決定，不使用每日單據的陣列位置。
@@ -2264,7 +2286,7 @@ function buildInvoiceReport() {
         depts[name].total += amount;
         grandTotal += amount;
     });
-    Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || a.receiptOrder - b.receiptOrder));
+    Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder));
     // 報表可以選分館名稱，但回饋／管理費仍沿用物流資料中的母公司設定。
     const pricingCompany = [...new Set(matches.map(r => r.parentCompany).filter(Boolean))][0] || comp;
     const rebate = rebateForReport(pricingCompany, matches);
@@ -2349,9 +2371,10 @@ function generateOfficialInvoice() {
             <div class="report-detail-block">
               <h2 class="report-section-title">02　交易明細</h2>
               <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
+        const shipmentCounts = shipmentCountsByDate(dept.records);
         let previousDate = '';
         dept.records.forEach(r => {
-            const dateLabel = r.date === previousDate ? '' : r.date;
+            const dateLabel = shipmentCounts.get(r.date) > 1 || r.date !== previousDate ? r.date : '';
             previousDate = r.date;
             html += `<tr><td>${e(dateLabel)}</td><td style="text-align:left">${e(r.item)}</td><td>${moneyReport(r.qty)}</td><td>${moneyReport(r.price)}</td><td style="text-align:right">${moneyReport(r.amt)}</td></tr>`;
         });
@@ -2502,8 +2525,9 @@ function exportToExcel() {
         const monthlyEnd = rows.length;
         rows.push([],['02　交易明細'],['日期','品項名稱','數量','單價','金額']);
         const detailHeader = rows.length;
+        const shipmentCounts = shipmentCountsByDate(dept.records);
         let lastDate = '';
-        dept.records.forEach(r => { rows.push([r.date===lastDate?'':r.date,r.item,r.qty,r.price,r.amt]); lastDate=r.date; });
+        dept.records.forEach(r => { rows.push([shipmentCounts.get(r.date) > 1 || r.date!==lastDate ? r.date : '',r.item,r.qty,r.price,r.amt]); lastDate=r.date; });
         const detailTotalQty = dept.records.reduce((sum,r)=>sum+(Number(r.qty)||0),0);
         rows.push(['','部門總量',detailTotalQty,'部門小計',dept.total]);
         const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -2671,3 +2695,4 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
+
