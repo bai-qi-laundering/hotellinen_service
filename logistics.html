@@ -52,6 +52,7 @@
         </div>
 
         <!-- 點交清單區 -->
+        <div id="sendwashLinks"></div>
         <div id="departmentsContainer" class="space-y-6">
             <div class="text-center py-10 text-gray-500 font-bold text-lg">載入資料中...</div>
         </div>
@@ -140,6 +141,7 @@
         let fetchSequence = 0;
         let dataReady = false;
         let templatePromise;
+        let sendwashSettings = [];
         function withReadTimeout(promise, label, ms = 15000) {
             let timer;
             return Promise.race([promise, new Promise((_, reject) => {
@@ -317,12 +319,33 @@
                 .then(templateDoc => {
                     if (templateDoc.exists() && Array.isArray(templateDoc.data().items)) {
                         masterTemplate = templateDoc.data().items;
+                        sendwashSettings = templateDoc.data().sendwashSettings || [];
+                        if (dataReady && Object.keys(groupedData).length) renderDepartments();
+                        else renderSendwashLinks();
                         masterTemplate.forEach((t, idx) => {
                             if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
                         });
                     }
                 }).catch(e => console.warn('品項排序設定未載入，使用現有順序', e));
             await fetchData(false);
+        }
+
+        function renderSendwashLinks() {
+            const container = document.getElementById('sendwashLinks');
+            if (!container) return;
+            container.replaceChildren();
+            const departments = [...new Set(sendwashSettings.filter(r => r.hotel === currentHotel).map(r => r.department))];
+            departments.forEach(dept => {
+                if ([...document.querySelectorAll('[data-sendwash-dept]')].some(el => el.dataset.sendwashDept === dept)) return;
+                const link = document.createElement('a');
+                const url = new URL('sendwash.html', location.href);
+                url.searchParams.set('hotel', currentHotel);
+                url.searchParams.set('department', dept);
+                link.href = url.href;
+                link.className = 'block w-full my-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center';
+                link.textContent = `填寫送洗對點單｜${dept}`;
+                container.append(link);
+            });
         }
 
         function extractQty(obj) {
@@ -506,6 +529,7 @@
 
             if (cleanData.length === 0) {
                 document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">此日期無待點交資料！<br><span class="text-sm">請點擊上方日曆切換查詢日期</span></div>';
+                renderSendwashLinks();
                 return;
             }
 
@@ -533,6 +557,7 @@
 
             if (Object.keys(groupedData).length === 0) {
                 document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-green-600 font-bold text-xl">🎉 此日期所有品項出貨量皆為 0，無須點交！</div>';
+                renderSendwashLinks();
                 return;
             }
             renderDepartments();
@@ -709,10 +734,12 @@
                 <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
                     <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl"><h2 class="text-xl font-black text-center">${dept}</h2></div>
                     ${itemsHtml}${addItemHtml}${actionButton}
+                    ${sendwashSettings.some(r => r.hotel === currentHotel && r.department === dept) ? `<a data-sendwash-dept="${escapeHtml(dept)}" href="sendwash.html?hotel=${encodeURIComponent(currentHotel)}&amp;department=${encodeURIComponent(dept)}" class="block w-full mt-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center">填寫送洗對點單</a>` : ''}
                 </div>`;
             }
             
             document.getElementById('departmentsContainer').innerHTML = html;
+            renderSendwashLinks();
             if(autoSyncPromises.length > 0) {
                 Promise.all(autoSyncPromises).then(() => {
                     showToastMsg("🔄 系統已自動將幽靈單據補傳送至財務後台！");
@@ -896,3 +923,4 @@
     </script>
 </body>
 </html>
+
