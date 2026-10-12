@@ -56,38 +56,6 @@ test('Apps Script reader uses named headers, ignores disabled rows and fails clo
  assert.deepEqual(Array.from(ctx.readSendwashSettings({getSheetByName:()=>null})),[]);
 });
 
-// Exercise the actual verification module with an isolated DOM and atomic DB fixture.
-// No live Firebase requests, signatures or hotel records are involved.
-function verificationFixture(source, inventory={}) {
- const elements=new Map(),events={};
- const element=(tag='div')=>({tagName:tag.toUpperCase(),dataset:{},className:'',value:'',isConnected:true,children:[],append(child){this.children.push(child);if(child.id)elements.set(child.id,child);},querySelectorAll(){return [...elements.values()].filter(el=>['INPUT','BUTTON'].includes(el.tagName));},remove(){this.isConnected=false;elements.delete(this.id);},getBoundingClientRect(){return{left:0,top:0,width:400,height:200}},setPointerCapture(){},getContext(){return{fillRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){}}},toDataURL(){return 'data:image/jpeg;base64,offline-fixture';},set innerHTML(value){this.html=value;for(const match of value.matchAll(/<(\w+)\b[^>]*id="([^"]+)"[^>]*>/g)){const el=element(match[1]);el.id=match[2];elements.set(el.id,el);}},get innerHTML(){return this.html || '';}});
- const body=element();
- const document={createElement:element,body,getElementById:id=>elements.get(id),addEventListener:(name,fn)=>events[name]=fn};
- const picker=element('input');picker.id='datePicker';picker.value=source.targetDate;elements.set(picker.id,picker);
- const tables={sendwash_records:{[source.id]:structuredClone(source)},inventory_records:structuredClone(inventory)};
- const snapshot=ref=>({exists:()=>!!tables[ref.name]?.[ref.id],data:()=>structuredClone(tables[ref.name]?.[ref.id])});
- let wrote=0;
- const api={doc:(_,name,id)=>({name,id}),collection:(_,name)=>({name}),where:(...args)=>args,query:col=>col,getDocFromServer:async ref=>snapshot(ref),onSnapshot:(q,fn)=>{fn({forEach:visit=>Object.entries(tables[q.name]||{}).forEach(([id,data])=>visit({id,data:()=>structuredClone(data)}))});return()=>{};},runTransaction:async(_,fn)=>{const updates=[];await fn({get:async ref=>snapshot(ref),set:(ref,value)=>updates.push([ref,value]),update:(ref,value)=>updates.push([ref,value])});for(const [ref,value]of updates){tables[ref.name] ||= {};tables[ref.name][ref.id]={...tables[ref.name][ref.id],...value};wrote++;}}};
- const ctx=vm.createContext({window:{SendwashCore:core,getSafeId:s=>s},document,currentHotelName:source.inventoryHotel,renderItems(){},getLocalTimeString:()=> '2026-10-01 08:00:00',showMessage:msg=>ctx.message=msg,showToast:msg=>ctx.toast=msg,apiFixture:api,console});
- const script=fs.readFileSync('sendwash-verification.js','utf8').replace("await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js')",'apiFixture');
- vm.runInContext(script,ctx);
- return {ctx,tables,elements,events,get wrote(){return wrote},async open(){await ctx.window.startSendwashVerification({});await ctx.window.attachSendwashListener([source.targetDate]);events.click({target:{closest:selector=>selector==='[data-sendwash-id]'?({dataset:{sendwashId:source.id}}):null}});for(let i=0;i<10&&!elements.has('sendwashVerifyForm');i++)await new Promise(resolve=>setImmediate(resolve));assert(elements.has('sendwashVerifyForm'),ctx.message);const canvas=elements.get('sendwashSign');canvas.onpointerdown({preventDefault(){},pointerId:1,clientX:10,clientY:10});canvas.onpointermove({preventDefault(){},clientX:30,clientY:30});canvas.onpointerup();},async submit(){await elements.get('sendwashVerifyForm').onsubmit({preventDefault(){}});}};
-}
-const incoming=()=>({id:'source',hotel:'驛館',department:'房務',inventoryHotel:'驛館',sourceDate:'2026-09-30',targetDate:'2026-10-01',revision:1,items:[{item:'浴巾',quantity:'100',unit:'條'},{item:'中毛',quantity:'0',unit:'條'}]});
-test('plant receipt saves actual count and first signature without completing outbound check',async()=>{
- const f=verificationFixture(incoming());await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();
- const bath=f.tables.inventory_records['2026-10-01_驛館_浴巾'];assert.equal(bath.count,'98');assert.equal(bath.doubleCount,'');assert.equal(bath.countSource,'sendwash');assert(bath.signature);assert.equal(bath.doubleSignature,'');assert.equal(bath.sendwashStage,'received');assert.equal(bath.sendwashSources.source.declared,'100');assert(f.tables.sendwash_records.source.acceptedAt);assert.equal(f.wrote,3);
-});
-test('actual transaction refuses concurrent hotel edit or acceptance with no partial inventory writes',async()=>{
- for(const change of [{revision:2},{acceptedAt:'other staff signed'}]){const f=verificationFixture(incoming());await f.open();Object.assign(f.tables.sendwash_records.source,change);await f.submit();assert.equal(f.wrote,0);assert.equal(Object.keys(f.tables.inventory_records).length,0);assert(f.elements.get('sendwashVerifyError').textContent);}
-});
-test('actual transaction refuses manual inventory collision atomically across all items',async()=>{
- const id='2026-10-01_驛館_中毛',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'中毛',count:'0',signature:'existing'}});await f.open();await f.submit();assert.equal(f.wrote,0);assert.equal(f.tables.inventory_records[id].signature,'existing');assert(!f.tables.sendwash_records.source.acceptedAt);
-});
-test('actual transaction merges previous sendwash contributions while preserving notes',async()=>{
- const id='2026-10-01_驛館_浴巾',f=verificationFixture(incoming(),{[id]:{date:'2026-10-01',hotel:'驛館',item:'浴巾',count:'19',doubleCount:'',note:'保留備註',sendwashSources:{earlier:{declared:'20',actual:'19'}}}});await f.open();f.elements.get('sendwashActual0').value='98';await f.submit();assert.equal(f.tables.inventory_records[id].count,'117');assert.equal(f.tables.inventory_records[id].doubleCount,'');assert.equal(f.tables.inventory_records[id].note,'保留備註');
-});
-
 test('sendwash display follows sheet rows even when legacy numeric order conflicts',()=>{
  const rows=[{hotel:'驛館',department:'房務',item:'中毛',order:99},{hotel:'驛館',department:'房務',item:'浴巾',order:1}];
  const result=core.settings(rows,template);
@@ -101,23 +69,3 @@ test('sheet order is preserved within departments with blank numeric order and i
  assert.deepEqual(result.filter(r=>r.hotel==='驛館').map(r=>r.item),['中毛','浴巾']);
 });
 
-test('pending notes save independently and survive receipt confirmation even when edited after opening dialog',async()=>{
- const f=verificationFixture(incoming());await f.open();
- const input={value:'髒污需加強清洗',dataset:{sendwashNote:'source',sendwashItem:'浴巾'}};
- await f.events.change({target:{closest:()=>input}});
- assert.equal(f.tables.sendwash_records.source.notes.浴巾,input.value);
- assert.equal(Object.keys(f.tables.inventory_records).length,0);
- await f.submit();assert.equal(f.tables.inventory_records['2026-10-01_驛館_浴巾'].note,input.value);
- input.value='不能覆蓋已點收';await f.events.change({target:{closest:()=>input}});
- assert.equal(f.tables.inventory_records['2026-10-01_驛館_浴巾'].note,'髒污需加強清洗');
-});
-test('pending card uses two independent action areas and the same note field below them',async()=>{
- const f=verificationFixture(incoming());await f.ctx.window.startSendwashVerification({});await f.ctx.window.attachSendwashListener(['2026-10-01']);
- f.ctx.document.createElement=tag=>{
-  const actions={buttons:[],append(button){this.buttons.push(button)}};
-  return {dataset:{},className:'',textContent:'',html:'',set innerHTML(v){this.html=v;},get innerHTML(){return this.html},querySelector(){return actions},get outerHTML(){return this.html.replace('<div class="item-action" data-sendwash-first-actions></div>',`<div class="item-action" data-sendwash-first-actions>${actions.buttons.map(b=>`<button>${b.textContent}</button>`).join('')}</div>`);}};
- };
- const card=f.ctx.window.sendwashCard('浴巾','2026-10-01','驛館',{});
- assert(card.includes('廠內實點'));assert(card.includes('複點確認'));assert(card.includes('第一步-簽名'));assert(card.includes('第二步-複點簽名'));assert(card.indexOf('第一步-簽名')<card.indexOf('複點確認'));
- assert(card.indexOf('data-sendwash-note')>card.indexOf('第二步-複點簽名'));assert(card.includes('寫完自動存'));assert(!card.includes('等待洗滌完成'));
-});

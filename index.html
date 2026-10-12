@@ -205,7 +205,7 @@
     </div>
 
     <script src="sendwash-core.js?v=20261012-two-stages"></script>
-    <script src="sendwash-verification.js?v=20261012-uniform-cards"></script>
+    <script src="sendwash-verification.js?v=20261012-per-item-signature"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -633,6 +633,7 @@
             if (!currentHotelName) return;
             let displayItems = [...new Set(masterData.filter(d => d.hotel === currentHotelName).map(d => d.item))];
             
+            if (window.prepareSendwashInputs) window.prepareSendwashInputs(dateStr, currentHotelName);
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             for (let itemName in todayInputs) { if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_') displayItems.push(itemName); }
 
@@ -1169,6 +1170,7 @@
 
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
+                    if (u && u.sendwashPending && !u.signature) return window.savePendingSendwashNote(dateStr, category, item, u.note || '');
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
@@ -1189,7 +1191,13 @@
                     try {
                         const safeItem = item.replace(/\//g, '-');
                         const recordRef = doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`);
-                        if (u.countSource === 'sendwash') {
+                        if (u.sendwashPending) {
+                            const saved = await window.persistPendingSendwash(dateStr, category, item, payload, u.sendwashPending, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
+                            handleInput(dateStr, category, item, 'sendwashSources', saved.sendwashSources);
+                            handleInput(dateStr, category, item, 'sendwashPending', null);
+                            handleInput(dateStr, category, item, 'sendwashLoadedCount', saved.count);
+                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', saved.doubleCount);
+                        } else if (u.countSource === 'sendwash') {
                             await runTransaction(db, async tx => {
                                 const latest = await tx.get(recordRef);
                                 if (!latest.exists()) throw new Error('來源單已不存在，請重新載入');
@@ -1308,6 +1316,7 @@
     </script>
 </body>
 </html>
+
 
 
 
