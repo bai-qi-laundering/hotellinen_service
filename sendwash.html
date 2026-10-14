@@ -1,7 +1,25 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Cache-Control" content="no-store"><title>飯店送洗對點單</title>
-<style>body{font-family:system-ui;background:#f3f4f6;color:#1f2937;margin:0;padding:20px}main{max-width:500px;margin:auto}section{background:white;border-radius:16px;padding:20px;margin:16px 0}h1{font-size:24px}label{display:block;margin:14px 0;font-weight:700}input,select{font:inherit;padding:12px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;width:100%;margin-top:8px}button,a.button{font:inherit;display:block;border:0;border-radius:10px;padding:16px;background:#2563eb;color:white;width:100%;box-sizing:border-box;font-weight:700;text-align:center;text-decoration:none;margin:12px 0}button:disabled{opacity:.5}.muted{color:#64748b;font-size:14px}#message{white-space:pre-wrap;color:#92400e}#target{font-weight:700;color:#1d4ed8}</style></head>
+<style>
+*{box-sizing:border-box}
+body{font-family:system-ui;background:#f3f4f6;color:#1f2937;margin:0;padding:20px;font-size:20px;line-height:1.6}
+main{max-width:640px;margin:auto}
+section{background:white;border-radius:16px;padding:20px;margin:20px 0}
+h1{font-size:30px;line-height:1.35;overflow-wrap:anywhere}
+label{display:block;margin:20px 0;font-size:22px;font-weight:700;overflow-wrap:anywhere}
+input,select{font:inherit;font-size:22px;line-height:1.4;padding:14px;border:1px solid #94a3b8;border-radius:8px;width:100%;max-width:100%;min-width:0;min-height:60px;margin-top:10px;background:white;color:#1f2937}
+#items input{font-size:30px;font-weight:700;min-height:68px}
+#items input::placeholder{font-size:18px;font-weight:400;color:#64748b;opacity:1}
+input:disabled,select:disabled{opacity:1;-webkit-text-fill-color:#475569;background:#f1f5f9}
+button,a.button{font:inherit;font-size:22px;line-height:1.4;display:block;border:0;border-radius:10px;padding:18px 14px;background:#2563eb;color:white;width:100%;min-height:64px;font-weight:700;text-align:center;text-decoration:none;margin:16px 0}
+button:disabled{opacity:.5}
+.muted{color:#475569;font-size:18px;line-height:1.6}
+#message{white-space:pre-wrap;overflow-wrap:anywhere;color:#92400e;font-size:20px;font-weight:600}
+#target{font-size:22px;font-weight:700;color:#1d4ed8;overflow-wrap:anywhere}
+input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}
+@media(max-width:480px){body{padding:16px}section{padding:16px}h1{font-size:28px}}
+</style></head>
 <body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
 <script src="sendwash-core.js?v=20261012-optional"></script>
 <script type="module">
