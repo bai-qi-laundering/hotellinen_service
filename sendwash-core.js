@@ -39,17 +39,26 @@
     function settings(rows, template) {
         if (!Array.isArray(rows) || !Array.isArray(template)) throw new Error('對點設定格式錯誤');
         const seen = new Set();
-        return rows.map(r => {
+        const result=rows.map(r => {
             if (!r.hotel || !r.department || !r.item) throw new Error('對點設定需有飯店、部門及品項');
             const matches = template.filter(t => normalize(t.baseName) === normalize(r.hotel) && department(t.deptName || '房務') === department(r.department) && normalize(t.item) === normalize(r.item));
             if (matches.length !== 1) throw new Error(`對點品項無法唯一對應登記清單：${r.hotel}／${r.department}／${r.item}`);
-            const key = JSON.stringify([normalize(r.hotel),department(r.department),normalize(r.item)]);
+            const outlet=String(r.outlet || '').trim();
+            if (outlet && !outlet.replace(/\s/g,'')) throw new Error('餐廳名稱不可空白');
+            const key = JSON.stringify([normalize(r.hotel),department(r.department),normalize(outlet),normalize(r.item)]);
             if (seen.has(key)) throw new Error('對點設定有重複品項'); seen.add(key);
             const t = matches[0];
-            return {hotel:t.baseName, department:t.deptName || '房務', inventoryHotel:t.hotel, item:t.item, unit:String(r.unit || '件'), order:Number(r.order || 0), defaultQuantity:r.defaultQuantity === '' || r.defaultQuantity == null ? '' : quantity(r.defaultQuantity)};
+            return {hotel:t.baseName, department:t.deptName || '房務', inventoryHotel:t.hotel, item:t.item, ...(outlet?{outlet}:{}), unit:String(r.unit || '件'), order:Number(r.order || 0), defaultQuantity:r.defaultQuantity === '' || r.defaultQuantity == null ? '' : quantity(r.defaultQuantity)};
         }); // Preserve spreadsheet row order; legacy numeric order is ignored.
+        for (const row of result) {
+            if (row.outlet && result.some(other=>!other.outlet&&normalize(other.hotel)===normalize(row.hotel)&&department(other.department)===department(row.department))) {
+                throw new Error(`${row.hotel}／${row.department} 不能同時啟用「餐廳」空白與分餐廳品項；請先停用原本的彙總列`);
+            }
+        }
+        return result;
     }
-    const submissionId = (hotel,dept,sourceDate) => encodeURIComponent(JSON.stringify([hotel,dept,sourceDate]));
+    const submissionId = (hotel,dept,sourceDate,outlet='') => encodeURIComponent(JSON.stringify(outlet?[hotel,dept,sourceDate,outlet]:[hotel,dept,sourceDate]));
+    const outletItem = (outlet,item) => outlet ? `【${outlet}】${item}` : item;
     const inventoryId = (target,hotel,item) => `${target}_${hotel}_${item.replace(/\//g,'-')}`;
     function mergeVerification(existing, sourceId, declared, actual) {
         if (!existing.sendwashSources && [existing.count,existing.doubleCount,existing.signature,existing.doubleSignature].some(v=>v !== undefined && v !== null && v !== '')) throw new Error('登記單已有現場資料，請由管理員核對，系統不會覆蓋');
@@ -70,8 +79,9 @@
         if (doubleCount !== '' && !secondSignature) throw new Error('請完成出貨複點簽名');
         return {...payload, count, doubleCount, countSource:'sendwash', sendwashStage:secondSignature && doubleCount !== '' ? 'ready' : 'received'};
     }
-    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,targetDate,settings,submissionId,inventoryId,mergeVerification};
+    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);
+
 

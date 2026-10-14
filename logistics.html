@@ -101,7 +101,7 @@
         }, 20000);
     </script>
     <script type="module">
-        import { itemMatchesName, mergeSignedItems } from './logistics-items.js';
+        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, unreceivedOutletItems } from './logistics-items.js?v=20261014-outlets';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -409,7 +409,7 @@
                     return; 
                 }
 
-                let inventoryMap = {}; 
+                let inventoryMap = {}, outletKeys = new Set(); 
                 
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
@@ -422,11 +422,14 @@
                         const processInvItem = (itemData) => {
                             let itemName = itemData.itemName || itemData.item || itemData.name;
                             if (isValidItemName(itemName)) {
-                                let key = `${deptName}_${String(itemName).trim()}`;
-                                inventoryMap[key] = {
-                                    deptName: deptName, itemName: String(itemName).trim(),
-                                    originalQty: extractQty(itemData), auntNote: itemData.note || itemData.auntNote || d.note || ""
-                                };
+                                // Outlet checks stay separate in inventory; the driver's existing
+                                // restaurant row receives a single sum per original item.
+                                const sourceItem=d.outlet && d.sourceItem ? String(d.sourceItem).trim() : String(itemName).trim();
+                                let key = `${deptName}_${sourceItem}`;
+                                addInventoryQuantity(inventoryMap,outletKeys,key,{
+                                    deptName: deptName, itemName: sourceItem,
+                                    originalQty: extractQty(itemData), auntNote: (d.outlet && itemData.note ? `${d.outlet}：` : '') + (itemData.note || itemData.auntNote || d.note || "")
+                                },d.outlet || '');
                             }
                         };
 
@@ -842,6 +845,11 @@
             // 使儲存前的背景請求不能反向覆蓋新簽名畫面。
             ++fetchSequence;
             try {
+                if (sendwashSettings.some(r=>r.hotel===signingHotel&&r.department===dept&&r.outlet)) {
+                    const sources=await getDocsFromServer(query(collection(db,'sendwash_records'),where('targetDate','==',signingDate)));
+                    const waiting=unreceivedOutletItems(sources.docs.map(d=>d.data()),signingDate,signingHotel,dept);
+                    if(waiting.length)throw new Error(`餐廳尚未完成廠內點收：${waiting.join('、')}。請先完成後再簽總單。`);
+                }
                 const clientBlob = cNew ? clientCanvas.toDataURL('image/jpeg',0.7) : null;
                 const driverBlob = dNew ? driverCanvas.toDataURL('image/jpeg',0.7) : null;
                 // 只上傳本次實際重新簽名的圖片；不得重寫原有 URL。
@@ -924,6 +932,7 @@
     </script>
 </body>
 </html>
+
 
 
 

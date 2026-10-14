@@ -7,13 +7,13 @@ test('blank is omitted while explicit zero is preserved; filled items retain row
  assert.deepEqual(core.submissionItems(rows,[' ','']),[]);
  for(const value of ['-1','1.5','1+2'])assert.throws(()=>core.submissionItems(rows,['',value]));
 });
-async function fixture(seed={}){
+async function fixture(seed={},configured){
  const elements=new Map();
- function element(tag='div'){return{tagName:tag.toUpperCase(),value:'',disabled:false,children:[],append(el){this.children.push(el);if(el.id)elements.set(el.id,el);},replaceChildren(){this.children=[];},textContent:'',required:false};}
- for(const id of ['title','back','department','sourceDate','target','items','message','submit','form'])elements.set(id,element());
+ function element(tag='div'){return{tagName:tag.toUpperCase(),value:'',disabled:false,children:[],append(el){this.children.push(el);if(el.id)elements.set(el.id,el);},replaceChildren(){this.children=[];},setAttribute(key,value){this[key]=value;},scrollIntoView(){},textContent:'',required:false};}
+ for(const id of ['title','back','department','sourceDate','target','items','message','submit','form','outletTabs'])elements.set(id,element());
  elements.get('department').value='房務';
- const settings=[{hotel:'飯店A',department:'房務',item:'浴巾',unit:'條',defaultQuantity:'20',order:''},{hotel:'飯店A',department:'房務',item:'制服',unit:'件',defaultQuantity:'',order:''}];
- const template={items:settings.map(r=>({baseName:r.hotel,deptName:r.department,hotel:r.hotel,item:r.item})),sendwashSettings:settings,deliverySchedules:[]};
+ const settings=configured || [{hotel:'飯店A',department:'房務',item:'浴巾',unit:'條',defaultQuantity:'20',order:''},{hotel:'飯店A',department:'房務',item:'制服',unit:'件',defaultQuantity:'',order:''}];
+ const template={items:settings.filter((r,i)=>settings.findIndex(x=>x.hotel===r.hotel&&x.department===r.department&&x.item===r.item)===i).map(r=>({baseName:r.hotel,deptName:r.department,hotel:r.hotel,item:r.item})),sendwashSettings:settings,deliverySchedules:[]};
  const tables={inventory_config:{master_template:template},sendwash_records:structuredClone(seed)};
  const snap=ref=>({exists:()=>!!tables[ref.name]?.[ref.id],data:()=>structuredClone(tables[ref.name]?.[ref.id])});
  const api={initializeApp:()=>({}),initializeFirestore:()=>({}),memoryLocalCache:()=>({}),doc:(_,name,id)=>({name,id}),getDocFromServer:async r=>snap(r),runTransaction:async(_,fn)=>{const pending=[];await fn({get:async r=>snap(r),set:(r,d)=>pending.push([r,d])});pending.forEach(([r,d])=>{tables[r.name] ||= {};tables[r.name][r.id]=structuredClone(d);});}};
@@ -22,6 +22,20 @@ async function fixture(seed={}){
  await vm.runInContext('(async()=>{'+script+'})()',ctx);
  return{tables,elements,async submit(values){values.forEach((v,i)=>elements.get('qty'+i).value=v);await elements.get('form').onsubmit({preventDefault(){}});},async reload(){await elements.get('sourceDate').onchange();}};
 }
+test('outlet tabs scroll horizontally and save independent same-day receipts',async()=>{
+ const base={hotel:'飯店A',department:'房務',item:'口布',unit:'條',defaultQuantity:'',order:''};
+ const f=await fixture({},[{...base,outlet:'SEEDS'},{...base,outlet:'湛露'}]);
+ assert.equal(f.elements.get('outletTabs').children.length,2);
+ await f.submit(['18']);await f.elements.get('outletTabs').children[1].onclick();await new Promise(resolve=>setImmediate(resolve));
+ await f.submit(['12']);const records=Object.values(f.tables.sendwash_records);assert.equal(records.length,2);assert.deepEqual(records.map(r=>r.outlet),['SEEDS','湛露']);assert.deepEqual(records.map(r=>r.items[0].quantity),['18','12']);
+});
+test('signed aggregate restaurant receipt blocks new outlet submissions',async()=>{
+ const row={hotel:'飯店A',department:'房務',item:'口布',unit:'條',defaultQuantity:'',order:'',outlet:'SEEDS'};
+ const f=await fixture({},[row]);f.tables.logistics_records={[`2026-10-13_飯店A_房務`]:{clientSig:'hotel-signature'}};
+ // The target date follows the same existing next-delivery calculation.
+ const date=f.elements.get('target').textContent.split('：')[1];f.tables.logistics_records={[`${date}_飯店A_房務`]:{clientSig:'hotel-signature'}};
+ await f.submit(['18']);assert.equal(Object.keys(f.tables.sendwash_records).length,0);assert.match(f.elements.get('message').textContent,/已簽收/);
+});
 test('actual hotel form accepts partial submission without creating inventory data',async()=>{
  const f=await fixture();assert.equal(f.elements.get('qty0').required,false);await f.submit(['100','']);const record=Object.values(f.tables.sendwash_records)[0];assert.equal(record.items.length,1);assert.equal(record.items[0].item,'浴巾');assert.equal(record.noSendwash,false);assert(!f.tables.inventory_records);assert.equal(f.elements.get('qty1').value,'');
 });

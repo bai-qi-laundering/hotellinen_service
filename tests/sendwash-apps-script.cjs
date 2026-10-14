@@ -29,6 +29,13 @@ test('setting initialization is idempotent; enabled hotel/dept/items and default
  const f=fixture();f.ctx.baiqiSetupSendwashSettingsSheet();f.sheets.get('送洗對點設定').appendRow(['驛館','餐飲部','浴巾','0','條','1','是']);const before=JSON.stringify(f.sheets.get('送洗對點設定').rows);
  f.ctx.baiqiSetupSendwashSettingsSheet();const response=f.ctx.doGet({parameter:{action:'getInventoryData'}});assert.equal(response.sendwashSettings[0].defaultQuantity,'0');assert.equal(response.sendwashSettings[0].department,'餐飲部');assert.equal(JSON.stringify(f.sheets.get('送洗對點設定').rows),before);
 });
+test('optional restaurant column returns separate names while keeping original seven columns',()=>{
+ const f=fixture();f.ctx.baiqiSetupSendwashSettingsSheet();const rows=f.sheets.get('送洗對點設定').rows;rows[0].push('餐廳');
+ rows.push(['驛館','餐飲部','浴巾','','條','','是','SEEDS']);rows.push(['驛館','餐飲部','浴巾','','條','','是','湛露']);
+ const settings=f.ctx.doGet({parameter:{action:'getInventoryData'}}).sendwashSettings;
+ assert.deepEqual(settings.map(r=>r.outlet),['SEEDS','湛露']);assert.equal(settings[0].department,'餐飲部');
+ rows[0].pop();const old=f.ctx.doGet({parameter:{action:'getInventoryData'}}).sendwashSettings;assert.equal(old[0].outlet,'');
+});
 test('finance data and compatibility schedule actions keep their original response shape',()=>{
  const f=fixture();const response=f.ctx.doGet({parameter:{action:'getFinanceMasterData'}});assert.deepEqual(Object.keys(response),['success','prices','clients','routes','schedules']);assert.equal(response.prices[1][3],18);assert.equal(response.routes[1][1],'驛館');
  const dates=f.ctx.doGet({parameter:{action:'getDeliverySchedules'}});assert.deepEqual(Object.keys(dates),['success','deliverySchedules']);

@@ -1,6 +1,24 @@
 // Display names may change in finance; the inventory source name stays stable.
 export const normalizeItemName = name => String(name || '').replace(/[\s\u3000]+/g, '').trim();
 
+// Keep outlet records separate in inventory but show one sum per item to the driver.
+export function addInventoryQuantity(map, outletKeys, key, row, outlet = '') {
+    if (map[key] && (outlet || outletKeys.has(key))) {
+        const total = Number(map[key].originalQty) + Number(row.originalQty);
+        if (!Number.isSafeInteger(total)) throw new Error('餐廳品項加總超過可用範圍');
+        map[key].originalQty = String(total);
+        if (row.auntNote) map[key].auntNote = [map[key].auntNote, row.auntNote].filter(Boolean).join('；');
+    } else {
+        map[key] = row;
+    }
+    if (outlet) outletKeys.add(key);
+}
+
+export function unreceivedOutletItems(records, date, hotel, department) {
+    return records.filter(r=>r.targetDate===date && r.hotel===hotel && r.department===department && r.outlet)
+        .flatMap(r=>(r.items || []).filter(i=>!r.receivedItems?.[i.item]).map(i=>`${r.outlet}／${i.item}`));
+}
+
 export function itemMatchesName(item, name) {
     const key = normalizeItemName(name);
     return !!key && [item.itemName, item.inventoryItemName, ...(item.itemNameAliases || [])]
@@ -85,3 +103,4 @@ export function legacyDatePrefixes(startDate, endDate) {
     }
     return [...prefixes];
 }
+

@@ -17,29 +17,39 @@ button:disabled{opacity:.5}
 .muted{color:#475569;font-size:18px;line-height:1.6}
 #message{white-space:pre-wrap;overflow-wrap:anywhere;color:#92400e;font-size:20px;font-weight:600}
 #target{font-size:22px;font-weight:700;color:#1d4ed8;overflow-wrap:anywhere}
+#outletTabs{display:flex;gap:10px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;padding:4px 0 10px;scrollbar-width:thin}
+#outletTabs[hidden]{display:none}
+#outletTabs button{flex:0 0 auto;width:auto;min-height:56px;white-space:nowrap;scroll-snap-align:start;background:#e8eef7;color:#244068;margin:0;padding:12px 18px}
+#outletTabs button[aria-selected="true"]{background:#2563eb;color:white}
 input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}
 @media(max-width:480px){body{padding:16px}section{padding:16px}h1{font-size:28px}}
 </style></head>
-<body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
-<script src="sendwash-core.js?v=20261012-optional"></script>
+<body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><nav id="outletTabs" aria-label="選擇餐廳" hidden></nav><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
+<script src="sendwash-core.js?v=20261014-outlets"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 const db=initializeFirestore(initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',storageBucket:'hotel-inventory-3a1ad.firebasestorage.app',messagingSenderId:'363844184412',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}),{localCache:memoryLocalCache()});
 const core=window.SendwashCore,$=id=>document.getElementById(id),params=new URLSearchParams(location.search),hotel=params.get('hotel');
-let config,settings,rows=[],current=null,busy=false,sequence=0;
+let config,settings,rows=[],current=null,busy=false,sequence=0,activeOutlet='';
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
 $('sourceDate').value=today; // The receipt date is an outbound date, never an inbound default.
 const back=new URL('logistics.html',location.href); if(hotel) back.searchParams.set('hotel',hotel); if(params.get('date')) back.searchParams.set('date',params.get('date')); $('back').href=back;
 function disable(value){$('department').disabled=value;$('sourceDate').disabled=value;$('submit').disabled=value;}
 function showError(error){$('message').textContent=error.message || String(error);}
+function outletsFor(dept){return [...new Set(settings.filter(r=>r.department===dept).map(r=>r.outlet || ''))];}
+function renderOutlets(dept){
+ const outlets=outletsFor(dept),nav=$('outletTabs'),scroll=nav.scrollLeft;nav.replaceChildren();nav.hidden=outlets.length<=1&&outlets[0]==='';
+ if(!outlets.includes(activeOutlet))activeOutlet=outlets[0] || '';
+ outlets.forEach(outlet=>{const button=document.createElement('button');button.type='button';button.textContent=outlet || '原本品項';button.setAttribute('aria-selected',String(outlet===activeOutlet));button.onclick=()=>{if(busy)return;activeOutlet=outlet;load();};nav.append(button);});nav.scrollLeft=scroll;
+}
 async function load(){
  const request=++sequence; disable(true); $('items').textContent='正在確認雲端單據…'; $('message').textContent='';
  try{
   const dept=$('department').value,sourceDate=$('sourceDate').value;
-  rows=settings.filter(r=>r.hotel===hotel&&r.department===dept);
+  renderOutlets(dept);rows=settings.filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===activeOutlet);
   const target=core.targetDate(hotel,dept,sourceDate,config.deliverySchedules);
-  const id=core.submissionId(hotel,dept,sourceDate),snap=await getDocFromServer(doc(db,'sendwash_records',id));
+  const id=core.submissionId(hotel,dept,sourceDate,activeOutlet),snap=await getDocFromServer(doc(db,'sendwash_records',id));
   if(request!==sequence)return;
   current=snap.exists()?snap.data():null;
   $('target').textContent=`預計送回／寫入登記單：${target}`;
@@ -50,21 +60,21 @@ async function load(){
   else if(current){$('message').textContent=current.noSendwash ? '已登記本次無送洗。如之後有送洗，可填入數量再送出。' : '本次已填寫。再次送出會更新同一張單，不會重複加總。';}
  }catch(e){showError(e);$('items').textContent='無法載入；請確認設定後重試。';$('department').disabled=false;$('sourceDate').disabled=false;}
 }
-$('department').onchange=load;$('sourceDate').onchange=load;
+$('department').onchange=()=>{activeOutlet='';load();};$('sourceDate').onchange=load;
 $('form').onsubmit=async e=>{
  e.preventDefault(); if(busy)return; busy=true; disable(true); $('message').textContent='正在送出…';
  try{
-  const dept=$('department').value,sourceDate=$('sourceDate').value,items=core.submissionItems(rows,rows.map((_,i)=>$(`qty${i}`).value));
+  const dept=$('department').value,sourceDate=$('sourceDate').value,outlet=activeOutlet,items=core.submissionItems(rows,rows.map((_,i)=>$(`qty${i}`).value));
   const template=await getDocFromServer(doc(db,'inventory_config','master_template'));
   if(!template.exists())throw new Error('找不到設定');
-  const latest=template.data(),latestRows=core.settings(latest.sendwashSettings || [],latest.items).filter(r=>r.hotel===hotel&&r.department===dept);
+  const latest=template.data(),latestRows=core.settings(latest.sendwashSettings || [],latest.items).filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===outlet);
   if(JSON.stringify(rows)!==JSON.stringify(latestRows))throw new Error('對點設定已更新，請重新整理後填寫');
   const target=core.targetDate(hotel,dept,sourceDate,latest.deliverySchedules);
   if($('target').textContent!==`預計送回／寫入登記單：${target}`)throw new Error('收送日設定已更新，請重新整理後確認日期');
-  const id=core.submissionId(hotel,dept,sourceDate);
+  const id=core.submissionId(hotel,dept,sourceDate,outlet);
   const ref=doc(db,'sendwash_records',id);
   const expected=current?.revision || 0;
-  await runTransaction(db,async tx=>{const snap=await tx.get(ref);const old=snap.exists()?snap.data():{};if(old.acceptedAt || Object.keys(old.receivedItems || {}).length)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
+  await runTransaction(db,async tx=>{const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;const old=snap.exists()?snap.data():{};if(signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');if(old.acceptedAt || Object.keys(old.receivedItems || {}).length)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
   await load(); $('message').textContent=items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。';
  }catch(e){showError(e);disable(false);}finally{busy=false;}
 };
@@ -78,6 +88,7 @@ try{
  await load();
 }catch(e){showError(e);$('items').textContent='請由場內管理人員確認試算表對點設定。';}
 </script></body></html>
+
 
 
 

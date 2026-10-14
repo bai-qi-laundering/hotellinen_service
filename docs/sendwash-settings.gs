@@ -16,6 +16,7 @@ function readSendwashSettings(ss) {
     if (index < 0) throw new Error('送洗對點設定缺少欄位：' + name);
     columns[name] = index;
   });
+  var outletColumn = header.indexOf('餐廳');
   return values.filter(function(row) { return row.some(function(cell) { return cell !== ''; }); }).filter(function(row) {
     var enabled = String(row[columns['是否啟用']]).trim().toLowerCase();
     if (['是', 'true', '1', '啟用'].indexOf(enabled) >= 0) return true;
@@ -24,8 +25,9 @@ function readSendwashSettings(ss) {
   }).map(function(row) {
     return {
       hotel: row[columns['飯店']].trim(), department: row[columns['部門']].trim(),
-      item: row[columns['品項']].trim(), defaultQuantity: row[columns['預設數量']].trim(),
+      item: row[columns['品項']].trim(), outlet: outletColumn >= 0 ? String(row[outletColumn] || '').trim() : '', defaultQuantity: row[columns['預設數量']].trim(),
       unit: row[columns['單位']].trim(), order: row[columns['排列順序']].trim()
     };
   });
 }
+
