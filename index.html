@@ -118,6 +118,7 @@
 
             <div class="mt-8 bg-blue-50 p-5 rounded-2xl shadow-sm border-2 border-dashed border-blue-300">
                 <h2 class="text-xl font-black mb-3 text-blue-800">➕ 找不到品項？今日臨時新增</h2>
+                <p id="supplementOutletHint" class="hidden text-lg font-bold text-blue-800 mb-3"></p>
                 <div class="flex gap-2 relative">
                     <div class="relative flex-1">
                         <input id="newItemInput" class="w-full h-full p-4 text-xl font-bold border-2 border-blue-200 rounded-xl outline-none focus:border-blue-500 bg-white pr-14" placeholder="打字或點箭頭 👉">
@@ -205,8 +206,8 @@
         </div>
     </div>
 
-    <script src="sendwash-core.js?v=20261014-outlets"></script>
-    <script src="sendwash-verification.js?v=20261014-outlets"></script>
+    <script src="sendwash-core.js?v=20261015-recheck-only"></script>
+    <script src="sendwash-verification.js?v=20261015-recheck-only"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -640,6 +641,12 @@
 
             if (window.sendwashPendingItems) displayItems = [...new Set([...displayItems, ...window.sendwashPendingItems(dateStr, currentHotelName)])];
             if (window.filterSendwashOutlets) displayItems = window.filterSendwashOutlets(dateStr, currentHotelName, displayItems);
+            const supplementContext = window.sendwashSupplementContext && window.sendwashSupplementContext(dateStr, currentHotelName, '');
+            const supplementHint = document.getElementById('supplementOutletHint');
+            if (supplementHint) {
+                supplementHint.classList.toggle('hidden', !supplementContext);
+                supplementHint.textContent = supplementContext ? `司機漏寫的品項可在此補登，加入「${supplementContext.outlet}」。` : '';
+            }
             const itemsList = document.getElementById('itemsList');
             
             let needsRebuild = forceRebuild || itemsList.children.length === 0 || itemsList.children.length !== displayItems.length || itemsList.dataset.hotel !== currentHotelName || itemsList.dataset.date !== dateStr;
@@ -659,6 +666,7 @@
             displayItems.forEach(itemName => {
                 const safeId = window.getSafeId(itemName);
                 const u = todayInputs[itemName] || {};
+                const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(dateStr, currentHotelName, itemName);
                 const sendwashCard = window.sendwashCard && window.sendwashCard(itemName, dateStr, currentHotelName, u);
                 if (sendwashCard) {
                     if (needsRebuild) htmlContent += sendwashCard;
@@ -704,6 +712,11 @@
                 } else {
                     auntActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'aunt')" class="w-full py-2 bg-blue-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-blue-700">第一步-簽名</button>`;
                 }
+                if (recheckOnly) {
+                    auntText = count !== '' ? count : '未登記';
+                    auntDisplayClass = 'bg-gray-100 text-gray-700 border-gray-300';
+                    auntActionButton = `<div class="w-full py-2 text-gray-600 rounded-lg font-bold text-base text-center">${u.sendwashSupplemental ? '司機漏登・現場補入' : '飯店登記帶入'}</div>`;
+                }
 
                 let supDisplayClass = supCompleted ? "bg-white text-blue-800 border-green-500 shadow-inner" : "bg-white text-blue-400 border-blue-200";
                 let supText = doubleCount !== "" ? doubleCount : (supCompleted ? "輸入數量" : "等待輸入");
@@ -720,6 +733,7 @@
                 } else {
                     supActionButton = `<button onclick="openSign('${currentHotelName}', '${itemName}', 'sup')" class="w-full py-2 bg-green-600 text-white rounded-lg font-bold shadow-md text-sm active:bg-green-700">第二步-複點簽名</button>`;
                 }
+                if (recheckOnly) supActionButton = supActionButton.replace('第二步-複點簽名', '複點簽名');
 
                 // ★ 卡片變成粉紅色的條件，改為：【有簽名 && 有輸入數量】
                 let cardClass = isSupFullyDone ? "bg-pink-100 border-2 border-pink-400 shadow-md" : "bg-white border-2 border-gray-200 shadow-sm";
@@ -730,7 +744,7 @@
                         <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">${window.sendwashOutletDisplay ? window.sendwashOutletDisplay(itemName) : itemName}</div>
                         <div class="flex gap-2 mb-4 relative z-20">
                             <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}">
-                                <div class="text-sm font-bold text-gray-500 mb-2 text-center">廠內實點</div>
+                                <div class="text-sm font-bold text-gray-500 mb-2 text-center">${recheckOnly ? '飯店送洗' : '廠內實點'}</div>
                                 <div id="aunt_box_${safeId}" onclick="handleItemClick('${itemName}', 'aunt')" class="px-1 py-3 text-center font-black text-3xl border-b-4 rounded-t-lg cursor-pointer mb-3 ${auntDisplayClass}">${auntText}</div>
                                 <div id="aunt_action_${safeId}" class="item-action">${auntActionButton}</div>
                             </div>
@@ -779,7 +793,9 @@
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][item]) || {};
             if (u.isSaving) return;
-            if (u.countSource === 'sendwash' && role === 'sup' && !u.signature) return showMessage('請先完成回廠現場點收及簽名');
+            const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(dateStr, currentHotelName, item);
+            if (recheckOnly && role === 'aunt') return showMessage('左側為飯店送洗數量，請在右側填寫複點數量並簽名。', false);
+            if (!recheckOnly && u.countSource === 'sendwash' && role === 'sup' && !u.signature) return showMessage('請先完成回廠現場點收及簽名');
             
             if (role === 'aunt') {
                 if (u.doubleSignature) return showMessage("🔒 複點人員已簽名！\n現場數量已被完全鎖定，無法修改囉！");
@@ -826,7 +842,9 @@
         
         function openSign(category, item, role) { 
             const before = (userInputs[document.getElementById('datePicker').value] && userInputs[document.getElementById('datePicker').value][category] && userInputs[document.getElementById('datePicker').value][category][item]) || {};
-            if (before.countSource === 'sendwash' && role === 'sup' && !before.signature) return showMessage('請先完成回廠現場點收及簽名');
+            const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(document.getElementById('datePicker').value, category, item);
+            if (recheckOnly && role === 'aunt') return showMessage('請使用右側複點簽名。', false);
+            if (!recheckOnly && before.countSource === 'sendwash' && role === 'sup' && !before.signature) return showMessage('請先完成回廠現場點收及簽名');
             activeCategory = category; activeItem = item; activeRole = role; document.getElementById('signModal').classList.remove('hidden'); 
             const dateStr = document.getElementById('datePicker').value;
             const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || {};
@@ -842,7 +860,7 @@
                 canvas.isLocked = (existingSig && !u.saveError) ? true : false;
                 const titleEl = document.getElementById('signModalTitle');
                 if (canvas.isLocked) { titleEl.innerText = "🔒 請先按【清除重寫】才能修改"; titleEl.className = "text-lg font-black text-red-600 animate-pulse"; } 
-                else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : "第二步：複點人員簽名"; titleEl.className = "text-lg font-black text-blue-800"; }
+                else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : (recheckOnly ? "複點人員簽名" : "第二步：複點人員簽名"); titleEl.className = "text-lg font-black text-blue-800"; }
                 
                 if (existingSig) {
                     if (existingSig === 'CACHED') {
@@ -957,6 +975,20 @@
         function addNewItem() {
             const inputEl = document.getElementById('newItemInput'); const newItemName = inputEl.value.trim(); const dateStr = document.getElementById('datePicker').value;
             if (!newItemName) return showMessage("請輸入要新增的品項名稱喔！");
+            let supplement;
+            try { supplement = window.sendwashSupplementContext && window.sendwashSupplementContext(dateStr, currentHotelName, newItemName); }
+            catch (error) { return showMessage(error.message); }
+            if (supplement) {
+                const key = supplement.item;
+                const inToday = userInputs[dateStr]?.[currentHotelName]?.[key];
+                if (inToday || (window.sendwashPendingItems && window.sendwashPendingItems(dateStr, currentHotelName).includes(key))) return showMessage('這個餐廳的品項已在列表裡，請直接填寫該品項數量。');
+                handleInput(dateStr, currentHotelName, key, 'count', '');
+                Object.entries(supplement).forEach(([field, value]) => handleInput(dateStr, currentHotelName, key, field, value));
+                handleInput(dateStr, currentHotelName, key, 'sendwashLoadedCount', '');
+                handleInput(dateStr, currentHotelName, key, 'sendwashLoadedDoubleCount', '');
+                inputEl.value = ''; renderItems(true); showToast(`✅ 已加入「${supplement.outlet}」，請填數量並簽名儲存`);
+                return;
+            }
             const inTemplate = masterData.some(d => d.hotel === currentHotelName && d.item === newItemName);
             const inToday = userInputs[dateStr] && userInputs[dateStr][currentHotelName] && userInputs[dateStr][currentHotelName][newItemName];
             if (inTemplate || inToday) return showMessage("這個品項已經在當天的列表裡面囉！");
@@ -1122,6 +1154,11 @@
                                 
                                 userInputs[dDate][r.hotel][r.item] = { 
                                     countSource: r.countSource || '',
+                                    baseHotel: r.baseHotel || '',
+                                    department: r.department || '',
+                                    outlet: r.outlet || '',
+                                    sourceItem: r.sourceItem || '',
+                                    sendwashSupplemental: r.sendwashSupplemental || false,
                                     sendwashStage: r.sendwashStage || '',
                                     sendwashLoadedCount: r.count ?? '',
                                     sendwashLoadedDoubleCount: r.doubleCount ?? '',
@@ -1173,7 +1210,7 @@
 
                     const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
                     
-                    if (u && u.sendwashPending && !u.signature) return window.savePendingSendwashNote(dateStr, category, item, u.note || '');
+                    if (u && u.sendwashPending && !u.signature && !u.doubleSignature) return window.savePendingSendwashNote(dateStr, category, item, u.note || '');
                     if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
 
                     handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
@@ -1198,6 +1235,10 @@
                             const saved = await window.persistPendingSendwash(dateStr, category, item, payload, u.sendwashPending, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
                             handleInput(dateStr, category, item, 'sendwashSources', saved.sendwashSources);
                             handleInput(dateStr, category, item, 'sendwashPending', null);
+                            handleInput(dateStr, category, item, 'sendwashLoadedCount', saved.count);
+                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', saved.doubleCount);
+                        } else if (u.sendwashSupplemental) {
+                            const saved = await window.persistSupplementalSendwash(dateStr, category, item, payload, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
                             handleInput(dateStr, category, item, 'sendwashLoadedCount', saved.count);
                             handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', saved.doubleCount);
                         } else if (u.countSource === 'sendwash') {

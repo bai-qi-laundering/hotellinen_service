@@ -4,11 +4,28 @@
  window.setSendwashSettings=rows=>{settings=Array.isArray(rows)?rows:[];};
  const itemKey=(record,item)=>core.outletItem(record.outlet || '',item);
  const sourceItem=(record,key)=>record.outlet ? record.items.find(i=>itemKey(record,i.item)===key)?.item : key;
+ window.sendwashItemContext=(date,hotel,item)=>{
+  const source=[...records.values()].find(r=>r.targetDate===date&&r.inventoryHotel===hotel&&r.outlet&&r.items.some(i=>itemKey(r,i.item)===item));
+  if(source)return {baseHotel:source.hotel,department:source.department,outlet:source.outlet,sourceItem:sourceItem(source,item)};
+  const setting=settings.find(r=>r.inventoryHotel===hotel&&r.outlet&&item.startsWith(`【${r.outlet}】`));
+  if(setting)return {baseHotel:setting.hotel,department:setting.department,outlet:setting.outlet,sourceItem:item.slice(`【${setting.outlet}】`.length)};
+  const saved=userInputs[date]?.[hotel]?.[item];
+  return saved?.outlet ? {baseHotel:saved.baseHotel,department:saved.department,outlet:saved.outlet,sourceItem:saved.sourceItem} : null;
+ };
+ window.sendwashRecheckOnly=(date,hotel,item)=>core.recheckOnly(window.sendwashItemContext(date,hotel,item) || {});
+ window.sendwashSupplementContext=(date,hotel,item)=>{
+  const outlet=activeOutlet.get(hotel),setting=settings.find(r=>r.inventoryHotel===hotel&&r.outlet===outlet);
+  if(!outlet||!setting)return null;
+  if(/["'<>\\/\r\n]/.test(item))throw new Error('品項名稱不可包含引號、斜線或換行');
+  return {item:core.outletItem(outlet,item),baseHotel:setting.hotel,department:setting.department,outlet,sourceItem:item,countSource:'sendwash',sendwashSupplemental:true};
+ };
  window.startSendwashVerification=async database=>{db=database;api=await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');ready=true;};
  const pending=(date,hotel,item)=>[...records.values()].filter(r=>r.targetDate===date&&r.inventoryHotel===hotel&&!r.acceptedAt&&r.items.some(x=>itemKey(r,x.item)===item&&!r.receivedItems?.[x.item]));
  window.sendwashOutletDisplay=item=>{
   const row=[...records.values()].find(r=>r.outlet&&r.items.some(x=>itemKey(r,x.item)===item));
-  return row ? sourceItem(row,item) : item;
+  if(row)return sourceItem(row,item);
+  const setting=settings.find(r=>r.outlet&&item.startsWith(`【${r.outlet}】`));
+  return setting ? item.slice(`【${setting.outlet}】`.length) : item;
  };
  window.filterSendwashOutlets=(date,hotel,items)=>{
   const names=[...new Set([...settings.filter(r=>r.inventoryHotel===hotel&&r.outlet).map(r=>r.outlet),...[...records.values()].filter(r=>r.targetDate===date&&r.inventoryHotel===hotel&&r.outlet).map(r=>r.outlet)])];
@@ -55,13 +72,20 @@
    const received=expectedSources.length>0&&expectedSources.every(r=>old.sendwashSources?.[r.id]);
    if(received){
     const unchanged=String(old.count)===count&&String(old.doubleCount ?? '')===String(payload.doubleCount ?? '')&&(!payload.signature||old.signature===payload.signature)&&(!payload.doubleSignature||old.doubleSignature===payload.doubleSignature)&&String(old.note ?? '')===String(payload.note ?? '');
-    if(unchanged&&old.countSource==='sendwash'&&old.signature&&(!payload.doubleCount||old.doubleSignature))return old;
+    if(unchanged&&old.countSource==='sendwash'&&(old.signature||core.recheckOnly(old)&&old.doubleSignature)&&(!payload.doubleCount||old.doubleSignature))return old;
     const updated=core.sendwashInventoryPatch(old,payload,String(old.count)===count?old.count:expectedCount,expectedDoubleCount);
     const value={...updated,timestamp:new Date().toISOString()};tx.set(recordRef,value,{merge:true});return {...old,...value};
    }
-   if(!payload.signature || payload.signature==='CACHED')throw new Error('簽名尚未成功儲存，請點開簽名重新簽署後儲存');
-   if(payload.doubleSignature || payload.doubleCount!=='')throw new Error('請先儲存廠內實點，再另做複點確認');
    const refs=expectedSources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
+   const first=snaps[0]?.exists()?snaps[0].data():{},single=core.recheckOnly(first);
+   if(single){
+    if(!payload.doubleSignature||payload.doubleSignature==='CACHED')throw new Error('請點開複點簽名，完成簽署後儲存');
+    core.quantity(payload.doubleCount);
+    if(count!==String(Number(old.count || 0)+expectedSources.reduce((sum,r)=>sum+Number(r.quantity),0)))throw new Error('飯店送洗數量不可在複點時修改，請修改右側複點數量');
+   }else{
+    if(!payload.signature || payload.signature==='CACHED')throw new Error('簽名尚未成功儲存，請點開簽名重新簽署後儲存');
+    if(payload.doubleSignature || payload.doubleCount!=='')throw new Error('請先儲存廠內實點，再另做複點確認');
+   }
    if(old.doubleSignature)throw new Error('此品項已完成複點，廠內數量已鎖定');
    if(inv.exists()&&old.countSource!=='sendwash'&&[old.count,old.doubleCount,old.signature,old.doubleSignature].some(v=>v!==undefined&&v!==null&&v!==''))throw new Error('已有人工點收資料，請先核對，系統不會覆蓋');
    if(String(old.count ?? '')!==String(expectedCount ?? '')||String(old.doubleCount ?? '')!==String(expectedDoubleCount ?? ''))throw new Error('此品項數量已由其他人更新，請重新載入後確認');
@@ -73,12 +97,28 @@
     if(latest.targetDate!==date||latest.inventoryHotel!==hotel||!row||core.quantity(row.quantity)!==expected.quantity)throw new Error('飯店已修改此品項數量，請重新載入後確認');
     if(latest.acceptedAt||latest.receivedItems?.[key]||sources[expected.id])throw new Error('此品項已由其他人點收，請重新載入');
     sources[expected.id]={declared:expected.quantity,receivedAt:time};
-    const receivedItems={...(latest.receivedItems || {}),[key]:{signature:payload.signature,receivedAt:time,aggregateActual:count}};
+    if(core.recheckOnly(latest)!==single||latest.outlet!==first.outlet)throw new Error('餐廳來源不一致，請重新載入');
+    const receivedItems={...(latest.receivedItems || {}),[key]:{...(single?{doubleSignature:payload.doubleSignature,signatureMode:'recheck-only'}:{signature:payload.signature}),receivedAt:time,aggregateActual:single?core.quantity(payload.doubleCount):count}};
     return {receivedItems,notes:{...(latest.notes || {}),[key]:payload.note || ''},...(latest.items.every(r=>receivedItems[r.item])?{acceptedAt:time,receivedAt:time}:{} )};
    });
-   const outlet=snaps[0]?.data()?.outlet || '';
-   const value={...payload,...(outlet?{outlet,sourceItem:sourceItem(snaps[0].data(),item)}:{}),count,doubleCount:'',doubleSignature:'',doubleSignDate:'',countSource:'sendwash',sendwashStage:'received',sendwashSources:sources,timestamp:time};
+   const outlet=first.outlet || '';
+   const value={...payload,...(outlet?{baseHotel:first.hotel,department:first.department,outlet,sourceItem:sourceItem(first,item)}:{}),count,...(single?{signature:old.signature || '',doubleCount:core.quantity(payload.doubleCount)}:{doubleCount:'',doubleSignature:'',doubleSignDate:''}),countSource:'sendwash',sendwashStage:single?'ready':'received',sendwashSources:sources,timestamp:time};
    tx.set(recordRef,value,{merge:true});refs.forEach((ref,i)=>tx.update(ref,updates[i]));return {...old,...value};
+  });
+ };
+ window.persistSupplementalSendwash=async(date,hotel,item,payload,expectedCount,expectedDoubleCount)=>{
+  if(!ready)throw new Error('連線中，請稍後重試');
+  const context=window.sendwashItemContext(date,hotel,item);
+  if(!context?.outlet)throw new Error('找不到補登品項的餐廳，請重新載入');
+  return api.runTransaction(db,async tx=>{
+   const ref=api.doc(db,'inventory_records',core.inventoryId(date,hotel,item)),snap=await tx.get(ref);
+   const receipt=await tx.get(api.doc(db,'logistics_records',`${date}_${context.baseHotel}_${context.department}`));
+   if(receipt.exists()&&(receipt.data().clientSig||receipt.data().driverSig))throw new Error('餐廳總單已簽收，不能新增或修改補登品項');
+   const old=snap.exists()?snap.data():{...context,countSource:'sendwash',sendwashSupplemental:true,count:'',doubleCount:''};
+   if(snap.exists()&&(!old.sendwashSupplemental||old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項已有其他來源，請重新載入後核對，系統不會覆蓋');
+   const updated=core.sendwashInventoryPatch(old,payload,expectedCount,expectedDoubleCount);
+   const value={...updated,...context,sendwashSupplemental:true,timestamp:new Date().toISOString()};
+   tx.set(ref,value,{merge:true});return {...old,...value};
   });
  };
 })();

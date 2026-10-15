@@ -66,20 +66,25 @@
         const values = Object.values(sources);
         return {sendwashSources:sources,count:quantity(values.reduce((s,r)=>s+Number(r.declared),0)),doubleCount:quantity(values.reduce((s,r)=>s+Number(r.actual),0))};
     }
+    // Only InterContinental's restaurant outlets skip the dirty-linen signature.
+    const recheckOnly = record => normalize(record.baseHotel || String(record.hotel || '').split(/\s+/)[0]) === '洲際' && !!record.outlet && department(record.department || '') !== '制服';
     function sendwashInventoryPatch(latest, payload, expectedCount, expectedDoubleCount) {
         if (latest.countSource !== 'sendwash') throw new Error('來源單已變更，請重新載入');
         if (String(latest.count ?? '') !== String(expectedCount ?? '') || String(latest.doubleCount ?? '') !== String(expectedDoubleCount ?? '')) throw new Error('數量已由其他人更新，請重新載入後確認');
-        const count = quantity(payload.count);
+        const single = recheckOnly(latest);
+        const count = single && latest.sendwashSupplemental && payload.count === '' ? '' : quantity(payload.count);
         const doubleCount = payload.doubleCount === '' ? '' : quantity(payload.doubleCount);
         if (latest.doubleSignature && (count !== String(latest.count) || (payload.signature && payload.signature !== latest.signature))) throw new Error('已完成出貨複點，現場數量與簽名已鎖定');
         const firstSignature = payload.signature || latest.signature;
         const secondSignature = payload.doubleSignature || latest.doubleSignature;
-        if (!firstSignature) throw new Error('請先完成回廠現場簽名');
+        if (!single && !firstSignature) throw new Error('請先完成回廠現場簽名');
+        if (single && !secondSignature) throw new Error('請完成複點簽名');
+        if (single && count !== String(latest.count ?? '')) throw new Error('飯店送洗數量不可在複點時修改，請修改右側複點數量');
         if (secondSignature && doubleCount === '') throw new Error('請填入出貨複點數量');
         if (doubleCount !== '' && !secondSignature) throw new Error('請完成出貨複點簽名');
         return {...payload, count, doubleCount, countSource:'sendwash', sendwashStage:secondSignature && doubleCount !== '' ? 'ready' : 'received'};
     }
-    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
+    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);
