@@ -14,6 +14,39 @@ export function addInventoryQuantity(map, outletKeys, key, row, outlet = '') {
     if (outlet) outletKeys.add(key);
 }
 
+// Older outlet rows can lack metadata and keep the encoded name instead.
+export function receiptInventoryIdentity(record, itemName, hotel) {
+    if (record.outlet && record.sourceItem) return {itemName:String(record.sourceItem).trim(),outlet:record.outlet};
+    const encoded = hotel === '洲際' && /^【([^】]+)】(.+)$/.exec(String(itemName).trim());
+    return encoded ? {itemName:encoded[2].trim(),outlet:encoded[1]} : {itemName:String(itemName).trim(),outlet:record.outlet || ''};
+}
+
+// A saved total is authoritative; its old outlet breakdown must not be billed again.
+export function receiptTotalItems(items, hotel) {
+    if (hotel !== '洲際') return items;
+    const groups = new Map();
+    for (const item of items) {
+        const source = String(/^【[^】]+】/.test(item.inventoryItemName || '')?item.inventoryItemName:/^【[^】]+】/.test(item.itemName || '')?item.itemName:item.inventoryItemName || item.itemName || '').trim();
+        const identity = receiptInventoryIdentity(item,source,hotel),key=normalizeItemName(identity.itemName);
+        if (!groups.has(key)) groups.set(key,[]);
+        groups.get(key).push({item,identity});
+    }
+    return [...groups.values()].flatMap(group=>{
+        const totals=group.filter(row=>!row.identity.outlet);
+        if (totals.length) return totals.map(row=>({...row.item}));
+        const first=group[0],name=first.identity.itemName;
+        const sum=field=>String(group.reduce((value,row)=>{
+            const present=value=>value!==undefined&&value!==null&&value!=='';
+            const qty=Number(present(row.item[field])?row.item[field]:present(row.item.originalQty)?row.item.originalQty:row.item.bqQty ?? 0);
+            if(!Number.isSafeInteger(qty)||qty<0||!Number.isSafeInteger(value+qty))throw new Error('餐廳簽收數量格式錯誤，請確認原單');
+            return value+qty;
+        },0));
+        const result={...first.item,itemName:/^【[^】]+】/.test(first.item.itemName)?name:first.item.itemName,inventoryItemName:name,originalQty:sum('originalQty'),actualQty:sum('actualQty'),auntNote:group.map(row=>row.item.auntNote).filter(Boolean).join('；'),driverNote:group.map(row=>row.item.driverNote).filter(Boolean).join('；')};
+        delete result.outlet;delete result.sourceItem;
+        return result;
+    });
+}
+
 export function unreceivedOutletItems(records, date, hotel, department) {
     return records.filter(r=>r.targetDate===date && r.hotel===hotel && r.department===department && r.outlet)
         .flatMap(r=>(r.items || []).filter(i=>!r.receivedItems?.[i.item]).map(i=>`${r.outlet}／${i.item}`));

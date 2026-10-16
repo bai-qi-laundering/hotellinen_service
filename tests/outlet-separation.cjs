@@ -44,5 +44,5 @@ test('driver gets one restaurant item with exact signed counts, including zero a
  const rows=[{hotel:'其他飯店',department:'餐廳',outlet:'SEEDS',targetDate:'2026-10-15',items:[{item:'口布'}],receivedItems:{口布:{signature:'a'}}},{hotel:'其他飯店',department:'餐廳',outlet:'湛露',targetDate:'2026-10-15',items:[{item:'口布'}]}];
  assert.deepEqual(module.unreceivedOutletItems(rows,'2026-10-15','其他飯店','餐廳'),['湛露／口布']);
  assert.deepEqual(module.unreceivedOutletItems(rows,'2026-10-16','其他飯店','餐廳'),[]);
- const log=fs.readFileSync('logistics.html','utf8');assert(log.includes('d.outlet && d.sourceItem'));assert(log.includes('addInventoryQuantity(inventoryMap'));
+ const log=fs.readFileSync('logistics.html','utf8');assert(log.includes('receiptInventoryIdentity(d,itemName,currentHotel)'));assert(log.includes('addInventoryQuantity(inventoryMap'));
 });

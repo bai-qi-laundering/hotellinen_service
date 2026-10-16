@@ -101,7 +101,7 @@
         }, 20000);
     </script>
     <script type="module">
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, unreceivedOutletItems } from './logistics-items.js?v=20261014-outlets';
+        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, unreceivedOutletItems, receiptInventoryIdentity, receiptTotalItems } from './logistics-items.js?v=20261016-totals';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -409,7 +409,7 @@
                     return; 
                 }
 
-                let inventoryMap = {}, outletKeys = new Set(); 
+                let inventoryMap = {}, outletKeys = new Set(), inventoryRows = [];
                 
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
@@ -424,12 +424,12 @@
                             if (isValidItemName(itemName)) {
                                 // Outlet checks stay separate in inventory; the driver's existing
                                 // restaurant row receives a single sum per original item.
-                                const sourceItem=d.outlet && d.sourceItem ? String(d.sourceItem).trim() : String(itemName).trim();
+                                const identity=receiptInventoryIdentity(d,itemName,currentHotel),sourceItem=identity.itemName;
                                 let key = `${deptName}_${sourceItem}`;
-                                addInventoryQuantity(inventoryMap,outletKeys,key,{
+                                inventoryRows.push({key,row:{
                                     deptName: deptName, itemName: sourceItem,
                                     originalQty: extractQty(itemData), auntNote: (d.outlet && itemData.note ? `${d.outlet}：` : '') + (itemData.note || itemData.auntNote || d.note || "")
-                                },d.outlet || '');
+                                },outlet:identity.outlet});
                             }
                         };
 
@@ -441,10 +441,16 @@
                     }
                 });
 
+                const detailedKeys=new Set(inventoryRows.filter(row=>row.outlet).map(row=>row.key));
+                inventoryRows.forEach(({key,row,outlet})=>{
+                    if(currentHotel==='洲際'&&!outlet&&detailedKeys.has(key))return;
+                    addInventoryQuantity(inventoryMap,outletKeys,key,row,outlet);
+                });
+
                 let savedLogistics = {};
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    savedLogistics[d.deptName] = d;
+                    savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
 
                 for (let key in inventoryMap) {
@@ -868,7 +874,7 @@
                         const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
-                            update.items=mergeSignedItems(prior.items || [], items);
+                            update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
                             if(clientUrl) update.clientSig=clientUrl;
                             if(driverUrl) update.driverSig=driverUrl;
                         } else {

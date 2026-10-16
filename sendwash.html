@@ -25,28 +25,82 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 @media(max-width:480px){body{padding:16px}section{padding:16px}h1{font-size:28px}}
 </style></head>
 <body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><nav id="outletTabs" aria-label="選擇餐廳" hidden></nav><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
-<script src="sendwash-core.js?v=20261014-outlets"></script>
+<script src="sendwash-core.js?v=20261016-batch"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 const db=initializeFirestore(initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',storageBucket:'hotel-inventory-3a1ad.firebasestorage.app',messagingSenderId:'363844184412',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}),{localCache:memoryLocalCache()});
 const core=window.SendwashCore,$=id=>document.getElementById(id),params=new URLSearchParams(location.search),hotel=params.get('hotel');
 let config,settings,rows=[],current=null,busy=false,sequence=0,activeOutlet='';
+const batchDrafts=new Map();let shownBatchId=null,activeBatchId='';
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
 $('sourceDate').value=today; // The receipt date is an outbound date, never an inbound default.
 const back=new URL('logistics.html',location.href); if(hotel) back.searchParams.set('hotel',hotel); if(params.get('date')) back.searchParams.set('date',params.get('date')); $('back').href=back;
 function disable(value){$('department').disabled=value;$('sourceDate').disabled=value;$('submit').disabled=value;}
 function showError(error){$('message').textContent=error.message || String(error);}
 function outletsFor(dept){return [...new Set(settings.filter(r=>r.department===dept).map(r=>r.outlet || ''))];}
+const locked=record=>Boolean(record?.acceptedAt || Object.keys(record?.receivedItems || {}).length);
+const batchRows=list=>list.filter(r=>core.normalize(r.hotel)==='洲際'&&r.outlet&&core.department(r.department)!=='制服');
+const batchEnabled=dept=>batchRows(settings).some(r=>r.department===dept);
+function batchGroups(list,sourceDate){
+ const groups=new Map();
+ batchRows(list).forEach(row=>{const id=core.submissionId(hotel,row.department,sourceDate,row.outlet);if(!groups.has(id))groups.set(id,{id,department:row.department,outlet:row.outlet,sourceDate,rows:[]});groups.get(id).rows.push(row);});
+ return [...groups.values()];
+}
+function rememberBatch(){
+ const draft=batchDrafts.get(shownBatchId);if(!draft||locked(draft.current))return;
+ draft.values=draft.rows.map((_,i)=>$(`qty${i}`)?.value ?? draft.values[i]);
+}
+async function loadBatch(request,dept,sourceDate){
+ const groups=batchGroups(settings,sourceDate);
+ const missing=groups.filter(group=>!batchDrafts.has(group.id));
+ const loaded=await Promise.all(missing.map(async group=>{const snap=await getDocFromServer(doc(db,'sendwash_records',group.id)),record=snap.exists()?snap.data():null;return {...group,current:record,values:group.rows.map(row=>record?(record.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};}));
+ if(request!==sequence)return;
+ loaded.forEach(group=>batchDrafts.set(group.id,group));
+ if(!groups.some(group=>group.id===activeBatchId))activeBatchId=(groups.find(group=>group.department===dept)||groups[0]).id;
+ const selected=batchDrafts.get(activeBatchId),nav=$('outletTabs'),scroll=nav.scrollLeft;nav.replaceChildren();nav.hidden=false;
+ groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(locked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;return load();};nav.append(button);});nav.scrollLeft=scroll;
+ rows=selected.rows;current=selected.current;shownBatchId=selected.id;
+ const target=core.targetDate(hotel,selected.department,sourceDate,config.deliverySchedules);
+ $('target').textContent=`共 ${groups.length} 個餐廳，切換填寫後一次送出。\n${selected.outlet} 預計送回：${target}`;
+ $('items').replaceChildren();
+ rows.forEach((row,i)=>{const label=document.createElement('label');label.textContent=`${row.item}（${row.unit}）`;const input=document.createElement('input');input.id=`qty${i}`;input.type='number';input.min='0';input.step='1';input.inputMode='numeric';input.required=false;input.placeholder='本次未送洗，可留白';input.value=selected.values[i];input.disabled=locked(current);input.oninput=()=>{selected.values[i]=input.value;};label.append(input);$('items').append(label);});
+ disable(false);$('submit').textContent='一次送出全部餐廳';$('submit').disabled=groups.every(group=>locked(batchDrafts.get(group.id).current));
+ $('message').textContent=locked(current)?'這個餐廳已開始點收，原單保留；其他尚未點收的餐廳仍可填寫後一起送出。':'左右切換餐廳會保留已填數量，全部填完後按一次送出即可。';
+}
+async function submitBatch(){
+ rememberBatch();rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=true;});const sourceDate=$('sourceDate').value,groups=batchGroups(settings,sourceDate);
+ if(!groups.length||groups.some(group=>!batchDrafts.has(group.id)))throw new Error('餐廳單據尚未讀取完成，請重新載入');
+ const template=await getDocFromServer(doc(db,'inventory_config','master_template'));if(!template.exists())throw new Error('找不到設定');
+ const latest=template.data(),latestSettings=core.settings(latest.sendwashSettings || [],latest.items).filter(r=>r.hotel===hotel);
+ if(JSON.stringify(batchRows(settings))!==JSON.stringify(batchRows(latestSettings)))throw new Error('餐廳對點設定已更新，請重新整理後填寫');
+ const plans=groups.filter(group=>!locked(batchDrafts.get(group.id).current)).map(group=>{
+  const draft=batchDrafts.get(group.id),targetDate=core.targetDate(hotel,group.department,sourceDate,latest.deliverySchedules);
+  if(targetDate!==core.targetDate(hotel,group.department,sourceDate,config.deliverySchedules))throw new Error('收送日設定已更新，請重新整理後確認日期');
+  return {...group,items:core.submissionItems(group.rows,draft.values),expected:draft.current?.revision || 0,targetDate};
+ });
+ if(!plans.length)throw new Error('全部餐廳已開始點收，原單已鎖定');
+ await runTransaction(db,async tx=>{
+  const snapshots=[];for(const plan of plans)snapshots.push(await tx.get(doc(db,'sendwash_records',plan.id)));
+  const receiptIds=[...new Set(plans.map(plan=>`${plan.targetDate}_${hotel}_${plan.department}`))],receipts=[];for(const id of receiptIds)receipts.push(await tx.get(doc(db,'logistics_records',id)));
+  if(receipts.some(snap=>snap.exists()&&(snap.data().driverSig||snap.data().clientSig)))throw new Error('餐廳總單已簽收，本次全部尚未送出');
+  const updates=plans.map((plan,i)=>{const old=snapshots[i].exists()?snapshots[i].data():{};if(locked(old))throw new Error(`${plan.outlet} 已開始點收，本次全部尚未送出，請重新載入確認`);if((old.revision || 0)!==plan.expected)throw new Error(`${plan.outlet} 已由其他人更新，本次全部尚未送出，請重新載入確認`);return {hotel,department:plan.department,inventoryHotel:plan.rows[0].inventoryHotel,outlet:plan.outlet,sourceDate,targetDate:plan.targetDate,items:plan.items,notes:old.notes || {},noSendwash:plan.items.length===0,revision:plan.expected+1,submittedAt:new Date().toISOString()};});
+  plans.forEach((plan,i)=>tx.set(doc(db,'sendwash_records',plan.id),updates[i]));
+ });
+ shownBatchId=null;groups.forEach(group=>batchDrafts.delete(group.id));await load();$('message').textContent=`已一次送出 ${plans.length} 個餐廳！空白餐廳已登記本次無送洗，已點收的原單保留。`;
+}
 function renderOutlets(dept){
  const outlets=outletsFor(dept),nav=$('outletTabs'),scroll=nav.scrollLeft;nav.replaceChildren();nav.hidden=outlets.length<=1&&outlets[0]==='';
  if(!outlets.includes(activeOutlet))activeOutlet=outlets[0] || '';
  outlets.forEach(outlet=>{const button=document.createElement('button');button.type='button';button.textContent=outlet || '原本品項';button.setAttribute('aria-selected',String(outlet===activeOutlet));button.onclick=()=>{if(busy)return;activeOutlet=outlet;load();};nav.append(button);});nav.scrollLeft=scroll;
 }
 async function load(){
+ rememberBatch();shownBatchId=null;
  const request=++sequence; disable(true); $('items').textContent='正在確認雲端單據…'; $('message').textContent='';
  try{
   const dept=$('department').value,sourceDate=$('sourceDate').value;
+  if(batchEnabled(dept)){await loadBatch(request,dept,sourceDate);return;}
+  $('submit').textContent='送出送洗對點單';
   renderOutlets(dept);rows=settings.filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===activeOutlet);
   const target=core.targetDate(hotel,dept,sourceDate,config.deliverySchedules);
   const id=core.submissionId(hotel,dept,sourceDate,activeOutlet),snap=await getDocFromServer(doc(db,'sendwash_records',id));
@@ -64,6 +118,7 @@ $('department').onchange=()=>{activeOutlet='';load();};$('sourceDate').onchange=
 $('form').onsubmit=async e=>{
  e.preventDefault(); if(busy)return; busy=true; disable(true); $('message').textContent='正在送出…';
  try{
+  if(batchEnabled($('department').value)){await submitBatch();return;}
   const dept=$('department').value,sourceDate=$('sourceDate').value,outlet=activeOutlet,items=core.submissionItems(rows,rows.map((_,i)=>$(`qty${i}`).value));
   const template=await getDocFromServer(doc(db,'inventory_config','master_template'));
   if(!template.exists())throw new Error('找不到設定');
@@ -76,7 +131,7 @@ $('form').onsubmit=async e=>{
   const expected=current?.revision || 0;
   await runTransaction(db,async tx=>{const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;const old=snap.exists()?snap.data():{};if(signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');if(old.acceptedAt || Object.keys(old.receivedItems || {}).length)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
   await load(); $('message').textContent=items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。';
- }catch(e){showError(e);disable(false);}finally{busy=false;}
+ }catch(e){showError(e);disable(false);if(batchEnabled($('department').value))rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=locked(current);});}finally{busy=false;}
 };
 try{
  if(!hotel)throw new Error('連結缺少飯店，請從原本簽收單進入');
