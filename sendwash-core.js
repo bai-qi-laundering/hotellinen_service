@@ -93,13 +93,18 @@
             if(names.length===1)return [row];
             return names.map(item=>({...row,item,defaultQuantity:item===row.item?row.defaultQuantity:''}));
         });
-        // CLUB's cocktail towels are a separate item, with the existing outlet workflow.
+        // Keep CLUB's separate cocktail count immediately below its square towels.
         const clubGroups=new Set();
         for(const row of rows){
             if(!recheckOnly(row)||normalize(row.outlet)!=='CLUB')continue;
             const key=JSON.stringify([row.hotel,row.department,row.outlet]);
             if(clubGroups.has(key))continue;clubGroups.add(key);
-            if(!expanded.some(other=>other.hotel===row.hotel&&other.department===row.department&&other.outlet===row.outlet&&normalize(other.item)==='雞尾酒巾'))expanded.push({...row,item:'雞尾酒巾',unit:'條',defaultQuantity:''});
+            const same=other=>other.hotel===row.hotel&&other.department===row.department&&other.outlet===row.outlet;
+            const prior=expanded.findIndex(other=>same(other)&&normalize(other.item)==='雞尾酒巾');
+            const cocktail=prior<0?{...row,item:'雞尾酒巾',unit:'條',defaultQuantity:''}:expanded.splice(prior,1)[0];
+            let anchor=expanded.findIndex(other=>same(other)&&normalize(other.item)==='方巾');
+            if(anchor<0){expanded.push({...row,item:'方巾',unit:'條',defaultQuantity:''});anchor=expanded.length-1;}
+            expanded.splice(anchor+1,0,cocktail);
         }
         const seen=new Set();return expanded.filter(row=>{const key=JSON.stringify([row.hotel,row.department,row.outlet,row.item]);if(seen.has(key))return false;seen.add(key);return true;});
     }

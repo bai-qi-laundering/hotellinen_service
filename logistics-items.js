@@ -20,7 +20,7 @@ export function receiptInventoryIdentity(record, itemName, hotel) {
     const identity=record.outlet && record.sourceItem ? {itemName:String(record.sourceItem).trim(),outlet:record.outlet} : encoded ? {itemName:encoded[2].trim(),outlet:encoded[1]} : {itemName:String(itemName).trim(),outlet:record.outlet || ''};
     if(hotel==='洲際'&&identity.outlet&&!/制服/.test(record.department || record.hotel || '')){
         const item=normalizeItemName(identity.itemName),outlet=normalizeItemName(identity.outlet);
-        const total=outlet==='湛露'&&['黃口布','白口布'].includes(item)?'口布':item==='紅邊擦拭布'?'擦拭布':identity.itemName;
+        const total=outlet==='湛露'&&['黃口布','白口布'].includes(item)?'口布':item==='紅邊擦拭布'?'擦拭布':outlet==='CLUB'&&item==='雞尾酒巾'?'方巾':identity.itemName;
         if(total!==identity.itemName)return {...identity,itemName:total,detailItemName:identity.itemName};
     }
     return identity;

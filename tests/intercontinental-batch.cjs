@@ -67,8 +67,12 @@ test('an existing red-edge cloth spreadsheet row also exposes both cloth subtype
 
 test('CLUB cocktail towels are available without a new spreadsheet row and submit with the outlet batch',async()=>{
  const f=await fixture(undefined,[{hotel,department:'餐廳',outlet:'CLUB',item:'口布',unit:'條',defaultQuantity:''}]);await f.tab(3);
- assert.equal(f.elements.get('items').children[1].textContent,'雞尾酒巾（條）');f.fill(['2','0']);await f.submit();
- assert.equal(f.transactions.length,1);assert.deepEqual(f.tables.sendwash_records[f.id('CLUB')].items,[{item:'口布',quantity:'2',unit:'條'},{item:'雞尾酒巾',quantity:'0',unit:'條'}]);
+ assert.equal(f.elements.get('items').children[2].textContent,'雞尾酒巾（條）');f.fill(['2','3','0']);await f.submit();
+ assert.equal(f.transactions.length,1);assert.deepEqual(f.tables.sendwash_records[f.id('CLUB')].items,[{item:'口布',quantity:'2',unit:'條'},{item:'方巾',quantity:'3',unit:'條'},{item:'雞尾酒巾',quantity:'0',unit:'條'}]);
  assert(!f.tables.sendwash_records[f.id('大地')].items.some(i=>i.item==='雞尾酒巾'));
- const row={hotel,department:'餐廳',outlet:'CLUB',item:'雞尾酒巾',unit:'條',defaultQuantity:''};assert.equal(core.displayRows([row]).length,1);assert(!core.displayRows([{...row,hotel:'H2O',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));assert(!core.displayRows([{...row,department:'制服',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));
+ const row={hotel,department:'餐廳',outlet:'CLUB',item:'雞尾酒巾',unit:'條',defaultQuantity:''};assert.deepEqual(core.displayRows([row]).map(r=>r.item),['方巾','雞尾酒巾']);assert(!core.displayRows([{...row,hotel:'H2O',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));assert(!core.displayRows([{...row,department:'制服',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));
+});
+test('CLUB cocktail towels move directly below existing square towels without duplicate fields or losing defaults',()=>{
+ const base={hotel,department:'餐廳',outlet:'CLUB',unit:'條',defaultQuantity:''};const rows=core.displayRows([{...base,item:'雞尾酒巾',defaultQuantity:'4'},{...base,item:'口布'},{...base,item:'方巾'},{...base,item:'服務巾'}]);
+ assert.deepEqual(rows.map(r=>r.item),['口布','方巾','雞尾酒巾','服務巾']);assert.equal(rows[2].defaultQuantity,'4');
 });

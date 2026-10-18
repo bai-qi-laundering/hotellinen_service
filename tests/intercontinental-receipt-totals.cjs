@@ -60,3 +60,11 @@ test('variant mapping is scoped to InterContinental restaurant outlets and legac
  const receipt={deptName:'餐廳',items:[{itemName:'【湛露】黃口布',actualQty:'2'},{itemName:'【湛露】白口布',actualQty:'3'},{itemName:'【湛露】紅邊擦拭布',actualQty:'0'}]};
  assert.deepEqual(m.receiptTotalItems(receipt.items,'洲際').map(r=>[r.itemName,r.actualQty]),[['口布','5'],['擦拭布','0']]);assert.deepEqual(m.outletReceiptDetails([], [receipt],'洲際')[0].items.map(r=>r.itemName),['黃口布','白口布','紅邊擦拭布']);
 });
+
+test('CLUB cocktail towels merge only into square towel totals while details remain independent',async()=>{
+ const f=await receiptFixture([{hotel:'洲際 餐廳',outlet:'CLUB',sourceItem:'雞尾酒巾',item:'【CLUB】雞尾酒巾',doubleCount:'7'},{hotel:'洲際 餐廳',item:'【CLUB】方巾',doubleCount:'3'},{hotel:'洲際 餐廳',item:'【WARA】方巾',doubleCount:'2'}],[]);
+ assert.equal(f.displayed.length,1);assert.equal(f.displayed[0].itemName,'方巾');assert.equal(f.displayed[0].originalQty,'12');
+ assert.deepEqual(f.context.outletDetailGroups.find(g=>g.outlet==='CLUB').items.map(r=>[r.itemName,r.quantity]),[['雞尾酒巾','7'],['方巾','3']]);
+ const m=f.module;assert.equal(m.receiptInventoryIdentity({},'【WARA】雞尾酒巾','洲際').itemName,'雞尾酒巾');assert.equal(m.receiptInventoryIdentity({outlet:'CLUB',sourceItem:'雞尾酒巾'},'', 'H2O').itemName,'雞尾酒巾');
+ const totals=m.receiptTotalItems([{itemName:'【CLUB】方巾',actualQty:'3'},{itemName:'【CLUB】雞尾酒巾',actualQty:'0'}],'洲際');assert.equal(totals.length,1);assert.equal(totals[0].itemName,'方巾');assert.equal(totals[0].actualQty,'3');
+});
