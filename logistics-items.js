@@ -95,6 +95,12 @@ export function outletReceiptDetails(inventoryRows, receipts, hotel, settings = 
     });
 }
 
+// Finance uses the same receipt totals as the audit desk, scoped to restaurant linen.
+export function billingReceiptItems(receipt) {
+    const restaurant=String(receipt.hotelKeyword || '').replace(/\s/g,'')==='洲際' && ['餐廳','餐飲','餐飲部'].includes(String(receipt.deptName || '').trim());
+    return restaurant ? receiptTotalItems(receipt.items || [],'洲際') : receipt.items || [];
+}
+
 export function unreceivedOutletItems(records, date, hotel, department) {
     return records.filter(r=>r.targetDate===date && r.hotel===hotel && r.department===department && r.outlet)
         .flatMap(r=>(r.items || []).filter(i=>!r.receivedItems?.[i.item]).map(i=>`${r.outlet}／${i.item}`));

@@ -495,7 +495,7 @@ body { background: white; padding: 0; margin: 0; }
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes } from './logistics-items.js';
+import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems } from './logistics-items.js?v=20261018-finance-totals';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -687,7 +687,7 @@ async function refreshPricingActiveHotels() {
       const hotel = String(d.hotelKeyword || '').trim();
       if (!hotel) return;
       const fullHotel = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
-      const hasBillable = (d.items || []).some(item => {
+      const hasBillable = billingReceiptItems(d).some(item => {
         const qty = Number(item.actualQty);
         if (!(qty > 0) || String(item.itemName || '').includes('回洗')) return false;
         const itemName = String(item.itemName || '');
@@ -902,7 +902,7 @@ window.refreshSettlementHotels=async()=>{
       const hotel=String(data.hotelKeyword||'').trim();
       if (!hotel || date < periods.queryStart || date > periods.queryEnd) return;
       if (String(data.deptName||'').includes('回洗')) return;
-      if (!(data.items||[]).some(item=>Number(item.actualQty)>0 && !String(item.itemName||'').includes('回洗'))) return;
+      if (!billingReceiptItems(data).some(item=>Number(item.actualQty)>0 && !String(item.itemName||'').includes('回洗'))) return;
       // 結帳日未分類的飯店也要能設定，故使用兩組日期的聯集。
       active.add(hotel);
     });
@@ -1162,7 +1162,7 @@ window.batchSavePrices = async function() {
                 const docSnap = await tx.get(refDoc);
                 if (!docSnap.exists()) throw new Error('原物流單已不存在，請重新載入。');
                 const data = docSnap.data();
-                const items = applyFinanceItemNames(data.items || [], updatesByDoc[docId]);
+                const items = applyFinanceItemNames(billingReceiptItems(data), updatesByDoc[docId]);
                 if (JSON.stringify(items) !== JSON.stringify(data.items || [])) tx.update(refDoc, {items});
             });
             promises.push(promise);
@@ -1600,7 +1600,7 @@ async function fetchRecordsForSelectedHotels() {
             let hotelName = d.hotelKeyword || "未命名飯店";
             if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
             if (selectedSet.has(hotelName)) {
-                (d.items || []).forEach((item, idx) => {
+                billingReceiptItems(d).forEach((item, idx) => {
                     // 結帳一律以實收數量為準；0 或尚未填寫都不計入，不得回填原出貨量。
                     const actual = Number(item.actualQty) || 0;
 
@@ -1782,11 +1782,11 @@ async function loadBossData() {
             const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
             if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
             const key = classifyBossGroup(hotel);
-            const hasValid = (d.items || []).some(item => Number(item.actualQty) > 0 && !String(item.itemName).includes('回洗'));
+            const hasValid = billingReceiptItems(d).some(item => Number(item.actualQty) > 0 && !String(item.itemName).includes('回洗'));
             if (!key) { if (hasValid) unmatched.add(fullName); return; }
             const groupPeriod = key==='25th' ? periods['25th'] : periods.monthGroup;
             if (date < groupPeriod.start || date > groupPeriod.end) return;
-            (d.items || []).forEach((item,idx) => {
+            billingReceiptItems(d).forEach((item,idx) => {
                 const qty = Number(item.actualQty) || 0;
                 if (qty <= 0 || String(item.itemName).includes('回洗')) return;
                 groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
@@ -1910,7 +1910,7 @@ async function exportBossExcel() {
                 if (!key) return;
                 const gp = key === '25th' ? p['25th'] : p.monthGroup;
                 if (date < gp.start || date > gp.end) return;
-                (d.items || []).forEach((item, idx) => {
+                billingReceiptItems(d).forEach((item, idx) => {
                     const qty = Number(item.actualQty) || 0;
                     if (qty <= 0 || String(item.itemName || '').includes('回洗')) return;
                     groups[key].push({
@@ -2582,7 +2582,7 @@ if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
 
 let driverName = d.assignedDriver || null;
-(d.items || []).forEach(item => {
+billingReceiptItems(d).forEach(item => {
 const actual = Number(item.actualQty) || 0;
 if (actual > 0 && !String(item.itemName).includes("回洗")) {
 let price = item.price !== undefined && item.price !== null && item.price !== '' ? Number(item.price) : (getPrice(hotelName, item.itemName) || 0);
@@ -2695,4 +2695,5 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
+
 
