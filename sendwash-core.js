@@ -93,6 +93,14 @@
             if(names.length===1)return [row];
             return names.map(item=>({...row,item,defaultQuantity:item===row.item?row.defaultQuantity:''}));
         });
+        // CLUB's cocktail towels are a separate item, with the existing outlet workflow.
+        const clubGroups=new Set();
+        for(const row of rows){
+            if(!recheckOnly(row)||normalize(row.outlet)!=='CLUB')continue;
+            const key=JSON.stringify([row.hotel,row.department,row.outlet]);
+            if(clubGroups.has(key))continue;clubGroups.add(key);
+            if(!expanded.some(other=>other.hotel===row.hotel&&other.department===row.department&&other.outlet===row.outlet&&normalize(other.item)==='雞尾酒巾'))expanded.push({...row,item:'雞尾酒巾',unit:'條',defaultQuantity:''});
+        }
         const seen=new Set();return expanded.filter(row=>{const key=JSON.stringify([row.hotel,row.department,row.outlet,row.item]);if(seen.has(key))return false;seen.add(key);return true;});
     }
     const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,displayRows,retiredOutletItem,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};

@@ -64,3 +64,11 @@ test('an existing red-edge cloth spreadsheet row also exposes both cloth subtype
  const row={hotel:'洲際',department:'餐廳',outlet:'WARA',item:'紅邊擦拭布',defaultQuantity:'2',unit:'條'};
  assert.deepEqual(core.displayRows([row]).map(r=>[r.item,r.defaultQuantity]),[['擦拭布',''],['紅邊擦拭布','2']]);assert.deepEqual(core.displayRows([{...row,hotel:'H2O'}]),[{...row,hotel:'H2O'}]);
 });
+
+test('CLUB cocktail towels are available without a new spreadsheet row and submit with the outlet batch',async()=>{
+ const f=await fixture(undefined,[{hotel,department:'餐廳',outlet:'CLUB',item:'口布',unit:'條',defaultQuantity:''}]);await f.tab(3);
+ assert.equal(f.elements.get('items').children[1].textContent,'雞尾酒巾（條）');f.fill(['2','0']);await f.submit();
+ assert.equal(f.transactions.length,1);assert.deepEqual(f.tables.sendwash_records[f.id('CLUB')].items,[{item:'口布',quantity:'2',unit:'條'},{item:'雞尾酒巾',quantity:'0',unit:'條'}]);
+ assert(!f.tables.sendwash_records[f.id('大地')].items.some(i=>i.item==='雞尾酒巾'));
+ const row={hotel,department:'餐廳',outlet:'CLUB',item:'雞尾酒巾',unit:'條',defaultQuantity:''};assert.equal(core.displayRows([row]).length,1);assert(!core.displayRows([{...row,hotel:'H2O',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));assert(!core.displayRows([{...row,department:'制服',item:'口布'}]).some(i=>i.item==='雞尾酒巾'));
+});

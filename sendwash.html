@@ -25,7 +25,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 @media(max-width:480px){body{padding:16px}section{padding:16px}h1{font-size:28px}}
 </style></head>
 <body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><nav id="outletTabs" aria-label="選擇餐廳" hidden></nav><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
-<script src="sendwash-core.js?v=20261018-no-plain-napkin"></script>
+<script src="sendwash-core.js?v=20261018-club-cocktail"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';

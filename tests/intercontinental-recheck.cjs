@@ -122,3 +122,11 @@ test('plant saves subtype counts and signatures independently, including zero',a
  }
  assert(f.tables.sendwash_records.湛露.acceptedAt);assert.equal(Object.keys(f.tables.inventory_records).length,3);
 });
+
+test('CLUB plant page shows cocktail towels when absent from the template and supports direct recheck',async()=>{
+ const f=fixture({});await f.start();f.context.window.setSendwashSettings([{hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet:'CLUB',item:'口布'}]);
+ assert.deepEqual([...f.context.window.filterSendwashOutlets(date,hotel,[],['口布'])],['【CLUB】口布','【CLUB】雞尾酒巾']);f.setupUI();const item='【CLUB】雞尾酒巾',c=f.context;
+ c.openSign(hotel,item,'sup');await c.confirmSignature();vm.runInContext("calcExpr='7'",c);c.calcConfirm();
+ for(let i=0;i<30&&!f.tables.inventory_records[core.inventoryId(date,hotel,item)];i++)await new Promise(resolve=>setImmediate(resolve));
+ const saved=f.tables.inventory_records[core.inventoryId(date,hotel,item)];assert(saved,c.error);assert.equal(saved.doubleCount,'7');assert.equal(saved.sourceItem,'雞尾酒巾');assert.equal(saved.outlet,'CLUB');assert.equal(saved.doubleSignature,'uploaded-supervisor');
+});
