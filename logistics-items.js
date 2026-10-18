@@ -47,6 +47,47 @@ export function receiptTotalItems(items, hotel) {
     });
 }
 
+// Display-only breakdown. These rows never enter signing or billing payloads.
+export function outletReceiptDetails(inventoryRows, receipts, hotel, settings = []) {
+    if (hotel !== '洲際') return [];
+    const groups=new Map(),inventoryKeys=new Set();
+    const keyFor=(dept,outlet,item)=>JSON.stringify([dept,outlet,normalizeItemName(item)]);
+    function add(dept,outlet,item,quantity,note){
+        if(!outlet)return;
+        const qty=Number(quantity),groupKey=JSON.stringify([dept,outlet]);
+        if(!Number.isSafeInteger(qty)||qty<0)throw new Error('餐廳明細數量格式錯誤');
+        if(!groups.has(groupKey))groups.set(groupKey,{deptName:dept,outlet,items:new Map()});
+        const group=groups.get(groupKey),itemKey=normalizeItemName(item),prior=group.items.get(itemKey);
+        const total=Number(prior?.quantity || 0)+qty;
+        if(!Number.isSafeInteger(total))throw new Error('餐廳明細加總超過可用範圍');
+        group.items.set(itemKey,{itemName:prior?.itemName || item,quantity:String(total),note:[...new Set([prior?.note,note].filter(Boolean))].join('；')});
+    }
+    for(const {row,outlet} of inventoryRows){
+        if(!outlet)continue;
+        inventoryKeys.add(keyFor(row.deptName,outlet,row.itemName));
+        add(row.deptName,outlet,row.itemName,row.originalQty,row.auntNote);
+    }
+    // Old signed receipts may retain details even when the source inventory is absent.
+    for(const receipt of receipts)for(const item of receipt.items || []){
+        const source=/^【[^】]+】/.test(item.inventoryItemName || '')?item.inventoryItemName:/^【[^】]+】/.test(item.itemName || '')?item.itemName:item.inventoryItemName || item.itemName || '';
+        const identity=receiptInventoryIdentity(item,source,hotel);
+        if(!identity.outlet||inventoryKeys.has(keyFor(receipt.deptName,identity.outlet,identity.itemName)))continue;
+        const actual=item.actualQty,quantity=actual!==undefined&&actual!==null&&actual!==''?actual:item.originalQty ?? 0;
+        add(receipt.deptName,identity.outlet,identity.itemName,quantity,item.auntNote);
+    }
+    const groupOrder=new Map(),itemOrders=new Map();
+    settings.filter(row=>row.hotel===hotel&&row.outlet).forEach(row=>{
+        const key=JSON.stringify([row.department,row.outlet]);
+        if(!groupOrder.has(key))groupOrder.set(key,groupOrder.size);
+        if(!itemOrders.has(key))itemOrders.set(key,new Map());
+        const order=itemOrders.get(key),item=normalizeItemName(row.item);if(!order.has(item))order.set(item,order.size);
+    });
+    return [...groups.entries()].sort(([a],[b])=>(groupOrder.get(a) ?? 9999)-(groupOrder.get(b) ?? 9999)).map(([key,group])=>{
+        const order=itemOrders.get(key) || new Map();
+        return {...group,items:[...group.items.values()].sort((a,b)=>(order.get(normalizeItemName(a.itemName)) ?? 9999)-(order.get(normalizeItemName(b.itemName)) ?? 9999))};
+    });
+}
+
 export function unreceivedOutletItems(records, date, hotel, department) {
     return records.filter(r=>r.targetDate===date && r.hotel===hotel && r.department===department && r.outlet)
         .flatMap(r=>(r.items || []).filter(i=>!r.receivedItems?.[i.item]).map(i=>`${r.outlet}／${i.item}`));

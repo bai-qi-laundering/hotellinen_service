@@ -53,9 +53,11 @@
 
         <!-- 點交清單區 -->
         <div id="sendwashLinks"></div>
+        <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
         <div id="departmentsContainer" class="space-y-6">
             <div class="text-center py-10 text-gray-500 font-bold text-lg">載入資料中...</div>
         </div>
+        <section id="outletDetails" hidden class="mt-8 space-y-4" aria-label="各餐廳部門明細"></section>
     </div>
 
     <!-- 雙簽名視窗 -->
@@ -101,7 +103,7 @@
         }, 20000);
     </script>
     <script type="module">
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems } from './logistics-items.js?v=20261018-sign-before-receipt';
+        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261018-outlet-details';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -134,6 +136,8 @@
         let currentHotel = "";
         let currentDate = "";
         let groupedData = {}; 
+        let outletDetailGroups = [];
+        let outletDetailError = '';
         let activeDeptKey = ""; 
         let masterTemplate = []; 
         let globalItemOrder = {};
@@ -384,6 +388,8 @@
 
             if (!isBackground) {
                 document.getElementById('departmentsContainer').innerHTML = loadingHtml;
+                document.getElementById('outletDetails').hidden = true;
+                document.getElementById('receiptTotalsHeading').hidden = true;
             } else {
                 const indicator = document.getElementById('syncIndicator');
                 if(indicator) {
@@ -444,12 +450,13 @@
                 const detailedKeys=new Set(inventoryRows.filter(row=>row.outlet).map(row=>row.key));
                 inventoryRows.forEach(({key,row,outlet})=>{
                     if(currentHotel==='洲際'&&!outlet&&detailedKeys.has(key))return;
-                    addInventoryQuantity(inventoryMap,outletKeys,key,row,outlet);
+                    addInventoryQuantity(inventoryMap,outletKeys,key,{...row},outlet);
                 });
 
-                let savedLogistics = {};
+                let savedLogistics = {}, savedReceiptDetails = [];
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
+                    savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
 
@@ -510,6 +517,10 @@
                 dataReady = true;
                 finishBoot();
                 processAndRenderData(rawData);
+                outletDetailError='';
+                try { outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings); }
+                catch(error) { outletDetailGroups=[];outletDetailError='部門明細暫時無法顯示，仍可在上方簽收總數。';console.warn('餐廳明細讀取失敗',error); }
+                renderOutletDetails();
             } catch (err) {
                 if (thisFetch === fetchSequence) dataReady = false;
                 console.error("Fetch Data Error:", err);
@@ -527,6 +538,21 @@
                     </div>`;
                 }
             }
+        }
+
+        function renderOutletDetails() {
+            const container=document.getElementById('outletDetails'),heading=document.getElementById('receiptTotalsHeading');
+            if(!container||!heading)return;
+            const enabled=currentHotel==='洲際';container.hidden=!enabled;heading.hidden=!enabled;
+            if(!enabled){container.innerHTML='';return;}
+            const title='<h2 class="text-2xl font-black text-blue-900">各餐廳部門明細</h2><p class="text-base text-gray-600">以下為場內已儲存的部門數量，供核對；簽收與請款以上方總數區為準。</p>';
+            container.innerHTML=title+(outletDetailGroups.length?outletDetailGroups.map(group=>`
+                <article class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                    <h3 class="font-black text-xl text-blue-900">${escapeHtml(group.outlet)}</h3>
+                    <p class="text-base text-gray-500 mb-3">${escapeHtml(group.deptName)}</p>
+                    <table class="w-full text-lg"><thead><tr class="border-b border-gray-200 text-gray-600"><th scope="col" class="text-left py-2">品項</th><th scope="col" class="text-right py-2 whitespace-nowrap">場內數量</th></tr></thead>
+                    <tbody>${group.items.map(item=>`<tr class="border-b border-gray-100 last:border-0"><td class="py-3 pr-3 break-words font-bold">${escapeHtml(item.itemName)}${item.note?`<p class="text-base text-gray-600 font-normal mt-1 break-words">${escapeHtml(item.note)}</p>`:''}</td><td class="py-3 text-right align-top text-2xl font-black text-blue-900">${escapeHtml(item.quantity)}</td></tr>`).join('')}</tbody></table>
+                </article>`).join(''):`<p class="bg-white p-4 rounded-xl text-lg text-gray-500">${escapeHtml(outletDetailError || '本日尚無各部門已儲存的場內明細。')}</p>`);
         }
 
         function processAndRenderData(rawData) {
