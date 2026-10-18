@@ -27,13 +27,18 @@
   const setting=settings.find(r=>r.outlet&&item.startsWith(`【${r.outlet}】`));
   return setting ? item.slice(`【${setting.outlet}】`.length) : item;
  };
- window.filterSendwashOutlets=(date,hotel,items)=>{
+ window.filterSendwashOutlets=(date,hotel,items,templateItems=[])=>{
   const names=[...new Set([...settings.filter(r=>r.inventoryHotel===hotel&&r.outlet).map(r=>r.outlet),...[...records.values()].filter(r=>r.targetDate===date&&r.inventoryHotel===hotel&&r.outlet).map(r=>r.outlet)])];
   const nav=document.getElementById('outletTabs');if(!nav)return items;
   nav.classList.toggle('hidden',!names.length);if(!names.length){nav.replaceChildren();return items;}
   const choices=[...names,''];let selected=activeOutlet.get(hotel);if(!choices.includes(selected))selected=names[0];activeOutlet.set(hotel,selected);
   const key=JSON.stringify([date,hotel,names,selected]);if(nav.dataset?.key!==key){const scroll=nav.scrollLeft;nav.replaceChildren();choices.forEach(outlet=>{const button=document.createElement('button');button.type='button';button.textContent=outlet||'原登記';button.className='flex-none whitespace-nowrap px-5 py-3 rounded-xl font-bold text-lg '+(outlet===selected?'bg-blue-600 text-white':'bg-blue-50 text-blue-800');button.setAttribute('aria-pressed',String(outlet===selected));button.onclick=()=>{activeOutlet.set(hotel,outlet);renderItems(true);};nav.append(button);});nav.scrollLeft=scroll;if(nav.dataset)nav.dataset.key=key;}
-  return items.filter(item=>selected ? item.startsWith(`【${selected}】`) : !names.some(name=>item.startsWith(`【${name}】`)));
+  const visible=items.filter(item=>selected ? item.startsWith(`【${selected}】`) : !names.some(name=>item.startsWith(`【${name}】`)));
+  const configured=settings.filter(row=>row.inventoryHotel===hotel&&row.outlet===selected&&core.recheckOnly(row));
+  if(!selected||!configured.length)return visible;
+  // InterContinental always shows its full departmental template in every outlet.
+  const complete=[...new Set([...templateItems,...configured.map(row=>row.item)])].map(item=>core.outletItem(selected,item));
+  return [...new Set([...complete,...visible])];
  };
  window.attachSendwashListener=async dates=>{
   const request=++sequence;if(!ready){await window.sendwashVerificationReady;if(!ready)return;}if(request!==sequence)return;
@@ -52,6 +57,14 @@
    const loadedDoubleCount=old.sendwashPending ? old.sendwashLoadedDoubleCount : (old.doubleCount ?? '');
    userInputs[date][hotel][item]={...old,countSource:'sendwash',count:String(Number(loadedCount || 0)+sources.reduce((n,r)=>n+Number(r.items.find(x=>itemKey(r,x.item)===item).quantity),0)),doubleCount:loadedDoubleCount,sendwashLoadedCount:loadedCount,sendwashLoadedDoubleCount:loadedDoubleCount,sendwashPending:sources.map(r=>({id:r.id,quantity:core.quantity(r.items.find(x=>itemKey(r,x.item)===item).quantity)})),note:old.note ?? sources.find(r=>r.notes?.[sourceItem(r,item)] !== undefined)?.notes[sourceItem(r,item)] ?? ''};
   }
+ };
+ window.prepareSendwashFullItem=(date,hotel,item)=>{
+  window.prepareSendwashInputs(date,hotel);
+  const context=window.sendwashItemContext(date,hotel,item),old=userInputs[date]?.[hotel]?.[item] || {};
+  if(!context||!core.recheckOnly(context)||old.countSource==='sendwash'||old.isSubmitted||old.signature||old.doubleSignature||old.hasSigned||old.doubleHasSigned)return;
+  if((old.count!==undefined&&old.count!=='')||(old.doubleCount!==undefined&&old.doubleCount!==''))return;
+  // A blank visible row becomes a supplement only when the operator starts signing.
+  userInputs[date][hotel][item]={...old,...context,countSource:'sendwash',sendwashSupplemental:true,count:'',doubleCount:'',sendwashLoadedCount:'',sendwashLoadedDoubleCount:''};
  };
  window.savePendingSendwashNote=async(date,hotel,item,value)=>{
   const sources=pending(date,hotel,item);if(!sources.length)return;

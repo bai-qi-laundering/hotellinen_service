@@ -2,8 +2,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const core=require('../sendwash-core.js');
 const date='2026-10-16',hotel='洲際 餐廳';
 const settings=['大地','WARA'].map(outlet=>({hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet,item:'口布',unit:'條'}));
-function fixture(){
- const sources={};for(const [outlet,quantity] of [['大地','18'],['WARA','12']])sources[outlet]={hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet,targetDate:date,items:[{item:'口布',quantity,unit:'條'}]};
+function fixture(seed){
+ const sources=seed || {};if(seed===undefined)for(const [outlet,quantity] of [['大地','18'],['WARA','12']])sources[outlet]={hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet,targetDate:date,items:[{item:'口布',quantity,unit:'條'}]};
  const tables={sendwash_records:sources,inventory_records:{},logistics_records:{}},inputs={};let writes=0;
  const api={doc:(_,name,id)=>({name,id}),collection:(_,name)=>({name}),where(){},query:c=>c,onSnapshot:(q,fn)=>{fn({forEach:visit=>Object.entries(tables[q.name]).forEach(([id,data])=>visit({id,data:()=>structuredClone(data)}))});return()=>{};},runTransaction:async(_,fn)=>{const pending=[];let wrote=false;const result=await fn({get:async r=>{assert.equal(wrote,false,'Firestore reads must precede writes');return{exists:()=>!!tables[r.name]?.[r.id],data:()=>structuredClone(tables[r.name]?.[r.id])};},set:(r,d)=>{wrote=true;pending.push([r,d]);},update:(r,d)=>{wrote=true;pending.push([r,d]);}});pending.forEach(([r,d])=>{tables[r.name][r.id]={...tables[r.name][r.id],...d};writes++;});return result;}};
  const elements=new Map();function element(){return{value:'',children:[],dataset:{},classList:{hidden:true,toggle(){},remove(){this.hidden=false;},add(){this.hidden=true;}},replaceChildren(){this.children=[];},append(e){this.children.push(e);},setAttribute(){}};}
@@ -75,4 +75,34 @@ test('signed driver receipt, duplicate inventory sources and stale values protec
   else f.tables.inventory_records[core.inventoryId(date,hotel,item)]={date,hotel,item,countSource:'sendwash',baseHotel:'洲際',outlet:'大地',sendwashSupplemental:scenario==='stale',count:'',doubleCount:'4',doubleSignature:'someone-else'};
   await assert.rejects(f.context.window.persistSupplementalSendwash(date,hotel,item,{date,hotel,item,count:'',doubleCount:'3',doubleSignature:'sup'},'',''));assert.equal(f.writes,0);
  }
+});
+test('each restaurant shows the complete departmental template without any source quantities or automatic writes',async()=>{
+ const f=fixture({});await f.start();const template=['服務巾','口布','方巾'];
+ const first=f.context.window.filterSendwashOutlets(date,hotel,template,template);assert.deepEqual([...first],template.map(item=>'【大地】'+item));
+ f.elements.get('outletTabs').children[1].onclick();const second=f.context.window.filterSendwashOutlets(date,hotel,template,template);assert.deepEqual([...second],template.map(item=>'【WARA】'+item));
+ assert.equal(Object.keys(f.inputs[date][hotel]).length,0);assert.equal(Object.keys(f.tables.inventory_records).length,0);assert.equal(f.writes,0);
+});
+test('actual full card renderer keeps blank items visible alongside declared counts and explicit zero',async()=>{
+ const f=fixture();f.tables.sendwash_records.大地.items.push({item:'方巾',quantity:'0',unit:'條'});await f.start();f.setupUI();f.context.masterData=[{hotel,item:'服務巾'},{hotel,item:'口布'},{hotel,item:'方巾'}];
+ f.elements.set('itemsList',{children:[],dataset:{},innerHTML:''});f.elements.set('supplementOutletHint',{classList:{toggle(){}},textContent:''});f.context.window.getSafeId=name=>name;
+ const code=fs.readFileSync('index.html','utf8');vm.runInContext(code.slice(code.indexOf('        function renderItems('),code.indexOf('        function handleInput(')),f.context);f.context.renderItems(true);
+ const html=f.elements.get('itemsList').innerHTML;assert.equal((html.match(/id="card_/g)||[]).length,3);assert(html.indexOf('id="card_【大地】服務巾"')<html.indexOf('id="card_【大地】口布"'));assert(html.includes('飯店未填，可直接複點'));assert(html.includes('>0</div>'));assert.equal(f.inputs[date][hotel]['【大地】方巾'].count,'0');assert.equal(f.inputs[date][hotel]['【大地】服務巾'],undefined);assert.equal(f.writes,0);
+});
+test('a formerly blank full-list item can be rechecked and saved directly without pressing Add or fabricating hotel quantity',async()=>{
+ const f=fixture();await f.start();f.setupUI();f.context.masterData.push({hotel,item:'服務巾'});const item='【大地】服務巾',c=f.context,sources=JSON.stringify(f.tables.sendwash_records);f.inputs[date][hotel][item]={count:'',doubleCount:'',note:'飯店漏寫，現場補登'};
+ c.openSign(hotel,item,'sup');assert.equal(f.inputs[date][hotel][item].sendwashSupplemental,true);assert.equal(c.error,undefined);await c.confirmSignature();assert.equal(f.elements.get('calcDisplay').innerText,'尚未輸入');vm.runInContext("calcExpr='3'",c);c.calcConfirm();
+ for(let i=0;i<30&&!f.tables.inventory_records[core.inventoryId(date,hotel,item)];i++)await new Promise(resolve=>setImmediate(resolve));
+ const saved=f.tables.inventory_records[core.inventoryId(date,hotel,item)];assert(saved,c.error);assert.equal(saved.count,'');assert.equal(saved.doubleCount,'3');assert.equal(saved.sourceItem,'服務巾');assert.equal(saved.note,'飯店漏寫，現場補登');assert.equal(saved.outlet,'大地');assert.equal(saved.doubleSignature,'uploaded-supervisor');assert.equal(saved.signature,undefined);assert.equal(JSON.stringify(f.tables.sendwash_records),sources);assert.equal(Object.keys(f.tables.inventory_records).length,1);
+});
+test('direct zero recheck of an unsubmitted visible item saves zero while untouched blank items stay absent',async()=>{
+ const f=fixture({});await f.start();f.setupUI();const item='【大地】口布',c=f.context;c.openSign(hotel,item,'sup');await c.confirmSignature();c.calcSetZero();c.calcConfirm();
+ for(let i=0;i<30&&!f.tables.inventory_records[core.inventoryId(date,hotel,item)];i++)await new Promise(resolve=>setImmediate(resolve));
+ const saved=f.tables.inventory_records[core.inventoryId(date,hotel,item)];assert(saved,c.error);assert.equal(saved.count,'');assert.equal(saved.doubleCount,'0');assert.equal(Object.keys(f.tables.sendwash_records).length,0);assert.equal(Object.keys(f.tables.inventory_records).length,1);
+ const old=f.inputs[date][hotel][item];c.window.prepareSendwashFullItem(date,hotel,item);assert.equal(f.inputs[date][hotel][item],old);assert.equal(old.doubleCount,'0');
+});
+test('other hotels, uniforms and the original registration tab keep their previous item filtering',async()=>{
+ for(const [base,department,inventoryHotel] of [['其他飯店','餐廳','其他飯店 餐廳'],['洲際','制服','洲際 制服']]){
+  const f=fixture({});f.context.window.setSendwashSettings([{hotel:base,department,inventoryHotel,outlet:'大地',item:'口布'}]);const result=f.context.window.filterSendwashOutlets(date,inventoryHotel,['口布','方巾','【大地】口布'],['口布','方巾']);assert.deepEqual([...result],['【大地】口布']);f.context.window.prepareSendwashFullItem(date,inventoryHotel,'【大地】方巾');assert.equal(f.inputs[date][inventoryHotel]['【大地】方巾'],undefined);
+ }
+ const f=fixture({});await f.start();const nav=f.elements.get('outletTabs');nav.children[nav.children.length-1].onclick();assert.deepEqual([...f.context.window.filterSendwashOutlets(date,hotel,['口布','方巾','【大地】口布'],['口布','方巾'])],['口布','方巾']);
 });

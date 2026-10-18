@@ -208,7 +208,7 @@
     </div>
 
     <script src="sendwash-core.js?v=20261015-recheck-only"></script>
-    <script src="sendwash-verification.js?v=20261015-recheck-only"></script>
+    <script src="sendwash-verification.js?v=20261018-full-items"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -634,14 +634,15 @@
         function renderItems(forceRebuild = false) {
             const dateStr = document.getElementById('datePicker').value;
             if (!currentHotelName) return;
-            let displayItems = [...new Set(masterData.filter(d => d.hotel === currentHotelName).map(d => d.item))];
+            const templateItems = [...new Set(masterData.filter(d => d.hotel === currentHotelName).map(d => d.item))];
+            let displayItems = [...templateItems];
             
             if (window.prepareSendwashInputs) window.prepareSendwashInputs(dateStr, currentHotelName);
             const todayInputs = (userInputs[dateStr] && userInputs[dateStr][currentHotelName]) || {};
             for (let itemName in todayInputs) { if (!displayItems.includes(itemName) && itemName !== '_MANUAL_BORDER_') displayItems.push(itemName); }
 
             if (window.sendwashPendingItems) displayItems = [...new Set([...displayItems, ...window.sendwashPendingItems(dateStr, currentHotelName)])];
-            if (window.filterSendwashOutlets) displayItems = window.filterSendwashOutlets(dateStr, currentHotelName, displayItems);
+            if (window.filterSendwashOutlets) displayItems = window.filterSendwashOutlets(dateStr, currentHotelName, displayItems, templateItems);
             const supplementContext = window.sendwashSupplementContext && window.sendwashSupplementContext(dateStr, currentHotelName, '');
             const supplementHint = document.getElementById('supplementOutletHint');
             if (supplementHint) {
@@ -716,7 +717,7 @@
                 if (recheckOnly) {
                     auntText = count !== '' ? count : '未登記';
                     auntDisplayClass = 'bg-gray-100 text-gray-700 border-gray-300';
-                    auntActionButton = `<div class="w-full py-2 text-gray-600 rounded-lg font-bold text-base text-center">${u.sendwashSupplemental ? '司機漏登・現場補入' : '飯店登記帶入'}</div>`;
+                    auntActionButton = `<div class="w-full py-2 text-gray-600 rounded-lg font-bold text-base text-center">${u.sendwashSupplemental ? '現場補登' : count === '' ? '飯店未填，可直接複點' : '飯店登記帶入'}</div>`;
                 }
 
                 let supDisplayClass = supCompleted ? "bg-white text-blue-800 border-green-500 shadow-inner" : "bg-white text-blue-400 border-blue-200";
@@ -842,6 +843,7 @@
         }
         
         function openSign(category, item, role) { 
+            if (window.prepareSendwashFullItem) window.prepareSendwashFullItem(document.getElementById('datePicker').value, category, item);
             const before = (userInputs[document.getElementById('datePicker').value] && userInputs[document.getElementById('datePicker').value][category] && userInputs[document.getElementById('datePicker').value][category][item]) || {};
             const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(document.getElementById('datePicker').value, category, item);
             if (recheckOnly && role === 'aunt') return showMessage('請使用右側複點簽名。', false);
