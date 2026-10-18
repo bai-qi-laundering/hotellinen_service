@@ -16,9 +16,14 @@ export function addInventoryQuantity(map, outletKeys, key, row, outlet = '') {
 
 // Older outlet rows can lack metadata and keep the encoded name instead.
 export function receiptInventoryIdentity(record, itemName, hotel) {
-    if (record.outlet && record.sourceItem) return {itemName:String(record.sourceItem).trim(),outlet:record.outlet};
     const encoded = hotel === '洲際' && /^【([^】]+)】(.+)$/.exec(String(itemName).trim());
-    return encoded ? {itemName:encoded[2].trim(),outlet:encoded[1]} : {itemName:String(itemName).trim(),outlet:record.outlet || ''};
+    const identity=record.outlet && record.sourceItem ? {itemName:String(record.sourceItem).trim(),outlet:record.outlet} : encoded ? {itemName:encoded[2].trim(),outlet:encoded[1]} : {itemName:String(itemName).trim(),outlet:record.outlet || ''};
+    if(hotel==='洲際'&&identity.outlet&&!/制服/.test(record.department || record.hotel || '')){
+        const item=normalizeItemName(identity.itemName),outlet=normalizeItemName(identity.outlet);
+        const total=outlet==='湛露'&&['黃口布','白口布'].includes(item)?'口布':item==='紅邊擦拭布'?'擦拭布':identity.itemName;
+        if(total!==identity.itemName)return {...identity,itemName:total,detailItemName:identity.itemName};
+    }
+    return identity;
 }
 
 // A saved total is authoritative; its old outlet breakdown must not be billed again.
@@ -41,7 +46,7 @@ export function receiptTotalItems(items, hotel) {
             if(!Number.isSafeInteger(qty)||qty<0||!Number.isSafeInteger(value+qty))throw new Error('餐廳簽收數量格式錯誤，請確認原單');
             return value+qty;
         },0));
-        const result={...first.item,itemName:/^【[^】]+】/.test(first.item.itemName)?name:first.item.itemName,inventoryItemName:name,originalQty:sum('originalQty'),actualQty:sum('actualQty'),auntNote:group.map(row=>row.item.auntNote).filter(Boolean).join('；'),driverNote:group.map(row=>row.item.driverNote).filter(Boolean).join('；')};
+        const result={...first.item,itemName:/^【[^】]+】/.test(first.item.itemName)||first.identity.detailItemName?name:first.item.itemName,inventoryItemName:name,originalQty:sum('originalQty'),actualQty:sum('actualQty'),auntNote:group.map(row=>row.item.auntNote).filter(Boolean).join('；'),driverNote:group.map(row=>row.item.driverNote).filter(Boolean).join('；')};
         delete result.outlet;delete result.sourceItem;
         return result;
     });
@@ -62,18 +67,20 @@ export function outletReceiptDetails(inventoryRows, receipts, hotel, settings = 
         if(!Number.isSafeInteger(total))throw new Error('餐廳明細加總超過可用範圍');
         group.items.set(itemKey,{itemName:prior?.itemName || item,quantity:String(total),note:[...new Set([prior?.note,note].filter(Boolean))].join('；')});
     }
-    for(const {row,outlet} of inventoryRows){
+    for(const {row,outlet,detailItemName} of inventoryRows){
         if(!outlet)continue;
-        inventoryKeys.add(keyFor(row.deptName,outlet,row.itemName));
-        add(row.deptName,outlet,row.itemName,row.originalQty,row.auntNote);
+        const name=detailItemName || row.itemName;
+        inventoryKeys.add(keyFor(row.deptName,outlet,name));
+        add(row.deptName,outlet,name,row.originalQty,row.auntNote);
     }
     // Old signed receipts may retain details even when the source inventory is absent.
     for(const receipt of receipts)for(const item of receipt.items || []){
         const source=/^【[^】]+】/.test(item.inventoryItemName || '')?item.inventoryItemName:/^【[^】]+】/.test(item.itemName || '')?item.itemName:item.inventoryItemName || item.itemName || '';
         const identity=receiptInventoryIdentity(item,source,hotel);
-        if(!identity.outlet||inventoryKeys.has(keyFor(receipt.deptName,identity.outlet,identity.itemName)))continue;
+        const detailName=identity.detailItemName || identity.itemName;
+        if(!identity.outlet||inventoryKeys.has(keyFor(receipt.deptName,identity.outlet,detailName)))continue;
         const actual=item.actualQty,quantity=actual!==undefined&&actual!==null&&actual!==''?actual:item.originalQty ?? 0;
-        add(receipt.deptName,identity.outlet,identity.itemName,quantity,item.auntNote);
+        add(receipt.deptName,identity.outlet,detailName,quantity,item.auntNote);
     }
     const groupOrder=new Map(),itemOrders=new Map();
     settings.filter(row=>row.hotel===hotel&&row.outlet).forEach(row=>{

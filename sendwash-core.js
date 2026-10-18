@@ -84,7 +84,18 @@
         if (doubleCount !== '' && !secondSignature) throw new Error('請完成出貨複點簽名');
         return {...payload, count, doubleCount, countSource:'sendwash', sendwashStage:secondSignature && doubleCount !== '' ? 'ready' : 'received'};
     }
-    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
+    // UI names remain independent inventory keys; receipts map them back to billing names.
+    function displayRows(rows, legacyItems = []) {
+        const expanded=rows.flatMap(row=>{
+            if(!recheckOnly(row))return [row];
+            const names=normalize(row.item)==='口布'&&normalize(row.outlet)==='湛露' ? ['黃口布','白口布'] : ['擦拭布','紅邊擦拭布'].includes(normalize(row.item)) ? ['擦拭布','紅邊擦拭布'] : [row.item];
+            if(names.length===1)return [row];
+            const legacy=legacyItems.some(item=>item.item===row.item)||(!names.includes(row.item)&&row.defaultQuantity!=='');
+            return [...(legacy&&!names.includes(row.item)?[row]:[]),...names.map(item=>({...row,item,defaultQuantity:item===row.item?row.defaultQuantity:''}))];
+        });
+        const seen=new Set();return expanded.filter(row=>{const key=JSON.stringify([row.hotel,row.department,row.outlet,row.item]);if(seen.has(key))return false;seen.add(key);return true;});
+    }
+    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,displayRows,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);

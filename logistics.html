@@ -103,7 +103,7 @@
         }, 20000);
     </script>
     <script type="module">
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261018-outlet-details';
+        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261018-variants';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -435,7 +435,7 @@
                                 inventoryRows.push({key,row:{
                                     deptName: deptName, itemName: sourceItem,
                                     originalQty: extractQty(itemData), auntNote: (d.outlet && itemData.note ? `${d.outlet}：` : '') + (itemData.note || itemData.auntNote || d.note || "")
-                                },outlet:identity.outlet});
+                                },outlet:identity.outlet,detailItemName:identity.detailItemName});
                             }
                         };
 

@@ -37,7 +37,7 @@
   const configured=settings.filter(row=>row.inventoryHotel===hotel&&row.outlet===selected&&core.recheckOnly(row));
   if(!selected||!configured.length)return visible;
   // InterContinental always shows its full departmental template in every outlet.
-  const complete=[...new Set([...templateItems,...configured.map(row=>row.item)])].map(item=>core.outletItem(selected,item));
+  const complete=core.displayRows([...new Set([...templateItems,...configured.map(row=>row.item)])].map(item=>({...configured[0],item,defaultQuantity:''}))).map(row=>core.outletItem(selected,row.item));
   return [...new Set([...complete,...visible])];
  };
  window.attachSendwashListener=async dates=>{

@@ -106,3 +106,18 @@ test('other hotels, uniforms and the original registration tab keep their previo
  }
  const f=fixture({});await f.start();const nav=f.elements.get('outletTabs');nav.children[nav.children.length-1].onclick();assert.deepEqual([...f.context.window.filterSendwashOutlets(date,hotel,['口布','方巾','【大地】口布'],['口布','方巾'])],['口布','方巾']);
 });
+
+test('plant full template splits 湛露 colors and all outlet wiping cloths, retaining historical unsplit rows',async()=>{
+ const f=fixture({});await f.start();f.context.window.setSendwashSettings(['湛露','WARA'].map(outlet=>({hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet,item:'口布'})));
+ const template=['口布','擦拭布','服務巾'];const render=()=>[...f.context.window.filterSendwashOutlets(date,hotel,['【湛露】口布'],template)];
+ assert.deepEqual(render(),['【湛露】黃口布','【湛露】白口布','【湛露】擦拭布','【湛露】紅邊擦拭布','【湛露】服務巾','【湛露】口布']);
+ f.elements.get('outletTabs').children[1].onclick();assert.deepEqual(render(),['【WARA】口布','【WARA】擦拭布','【WARA】紅邊擦拭布','【WARA】服務巾']);assert.equal(f.writes,0);
+});
+test('plant saves subtype counts and signatures independently, including zero',async()=>{
+ const f=fixture({湛露:{hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet:'湛露',targetDate:date,items:[{item:'黃口布',quantity:'10'},{item:'白口布',quantity:'8'},{item:'紅邊擦拭布',quantity:'2'}]}});await f.start();
+ for(const [name,qty] of [['黃口布','9'],['白口布','0'],['紅邊擦拭布','2']]){
+  const item='【湛露】'+name,u=f.inputs[date][hotel][item];await f.context.window.persistPendingSendwash(date,hotel,item,{date,hotel,item,count:u.count,doubleCount:qty,doubleSignature:'signature-'+name},u.sendwashPending,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+  const saved=f.tables.inventory_records[core.inventoryId(date,hotel,item)];assert.equal(saved.sourceItem,name);assert.equal(saved.doubleCount,qty);assert.equal(saved.doubleSignature,'signature-'+name);
+ }
+ assert(f.tables.sendwash_records.湛露.acceptedAt);assert.equal(Object.keys(f.tables.inventory_records).length,3);
+});

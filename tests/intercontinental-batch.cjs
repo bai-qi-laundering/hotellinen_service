@@ -47,3 +47,20 @@ test('batch preserves each restaurant department delivery schedule rather than u
  const schedules=[{hotel,department:'餐廳',rule:'收件後的下一個收送日',days:[1]},{hotel,department:'宴會餐飲',rule:'收件後的下一個收送日',days:[4]}];
  const f=await fixture(undefined,[{hotel,department:'宴會餐飲',outlet:'宴會廳',item:'口布',unit:'條',defaultQuantity:''}],schedules);f.fill(['18','']);await f.tab(3);f.fill(['6']);await f.submit();const a=f.tables.sendwash_records[f.id('大地')],b=f.tables.sendwash_records[f.id('宴會廳','宴會餐飲')];assert.equal(a.targetDate,core.targetDate(hotel,'餐廳',f.date,schedules));assert.equal(b.targetDate,core.targetDate(hotel,'宴會餐飲',f.date,schedules));assert.notEqual(a.targetDate,b.targetDate);
 });
+
+test('湛露 colors and outlet wiping cloth variants submit as independent quantities in one batch',async()=>{
+ const extra=['大地','WARA','湛露'].map(outlet=>({hotel,department:'餐廳',outlet,item:'擦拭布',unit:'條',defaultQuantity:''}));
+ const f=await fixture(undefined,extra);f.fill(['5','','2','3']);await f.tab(2);
+ assert.equal(f.elements.get('items').children[0].textContent,'黃口布（條）');assert.equal(f.elements.get('items').children[1].textContent,'白口布（條）');
+ f.fill(['10','0','','4','6']);await f.tab(0);assert.equal(f.elements.get('qty3').value,'3');await f.submit();assert.equal(f.transactions.length,1);
+ assert.deepEqual(f.tables.sendwash_records[f.id('湛露')].items.map(i=>[i.item,i.quantity]),[['黃口布','10'],['白口布','0'],['擦拭布','4'],['紅邊擦拭布','6']]);
+ assert.deepEqual(f.tables.sendwash_records[f.id('大地')].items.map(i=>[i.item,i.quantity]),[['口布','5'],['擦拭布','2'],['紅邊擦拭布','3']]);
+});
+test('legacy 湛露 unsplit quantity is retained without guessing a color or doubling it',async()=>{
+ const f=await fixture(date=>({[core.submissionId(hotel,'餐廳',date,'湛露')]:{hotel,department:'餐廳',outlet:'湛露',revision:1,items:[{item:'口布',quantity:'19',unit:'條'}]}}));await f.tab(2);
+ assert.equal(f.elements.get('qty0').value,'19');assert.equal(f.elements.get('qty1').value,'');assert.equal(f.elements.get('qty2').value,'');await f.submit();assert.deepEqual(f.tables.sendwash_records[f.id('湛露')].items,[{item:'口布',quantity:'19',unit:'條'}]);
+});
+test('an existing red-edge cloth spreadsheet row also exposes both cloth subtypes without changing its default',()=>{
+ const row={hotel:'洲際',department:'餐廳',outlet:'WARA',item:'紅邊擦拭布',defaultQuantity:'2',unit:'條'};
+ assert.deepEqual(core.displayRows([row]).map(r=>[r.item,r.defaultQuantity]),[['擦拭布',''],['紅邊擦拭布','2']]);assert.deepEqual(core.displayRows([{...row,hotel:'H2O'}]),[{...row,hotel:'H2O'}]);
+});

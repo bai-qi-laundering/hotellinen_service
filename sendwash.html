@@ -25,7 +25,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 @media(max-width:480px){body{padding:16px}section{padding:16px}h1{font-size:28px}}
 </style></head>
 <body><main><h1 id="title">送洗對點單</h1><p class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a><section><label>部門<select id="department" disabled></select></label><label>飯店送洗日期<input id="sourceDate" type="date" disabled></label><p id="target"></p></section><nav id="outletTabs" aria-label="選擇餐廳" hidden></nav><form id="form"><section id="items">正在讀取對點設定…</section><p id="message" role="status"></p><button id="submit" disabled>送出送洗對點單</button></form></main>
-<script src="sendwash-core.js?v=20261016-batch"></script>
+<script src="sendwash-core.js?v=20261018-variants"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
@@ -45,7 +45,7 @@ const batchEnabled=dept=>batchRows(settings).some(r=>r.department===dept);
 function batchGroups(list,sourceDate){
  const groups=new Map();
  batchRows(list).forEach(row=>{const id=core.submissionId(hotel,row.department,sourceDate,row.outlet);if(!groups.has(id))groups.set(id,{id,department:row.department,outlet:row.outlet,sourceDate,rows:[]});groups.get(id).rows.push(row);});
- return [...groups.values()];
+ return [...groups.values()].map(group=>({...group,rows:core.displayRows(group.rows)}));
 }
 function rememberBatch(){
  const draft=batchDrafts.get(shownBatchId);if(!draft||locked(draft.current))return;
@@ -54,7 +54,7 @@ function rememberBatch(){
 async function loadBatch(request,dept,sourceDate){
  const groups=batchGroups(settings,sourceDate);
  const missing=groups.filter(group=>!batchDrafts.has(group.id));
- const loaded=await Promise.all(missing.map(async group=>{const snap=await getDocFromServer(doc(db,'sendwash_records',group.id)),record=snap.exists()?snap.data():null;return {...group,current:record,values:group.rows.map(row=>record?(record.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};}));
+ const loaded=await Promise.all(missing.map(async group=>{const snap=await getDocFromServer(doc(db,'sendwash_records',group.id)),record=snap.exists()?snap.data():null;const original=settings.filter(row=>row.department===group.department&&row.outlet===group.outlet),display=core.displayRows(original,record?.items || []);return {...group,rows:display,current:record,values:display.map(row=>record?(record.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};}));
  if(request!==sequence)return;
  loaded.forEach(group=>batchDrafts.set(group.id,group));
  if(!groups.some(group=>group.id===activeBatchId))activeBatchId=(groups.find(group=>group.department===dept)||groups[0]).id;
@@ -77,7 +77,7 @@ async function submitBatch(){
  const plans=groups.filter(group=>!locked(batchDrafts.get(group.id).current)).map(group=>{
   const draft=batchDrafts.get(group.id),targetDate=core.targetDate(hotel,group.department,sourceDate,latest.deliverySchedules);
   if(targetDate!==core.targetDate(hotel,group.department,sourceDate,config.deliverySchedules))throw new Error('收送日設定已更新，請重新整理後確認日期');
-  return {...group,items:core.submissionItems(group.rows,draft.values),expected:draft.current?.revision || 0,targetDate};
+  return {...group,items:core.submissionItems(draft.rows,draft.values),expected:draft.current?.revision || 0,targetDate};
  });
  if(!plans.length)throw new Error('全部餐廳已開始點收，原單已鎖定');
  await runTransaction(db,async tx=>{

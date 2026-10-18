@@ -47,3 +47,16 @@ test('other hotel pages remain unchanged and no invented department quantities a
 test('optional breakdown errors never block the total signing page',async()=>{
  const f=await receiptFixture([{hotel:'洲際 餐廳',item:'【大地】口布',doubleCount:'1.5'}],[]);assert.equal(f.context.dataReady,true);assert(f.elements.get('outletDetails').innerHTML.includes('仍可在上方簽收總數'));assert.equal(f.displayed[0].originalQty,'1.5');
 });
+
+test('colored napkins and wiping cloths bill only canonical totals but preserve subtype breakdown',async()=>{
+ const rows=[['湛露','黃口布','10'],['湛露','白口布','0'],['大地','口布','8'],['湛露','擦拭布','3'],['湛露','紅邊擦拭布','4'],['WARA','紅邊擦拭布','5']];
+ const f=await receiptFixture(rows.map(([outlet,sourceItem,doubleCount],i)=>({hotel:'洲際 餐廳',item:`【${outlet}】${sourceItem}`,doubleCount,...(i%2?{outlet,sourceItem}:{})})),[]);
+ assert.equal(f.displayed.length,2);assert.equal(f.displayed.find(r=>r.itemName==='口布').originalQty,'18');assert.equal(f.displayed.find(r=>r.itemName==='擦拭布').originalQty,'12');
+ const detail=f.context.outletDetailGroups.find(g=>g.outlet==='湛露');assert.deepEqual(detail.items.map(r=>[r.itemName,r.quantity]),[['黃口布','10'],['白口布','0'],['擦拭布','3'],['紅邊擦拭布','4']]);
+ const signed=f.module.receiptTotalItems(rows.map(([outlet,itemName,actualQty])=>({outlet,sourceItem:itemName,itemName,originalQty:actualQty,actualQty})),'洲際');assert.deepEqual(signed.map(r=>[r.itemName,r.actualQty]),[['口布','18'],['擦拭布','12']]);
+});
+test('variant mapping is scoped to InterContinental restaurant outlets and legacy saved details stay separate',async()=>{
+ const m=await loadModule();for(const [hotel,record,name] of [['其他飯店',{outlet:'湛露',sourceItem:'黃口布'},'黃口布'],['洲際',{outlet:'WARA',sourceItem:'黃口布'},'黃口布'],['洲際',{outlet:'湛露',sourceItem:'紅邊擦拭布',department:'制服'},'紅邊擦拭布']])assert.equal(m.receiptInventoryIdentity(record,'unused',hotel).itemName,name);
+ const receipt={deptName:'餐廳',items:[{itemName:'【湛露】黃口布',actualQty:'2'},{itemName:'【湛露】白口布',actualQty:'3'},{itemName:'【湛露】紅邊擦拭布',actualQty:'0'}]};
+ assert.deepEqual(m.receiptTotalItems(receipt.items,'洲際').map(r=>[r.itemName,r.actualQty]),[['口布','5'],['擦拭布','0']]);assert.deepEqual(m.outletReceiptDetails([], [receipt],'洲際')[0].items.map(r=>r.itemName),['黃口布','白口布','紅邊擦拭布']);
+});
