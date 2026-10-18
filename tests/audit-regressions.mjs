@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-import {applyFinanceItemNames, itemMatchesName, mergeSignedItems, legacyDatePrefixes} from '../logistics-items.js';
+import {applyFinanceItemNames, itemMatchesName, mergeSignedItems, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity} from '../logistics-items.js';
 
 const source = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const section = (file, start, end) => source(file).split(start)[1].split(end)[0];
@@ -124,7 +124,7 @@ test('mixed padded/unpadded dates are included once and out-of-range dates are f
 
 function adminHarness(initial) {
     const docs=new Map(Object.entries(initial).map(([k,v])=>[k,plain(v)])),alerts=[],toasts=[];
-    const context=vm.createContext({console,window:{},itemMatchesName,db:{},doc:(_,__,id)=>id,
+    const context=vm.createContext({console,window:{},itemMatchesName,receiptInventoryIdentity,receiptTotalItems,addInventoryQuantity,db:{},doc:(_,__,id)=>id,
         customAlert:async m=>alerts.push(m),showToast:m=>toasts.push(m),applyLogFilters:()=>{},
         getLocalTimeString:()=> 'test-time',
         runTransaction:async (_,body)=>body({
@@ -183,4 +183,33 @@ test('actual backend load does not recreate old inventory name after finance ren
     assert.equal(records[0].items[0].bqQty,'99');
     assert.equal(h.docs.get('signed').items.length,1);
     assert.equal(h.docs.get('signed').clientSig,'H');
+});
+
+
+async function restaurantAudit(inventory,receipts) {
+    const h=adminHarness(receipts),fields={logStartDate:{value:'2026-10-01'},logEndDate:{value:'2026-10-02'},logFetchHotel:{value:''},logTableBody:{},logLoadBtn:{}};
+    Object.assign(h.context,{document:{getElementById:id=>fields[id]},legacyDatePrefixes,ensureMasterData:async()=>{},getItemSortIndex:()=>0,populateLogDropdowns:()=>{},standardizeDate:d=>d,collection:(_,name)=>name,where:(...v)=>v,query:(...v)=>v,
+        getDocsFromServer:async q=>({forEach:cb=>{const rows=q[0]==='inventory_records'?inventory:Object.entries(receipts).map(([id,r])=>({id,...r}));rows.forEach(r=>cb({id:r.id,data:()=>plain(r)}));}})});
+    vm.runInContext('let masterData=[];',h.context);vm.runInContext('window.loadLogData = '+section('boss_admin.html','window.loadLogData = ','function populateLogDropdowns()'),h.context);await h.context.window.loadLogData();assert(!String(fields.logTableBody.innerHTML).includes('讀取失敗'),fields.logTableBody.innerHTML);
+    return {...h,records:plain(vm.runInContext('logRecords',h.context))};
+}
+const icInv=(id,outlet,item,qty)=>({id,date:'2026-10-01',hotel:'洲際 餐廳',item:`【${outlet}】${item}`,doubleCount:qty});
+test('InterContinental audit uses hotel-signed totals and never appends or writes outlet details',async()=>{
+    const receipt={date:'2026-10-01',hotelKeyword:'洲際',deptName:'餐廳',driverSig:'D',clientSig:'H',items:[{itemName:'口布',originalQty:'30',actualQty:'28',price:8},{itemName:'【大地】口布',originalQty:'18',actualQty:'18'},{itemName:'【WARA】口布',originalQty:'12',actualQty:'12'}]};
+    const h=await restaurantAudit([icInv('a','大地','口布','99'),icInv('b','WARA','口布','20'),icInv('c','CLUB','雞尾酒巾','7')],{signed:receipt});
+    assert.equal(h.records.length,1);assert.deepEqual(h.records[0].items,[{itemName:'口布',bqQty:'30',actualQty:'28'}]);assert.deepEqual(h.docs.get('signed'),receipt,'read-only loading leaves signed data, prices and signatures intact');
+    await h.qty('signed','口布','27');assert.equal(h.docs.get('signed').items.length,1);assert.equal(h.docs.get('signed').items[0].actualQty,'27');assert.equal(h.docs.get('signed').items[0].price,8);assert.equal(h.docs.get('signed').clientSig,'H');
+});
+test('unsigned InterContinental fallback groups colored items, cocktail towels, and wipes without double counting overlapping date reads',async()=>{
+    const inventory=[icInv('a','湛露','黃口布','10'),icInv('b','湛露','白口布','0'),icInv('c','WARA','口布','5'),icInv('d','CLUB','方巾','3'),icInv('e','CLUB','雞尾酒巾','7'),icInv('f','CLUB','擦拭布','2'),icInv('g','WARA','紅邊擦拭布','4'),{id:'old',date:'2026-10-01',hotel:'洲際 餐廳',item:'口布',doubleCount:'99'}];
+    const h=await restaurantAudit(inventory,{});assert.equal(h.records.length,1);assert.deepEqual(Object.fromEntries(h.records[0].items.map(i=>[i.itemName,i.actualQty])),{'口布':'15','方巾':'10','擦拭布':'6'});assert.equal(h.docs.size,0);
+});
+test('legacy-only restaurant receipt details become totals while separate shipments and signed zero remain independent',async()=>{
+    const row={date:'2026-10-01',hotelKeyword:'洲際',deptName:'餐廳',clientSig:'H',driverSig:'D'};
+    const h=await restaurantAudit([icInv('inv','湛露','口布','99')],{first:{...row,items:[{itemName:'【湛露】黃口布',originalQty:'10',actualQty:'0'},{itemName:'【湛露】白口布',originalQty:'5',actualQty:'2'}]},second:{...row,items:[{itemName:'口布',originalQty:'6',actualQty:'0'}]}});
+    assert.equal(h.records.length,2);assert.deepEqual(h.records.find(r=>r.id==='first').items,[{itemName:'口布',bqQty:'15',actualQty:'2'}]);assert.deepEqual(h.records.find(r=>r.id==='second').items,[{itemName:'口布',bqQty:'6',actualQty:'0'}]);assert.equal(h.docs.get('first').items.length,2);
+});
+test('other hotels keep their existing inventory repair behavior',async()=>{
+ const h=await restaurantAudit([{id:'i',date:'2026-10-01',hotel:'A 房務',item:'中毛',doubleCount:'8'}],{a:{date:'2026-10-01',hotelKeyword:'A',deptName:'房務',items:[{itemName:'浴巾',originalQty:'10',actualQty:'9'}]}});
+ assert.equal(h.records[0].items.length,2);assert(h.docs.get('a').items.some(i=>i.itemName==='中毛'));
 });

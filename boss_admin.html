@@ -316,7 +316,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        import { itemMatchesName, legacyDatePrefixes } from './logistics-items.js';
+        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261018-audit-totals';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -781,6 +781,8 @@
 
                 let invMap = {}; 
                 let invRawDataMap = {}; 
+                const outletInventory = new Map();
+                const isRestaurant = (hotel,dept) => String(hotel || '').replace(/\s/g,'') === '洲際' && ['餐廳','餐飲','餐飲部'].includes(String(dept || '').trim());
 
                 const processInv = (docSnap) => {
                     let d = docSnap.data();
@@ -810,6 +812,11 @@
                     let safeDeptKeyForMatch = deptName.replace(/\s+/g, '');
                     // ㊙️ 關鍵修改：將飯店與部門完全黏合比對，消除切割邏輯差異
                     let matchKey = `${dDate}_${safeHotelKeyForMatch}${safeDeptKeyForMatch}`;
+                    if(isRestaurant(hotelKeyword,deptName)) {
+                        const identity=receiptInventoryIdentity(d,cleanItem,'洲際');
+                        outletInventory.set(docSnap.id,{matchKey,identity,qty,dDate,hotelKeyword,deptName,hotelName});
+                        return;
+                    }
                     
                     if (!invRawDataMap[matchKey]) {
                         invRawDataMap[matchKey] = {
@@ -826,6 +833,20 @@
                     if (oldInv) { oldInv.qty = qty; } else invItems.push({itemName: cleanItem, qty});
                 };
                 invSnapshots.forEach(snap => snap.forEach(processInv));
+                // Plant outlet rows supply only an unsigned aggregate fallback, never extra billing rows.
+                const detailKeys=new Set([...outletInventory.values()].filter(r=>r.identity.outlet).map(r=>`${r.matchKey}_${r.identity.itemName}`));
+                const totals={},outletKeys=new Set();
+                for(const row of outletInventory.values()) {
+                    const key=`${row.matchKey}_${row.identity.itemName}`;
+                    if(!row.identity.outlet&&detailKeys.has(key))continue;
+                    addInventoryQuantity(totals,outletKeys,key,{originalQty:row.qty,...row},row.identity.outlet);
+                }
+                for(const row of Object.values(totals)) {
+                    const itemName=row.identity.itemName,qty=String(row.originalQty);
+                    invMap[`${row.dDate}_${row.hotelName.replace(/\s+/g,'')}_${itemName}`]=qty;
+                    if(!invRawDataMap[row.matchKey])invRawDataMap[row.matchKey]={date:row.dDate,hotelKeyword:row.hotelKeyword,deptName:row.deptName,hotelName:row.hotelName,items:[]};
+                    invRawDataMap[row.matchKey].items.push({itemName,qty});
+                }
 
                 let uniqueDocs = new Map();
                 logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
@@ -856,11 +877,12 @@
 
                         let hasQtyModified = false;
                         let isSigned = !!(d.driverSig && d.clientSig);
+                        const restaurantTotals=isRestaurant(d.hotelKeyword,d.deptName);
                         const signatureReviewNeeded = !isSigned && !!(d.driverSig || d.clientSig) && !!d.timestamp;
 
                         let validItems = [];
                         const originalLogItems = Array.isArray(d.items) ? d.items.map(i => ({...i})) : [];
-                        const existingLogItems = uniqueLogItems(originalLogItems);
+                        const existingLogItems = uniqueLogItems(restaurantTotals ? receiptTotalItems(originalLogItems,'洲際') : originalLogItems);
                         const hasDuplicates = existingLogItems.length !== originalLogItems.length;
                         existingLogItems.forEach(item => {
                             let orig = item.originalQty || "0";
@@ -868,6 +890,7 @@
                             let cleanItemName = (item.inventoryItemName || item.itemName || "").trim();
 
                             let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
+                            if(restaurantTotals && d.clientSig)trueOrig=String(item.originalQty ?? item.bqQty ?? '0');
                             if (trueOrig === undefined) trueOrig = orig;
 
                             let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : trueOrig;
@@ -888,7 +911,7 @@
                         // 已存在品項保留物流端 actualQty；只補缺少的品項，避免覆蓋司機已修改的實收數量。
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
-                        if (invGroup && Array.isArray(invGroup.items)) {
+                        if (!restaurantTotals && invGroup && Array.isArray(invGroup.items)) {
                             const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.itemName)));
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim();
@@ -906,7 +929,7 @@
                                 });
                             });
                         }
-                        if (missingToPersist.length || hasDuplicates) {
+                        if (!restaurantTotals && (missingToPersist.length || hasDuplicates)) {
                             // 只對最新伺服器內容去重；交易確保不會覆蓋同時改過的數量或簽名。
                             logisticsRepairPromises.push(runTransaction(db, async tx => {
                                 const refDoc = doc(db, 'logistics_records', docSnap.id);
@@ -1452,10 +1475,13 @@
                     const snap = await tx.get(docRef);
                     const local = logRecords.find(r => r.id === docId);
                     if (!snap.exists() && !local) throw new Error('找不到物流單據，請重新載入');
-                    const items = uniqueLogItems(snap.exists() ? snap.data().items || [] : local.items.map(i => ({
+                    const receipt=snap.exists()?snap.data():local;
+                    const restaurantTotals=String(receipt.hotelKeyword || '').replace(/\s/g,'')==='洲際'&&['餐廳','餐飲','餐飲部'].includes(receipt.deptName);
+                    const sourceItems = snap.exists() ? receipt.items || [] : local.items.map(i => ({
                         itemName: i.itemName, originalQty: String(i.bqQty), actualQty: String(i.actualQty),
                         auntNote: '', driverNote: '後台修改實收同步建立'
-                    })));
+                    }));
+                    const items=uniqueLogItems(restaurantTotals?receiptTotalItems(sourceItems,'洲際'):sourceItems);
                     const target = items.find(i => itemMatchesName(i, itemName));
                     if (!target) throw new Error('找不到原品項，請重新載入');
                     target.actualQty = finalNewValue;
@@ -1858,3 +1884,4 @@
     </script>
 </body>
 </html>
+
