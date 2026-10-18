@@ -101,7 +101,7 @@
         }, 20000);
     </script>
     <script type="module">
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, unreceivedOutletItems, receiptInventoryIdentity, receiptTotalItems } from './logistics-items.js?v=20261016-totals';
+        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems } from './logistics-items.js?v=20261018-sign-before-receipt';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -851,11 +851,6 @@
             // 使儲存前的背景請求不能反向覆蓋新簽名畫面。
             ++fetchSequence;
             try {
-                if (sendwashSettings.some(r=>r.hotel===signingHotel&&r.department===dept&&r.outlet)) {
-                    const sources=await getDocsFromServer(query(collection(db,'sendwash_records'),where('targetDate','==',signingDate)));
-                    const waiting=unreceivedOutletItems(sources.docs.map(d=>d.data()),signingDate,signingHotel,dept);
-                    if(waiting.length)throw new Error(`餐廳尚未完成廠內點收：${waiting.join('、')}。請先完成後再簽總單。`);
-                }
                 const clientBlob = cNew ? clientCanvas.toDataURL('image/jpeg',0.7) : null;
                 const driverBlob = dNew ? driverCanvas.toDataURL('image/jpeg',0.7) : null;
                 // 只上傳本次實際重新簽名的圖片；不得重寫原有 URL。
