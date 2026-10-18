@@ -58,7 +58,7 @@ test('湛露 colors and outlet wiping cloth variants submit as independent quant
 });
 test('legacy 湛露 unsplit quantity is retained without guessing a color or doubling it',async()=>{
  const f=await fixture(date=>({[core.submissionId(hotel,'餐廳',date,'湛露')]:{hotel,department:'餐廳',outlet:'湛露',revision:1,items:[{item:'口布',quantity:'19',unit:'條'}]}}));await f.tab(2);
- assert.equal(f.elements.get('qty0').value,'19');assert.equal(f.elements.get('qty1').value,'');assert.equal(f.elements.get('qty2').value,'');await f.submit();assert.deepEqual(f.tables.sendwash_records[f.id('湛露')].items,[{item:'口布',quantity:'19',unit:'條'}]);
+ assert.equal(f.elements.get('items').children[0].textContent,'黃口布（條）');assert.equal(f.elements.get('qty0').value,'');assert.equal(f.elements.get('qty1').value,'');assert.equal(f.elements.get('qty2').value,'');await f.submit();assert.deepEqual(f.tables.sendwash_records[f.id('湛露')].items,[{item:'口布',quantity:'19',unit:'條'}]);
 });
 test('an existing red-edge cloth spreadsheet row also exposes both cloth subtypes without changing its default',()=>{
  const row={hotel:'洲際',department:'餐廳',outlet:'WARA',item:'紅邊擦拭布',defaultQuantity:'2',unit:'條'};

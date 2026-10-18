@@ -16,6 +16,7 @@
  window.sendwashSupplementContext=(date,hotel,item)=>{
   const outlet=activeOutlet.get(hotel),setting=settings.find(r=>r.inventoryHotel===hotel&&r.outlet===outlet);
   if(!outlet||!setting)return null;
+  if(core.retiredOutletItem({...setting,item}))throw new Error('湛露口布請分別填寫「黃口布」及「白口布」');
   if(/["'<>\\/\r\n]/.test(item))throw new Error('品項名稱不可包含引號、斜線或換行');
   return {item:core.outletItem(outlet,item),baseHotel:setting.hotel,department:setting.department,outlet,sourceItem:item,countSource:'sendwash',sendwashSupplemental:true};
  };
@@ -38,7 +39,7 @@
   if(!selected||!configured.length)return visible;
   // InterContinental always shows its full departmental template in every outlet.
   const complete=core.displayRows([...new Set([...templateItems,...configured.map(row=>row.item)])].map(item=>({...configured[0],item,defaultQuantity:''}))).map(row=>core.outletItem(selected,row.item));
-  return [...new Set([...complete,...visible])];
+  return [...new Set([...complete,...visible])].filter(item=>!core.retiredOutletItem({...configured[0],item:item.slice(`【${selected}】`.length)}));
  };
  window.attachSendwashListener=async dates=>{
   const request=++sequence;if(!ready){await window.sendwashVerificationReady;if(!ready)return;}if(request!==sequence)return;

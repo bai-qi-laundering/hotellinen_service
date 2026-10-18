@@ -107,11 +107,12 @@ test('other hotels, uniforms and the original registration tab keep their previo
  const f=fixture({});await f.start();const nav=f.elements.get('outletTabs');nav.children[nav.children.length-1].onclick();assert.deepEqual([...f.context.window.filterSendwashOutlets(date,hotel,['口布','方巾','【大地】口布'],['口布','方巾'])],['口布','方巾']);
 });
 
-test('plant full template splits 湛露 colors and all outlet wiping cloths, retaining historical unsplit rows',async()=>{
+test('plant full template splits 湛露 colors and all outlet wiping cloths, hiding the retired unsplit option',async()=>{
  const f=fixture({});await f.start();f.context.window.setSendwashSettings(['湛露','WARA'].map(outlet=>({hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet,item:'口布'})));
  const template=['口布','擦拭布','服務巾'];const render=()=>[...f.context.window.filterSendwashOutlets(date,hotel,['【湛露】口布'],template)];
- assert.deepEqual(render(),['【湛露】黃口布','【湛露】白口布','【湛露】擦拭布','【湛露】紅邊擦拭布','【湛露】服務巾','【湛露】口布']);
+ assert.deepEqual(render(),['【湛露】黃口布','【湛露】白口布','【湛露】擦拭布','【湛露】紅邊擦拭布','【湛露】服務巾']);
  f.elements.get('outletTabs').children[1].onclick();assert.deepEqual(render(),['【WARA】口布','【WARA】擦拭布','【WARA】紅邊擦拭布','【WARA】服務巾']);assert.equal(f.writes,0);
+ f.elements.get('outletTabs').children[0].onclick();f.context.window.filterSendwashOutlets(date,hotel,[],template);assert.throws(()=>f.context.window.sendwashSupplementContext(date,hotel,'口布'),/黃口布/);
 });
 test('plant saves subtype counts and signatures independently, including zero',async()=>{
  const f=fixture({湛露:{hotel:'洲際',department:'餐廳',inventoryHotel:hotel,outlet:'湛露',targetDate:date,items:[{item:'黃口布',quantity:'10'},{item:'白口布',quantity:'8'},{item:'紅邊擦拭布',quantity:'2'}]}});await f.start();
