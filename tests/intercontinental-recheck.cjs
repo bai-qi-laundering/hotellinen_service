@@ -130,3 +130,14 @@ test('CLUB plant page shows cocktail towels when absent from the template and su
  for(let i=0;i<30&&!f.tables.inventory_records[core.inventoryId(date,hotel,item)];i++)await new Promise(resolve=>setImmediate(resolve));
  const saved=f.tables.inventory_records[core.inventoryId(date,hotel,item)];assert(saved,c.error);assert.equal(saved.doubleCount,'7');assert.equal(saved.sourceItem,'雞尾酒巾');assert.equal(saved.outlet,'CLUB');assert.equal(saved.doubleSignature,'uploaded-supervisor');
 });
+
+test('restaurant tabs rebuild after switching to housekeeping or another hotel and returning to the same date',async()=>{
+ const f=fixture();await f.start();const c=f.context.window,nav=f.elements.get('outletTabs'),before=JSON.stringify(f.inputs);
+ c.filterSendwashOutlets(date,hotel,['口布'],['口布']);assert.equal(nav.children.length,3);
+ nav.children[1].onclick();c.filterSendwashOutlets(date,hotel,['口布'],['口布']);assert.equal(nav.children[1].textContent,'WARA');
+ for(const other of ['洲際 房務','H2O 制服']){
+  c.filterSendwashOutlets(date,other,['床單'],['床單']);assert.equal(nav.children.length,0);assert.equal(nav.dataset.key,undefined);
+  const items=c.filterSendwashOutlets(date,hotel,['口布'],['口布']);assert.equal(nav.children.length,3);assert.deepEqual(nav.children.map(button=>button.textContent),['大地','WARA','原登記']);assert.deepEqual([...items],['【WARA】口布']);
+ }
+ assert.equal(JSON.stringify(f.inputs),before);assert.equal(f.writes,0);
+});
