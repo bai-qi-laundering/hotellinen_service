@@ -68,3 +68,23 @@ test('CLUB cocktail towels merge only into square towel totals while details rem
  const m=f.module;assert.equal(m.receiptInventoryIdentity({},'【WARA】雞尾酒巾','洲際').itemName,'雞尾酒巾');assert.equal(m.receiptInventoryIdentity({outlet:'CLUB',sourceItem:'雞尾酒巾'},'', 'H2O').itemName,'雞尾酒巾');
  const totals=m.receiptTotalItems([{itemName:'【CLUB】方巾',actualQty:'3'},{itemName:'【CLUB】雞尾酒巾',actualQty:'0'}],'洲際');assert.equal(totals.length,1);assert.equal(totals[0].itemName,'方巾');assert.equal(totals[0].actualQty,'3');
 });
+
+test('SEEDS mats count as napkins on receipts while plant outlet detail remains a mat',async()=>{
+ const f=await receiptFixture([{hotel:'洲際 餐廳',item:'【SEEDS(大地)】口布',doubleCount:'50'},{hotel:'洲際 餐廳',item:'【SEEDS(大地)】餐墊',doubleCount:'164'},{hotel:'洲際 餐廳',item:'【湛露】餐墊',doubleCount:'3'}],[]);
+ assert.equal(f.displayed.find(i=>i.itemName==='口布').originalQty,'214');assert.equal(f.displayed.find(i=>i.itemName==='餐墊').originalQty,'3');assert(f.context.outletDetailGroups.find(g=>g.outlet==='SEEDS(大地)').items.some(i=>i.itemName==='餐墊'&&i.quantity==='164'));
+ for(const outlet of ['大地','SEEDS(大地)','SEEDS（大地）'])assert.equal(f.module.receiptInventoryIdentity({outlet,sourceItem:'餐墊'},'餐墊','洲際').itemName,'口布');
+ assert.equal(f.module.receiptInventoryIdentity({outlet:'WARA',sourceItem:'餐墊'},'餐墊','洲際').itemName,'餐墊');
+});
+test('historical signed mat total is reclassified once, without summing total and old department detail twice',async()=>{
+ const m=await loadModule(),items=[{itemName:'【SEEDS(大地)】口布',originalQty:'50',actualQty:'50'},{itemName:'【SEEDS(大地)】餐墊',originalQty:'164',actualQty:'164'},{itemName:'口布',inventoryItemName:'口布',originalQty:'232',actualQty:'232',price:8.5},{itemName:'餐墊',inventoryItemName:'餐墊',originalQty:'164',actualQty:'164'}];
+ const normalized=m.receiptTotalItems(items,'洲際');assert.equal(normalized.length,1);assert.equal(normalized[0].itemName,'口布');assert.equal(normalized[0].actualQty,'396');assert.equal(normalized[0].price,8.5);assert.deepEqual(m.receiptTotalItems(normalized,'洲際'),normalized);assert.equal(items[3].actualQty,'164');
+ const already=[items[1],{itemName:'口布',actualQty:'396',originalQty:'396'}];assert.equal(m.receiptTotalItems(already,'洲際')[0].actualQty,'396');
+});
+test('only SEEDS share moves from signed mat total; other outlets, signed zero and legacy-only records remain correct',async()=>{
+ const m=await loadModule(),detail={itemName:'【大地】餐墊',originalQty:'4',actualQty:'4'};
+ for(const total of ['0','3','6']){
+  const input=[detail,{itemName:'口布',originalQty:'10',actualQty:'10'},{itemName:'餐墊',originalQty:total,actualQty:total}],out=m.receiptTotalItems(input,'洲際');
+  assert.equal(out.find(i=>i.itemName==='口布').actualQty,String(10+Math.min(Number(total),4)));assert.equal(out.find(i=>i.itemName==='餐墊')?.actualQty ?? '0',String(Math.max(0,Number(total)-4)));
+ }
+ const legacy=m.receiptTotalItems([detail,{itemName:'【WARA】口布',originalQty:'2',actualQty:'2'},{itemName:'餐墊',originalQty:'4',actualQty:'3'}],'洲際');assert.equal(legacy.length,1);assert.equal(legacy[0].actualQty,'5');
+});

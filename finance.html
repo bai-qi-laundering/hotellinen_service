@@ -2,6 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>百麒國際股份有限公司 - 財務多維結帳系統</title>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -488,14 +489,14 @@ body { background: white; padding: 0; margin: 0; }
 <div class="excel-bottom-bar no-print">
 <a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
 <a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
-<a href="finance.html" class="excel-tab active">💰 結帳戰情系統</a>
+<a href="finance.html?v=20261018-seeds-mats" class="excel-tab active">💰 結帳戰情系統</a>
 </div>
 
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems } from './logistics-items.js?v=20261018-finance-totals';
+import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems } from './logistics-items.js?v=20261018-seeds-mats';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",

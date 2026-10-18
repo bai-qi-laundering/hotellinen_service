@@ -2,6 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>百麒物流 - 總管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -309,14 +310,14 @@
     <div class="excel-bottom-bar">
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
         <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">📦 物流查帳後台</button>
-        <a href="finance.html" class="excel-tab">💰 財務對帳單</a>
+        <a href="finance.html?v=20261018-seeds-mats" class="excel-tab">💰 財務對帳單</a>
     </div>
 
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261018-audit-totals';
+        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261018-seeds-mats';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",

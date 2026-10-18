@@ -49,3 +49,8 @@ test('financial rename targets the canonical total after normalization and retai
  const items=applyFinanceItemNames(billingReceiptItems(receipt),[{receiptOrder:0,originalItemName:'口布',sourceItemName:'口布',newItemName:'餐巾',newPrice:9}]);
  assert.equal(items.length,1);assert.equal(items[0].itemName,'餐巾');assert.equal(items[0].actualQty,'28');assert.equal(items[0].price,8);assert.equal(items[0].auntNote,'保留');assert.equal(receipt.clientSig,'H');assert.equal(receipt.items.length,2);
 });
+test('October 16 legacy total plus department structure bills only canonical quantities including SEEDS mats',async()=>{
+ const items=[{itemName:'【SEEDS(大地)】餐墊',actualQty:'164',originalQty:'164'},{itemName:'【CLUB】口布',actualQty:'33'},{itemName:'口布',actualQty:'232',originalQty:'232',price:8.5},{itemName:'餐墊',actualQty:'164',originalQty:'164'}],ctx=context([{id:'old-total',data:()=>({date:'2026-10-12',hotelKeyword:'洲際',deptName:'餐廳',items})}]);
+ ctx.document.querySelectorAll=()=>[{value:'洲際 餐廳'}];const rows=await ctx.fetchRecordsForSelectedHotels();assert.deepEqual(plain(rows.map(i=>[i.item,i.qty])),[['口布',396]]);
+ const blank=billingReceiptItems({hotelKeyword:'洲際',deptName:'餐廳',items:[{itemName:'【大地】餐墊',actualQty:'2',originalQty:'2'},{itemName:'口布',actualQty:'',originalQty:'10'},{itemName:'餐墊',actualQty:'',originalQty:'2'}]});assert.equal(blank.find(i=>i.itemName==='口布').actualQty,'0');
+});

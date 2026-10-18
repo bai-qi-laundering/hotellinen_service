@@ -20,7 +20,8 @@ export function receiptInventoryIdentity(record, itemName, hotel) {
     const identity=record.outlet && record.sourceItem ? {itemName:String(record.sourceItem).trim(),outlet:record.outlet} : encoded ? {itemName:encoded[2].trim(),outlet:encoded[1]} : {itemName:String(itemName).trim(),outlet:record.outlet || ''};
     if(hotel==='洲際'&&identity.outlet&&!/制服/.test(record.department || record.hotel || '')){
         const item=normalizeItemName(identity.itemName),outlet=normalizeItemName(identity.outlet);
-        const total=outlet==='湛露'&&['黃口布','白口布'].includes(item)?'口布':item==='紅邊擦拭布'?'擦拭布':outlet==='CLUB'&&item==='雞尾酒巾'?'方巾':identity.itemName;
+        const seeds=['大地','SEEDS(大地)'].includes(outlet.normalize('NFKC'));
+        const total=outlet==='湛露'&&['黃口布','白口布'].includes(item)?'口布':seeds&&item==='餐墊'?'口布':item==='紅邊擦拭布'?'擦拭布':outlet==='CLUB'&&item==='雞尾酒巾'?'方巾':identity.itemName;
         if(total!==identity.itemName)return {...identity,itemName:total,detailItemName:identity.itemName};
     }
     return identity;
@@ -36,7 +37,7 @@ export function receiptTotalItems(items, hotel) {
         if (!groups.has(key)) groups.set(key,[]);
         groups.get(key).push({item,identity});
     }
-    return [...groups.values()].flatMap(group=>{
+    const normalized=[...groups.values()].flatMap(group=>{
         const totals=group.filter(row=>!row.identity.outlet);
         if (totals.length) return totals.map(row=>({...row.item}));
         const first=group[0],name=first.identity.itemName;
@@ -50,6 +51,36 @@ export function receiptTotalItems(items, hotel) {
         delete result.outlet;delete result.sourceItem;
         return result;
     });
+    // Old signed receipts may contain BOTH a mat total and outlet details.
+    // Reclassify only SEEDS' share of that authoritative total, never add it twice.
+    const matGroup=groups.get(normalizeItemName('餐墊'));
+    const oldMatTotals=matGroup?.filter(row=>!row.identity.outlet) || [];
+    const seedsMats=(groups.get(normalizeItemName('口布')) || []).filter(row=>row.identity.detailItemName==='餐墊');
+    if(!oldMatTotals.length || !seedsMats.length)return normalized;
+    const napkin=normalized.find(item=>normalizeItemName(item.inventoryItemName || item.itemName)==='口布');
+    const hasNapkinTotal=(groups.get(normalizeItemName('口布')) || []).some(row=>!row.identity.outlet);
+    const qty=(item,field)=>{
+        const value=Number(item[field]!==undefined&&item[field]!==null&&item[field]!==''?item[field]:field==='actualQty'?0:item.originalQty ?? item.bqQty ?? 0);
+        if(!Number.isSafeInteger(value)||value<0)throw new Error('餐廳簽收數量格式錯誤，請確認原單');
+        return value;
+    };
+    for(const item of normalized){const original=qty(item,'originalQty'),actual=qty(item,'actualQty');item.originalQty=String(original);item.actualQty=String(actual);}
+    for(const field of ['originalQty','actualQty']){
+        const declared=seedsMats.reduce((sum,row)=>sum+qty(row.item,field),0);
+        let remaining=declared,moved=0;
+        for(const old of oldMatTotals){
+            const target=normalized.find(item=>item.itemName===old.item.itemName&&item.inventoryItemName===old.item.inventoryItemName);
+            if(!target)continue;
+            const before=qty(target,field),shift=Math.min(before,remaining);
+            target[field]=String(before-shift);remaining-=shift;moved+=shift;
+        }
+        if(napkin){
+            const total=qty(napkin,field)+moved-(hasNapkinTotal?0:declared);
+            if(!Number.isSafeInteger(total)||total<0)throw new Error('餐廳品項加總超過可用範圍');
+            napkin[field]=String(total);
+        }
+    }
+    return normalized.filter(item=>normalizeItemName(item.inventoryItemName || item.itemName)!=='餐墊'||qty(item,'originalQty')!==0||qty(item,'actualQty')!==0);
 }
 
 // Display-only breakdown. These rows never enter signing or billing payloads.
