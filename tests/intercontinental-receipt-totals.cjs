@@ -31,7 +31,7 @@ test('receipt displays one top total and separate read-only outlet details below
  const inventory=[{hotel:'洲際 餐廳',item:'【大地】口布',doubleCount:'18'},{hotel:'洲際 餐廳',item:'【WARA】口布',doubleCount:'12'},{hotel:'洲際 餐廳',item:'【大地】小毛巾',doubleCount:'0'},{hotel:'洲際 餐廳',item:'口布',doubleCount:'99'},{hotel:'洲際 餐廳',item:'【大地】桌裙',outlet:'大地',sourceItem:'桌裙',count:'',doubleCount:'3',sendwashSupplemental:true}];
  const settings=[{hotel:'洲際',department:'餐廳',outlet:'WARA',item:'口布'},{hotel:'洲際',department:'餐廳',outlet:'大地',item:'小毛巾'},{hotel:'洲際',department:'餐廳',outlet:'大地',item:'口布'}];
  const f=await receiptFixture(inventory,[],settings),html=f.elements.get('outletDetails').innerHTML;
- assert.equal(f.displayed.filter(row=>row.itemName==='口布').length,1);assert.equal(f.displayed.find(row=>row.itemName==='口布').originalQty,'30');assert.equal(f.elements.get('receiptTotalsHeading').hidden,false);assert.equal(f.elements.get('outletDetails').hidden,false);assert(html.includes('各餐廳部門明細'));assert(html.includes('WARA'));assert(html.includes('大地'));assert(html.includes('>18</td>'),html);assert(html.includes('>12</td>'));assert(html.includes('>0</td>'));assert(html.includes('桌裙'));assert(html.includes('>3</td>'));assert(!/<(?:input|button)\b/.test(html));assert(!html.includes('onclick='));assert.deepEqual(f.reads.sort(),['inventory_records','logistics_records']);
+ assert.equal(f.displayed.filter(row=>row.itemName==='口布').length,1);assert.equal(f.displayed.find(row=>row.itemName==='口布').originalQty,'30');assert.equal(f.elements.get('receiptTotalsHeading').hidden,false);assert.equal(f.elements.get('outletDetails').hidden,false);assert(html.includes('各餐廳部門明細'));assert(html.includes('WARA'));assert(html.includes('大地'));assert(html.includes('>18</td>'),html);assert(html.includes('>12</td>'));assert(!html.includes('>0</td>'));assert(html.includes('桌裙'));assert(html.includes('>3</td>'));assert(!/<(?:input|button)\b/.test(html));assert(!html.includes('onclick='));assert.deepEqual(f.reads.sort(),['inventory_records','logistics_records']);
  assert.deepEqual(f.context.outletDetailGroups.map(group=>group.outlet),['WARA','大地']);assert.deepEqual(f.context.outletDetailGroups[1].items.map(row=>row.itemName),['小毛巾','口布','桌裙']);
  const source=fs.readFileSync('logistics.html','utf8');assert(source.indexOf('id="receiptTotalsHeading"')<source.indexOf('id="departmentsContainer"'));assert(source.indexOf('id="departmentsContainer"')<source.indexOf('id="outletDetails"'));
 });
@@ -42,7 +42,7 @@ test('details prefer live plant records, supplement missing legacy outlets and e
 });
 test('other hotel pages remain unchanged and no invented department quantities appear when only a total exists',async()=>{
  const other=await receiptFixture([{hotel:'其他飯店 餐廳',item:'口布',count:'5'}],[],[],'其他飯店');assert.equal(other.elements.get('receiptTotalsHeading').hidden,true);assert.equal(other.elements.get('outletDetails').hidden,true);
- const f=await receiptFixture([],[{deptName:'餐廳',items:[{itemName:'口布',actualQty:'30'}]}]);assert.equal(f.context.outletDetailGroups.length,0);assert(f.elements.get('outletDetails').innerHTML.includes('尚無各部門'));assert.equal(f.displayed[0].actualQty,'30');
+ const f=await receiptFixture([],[{deptName:'餐廳',items:[{itemName:'口布',actualQty:'30'}]}]);assert.equal(f.context.outletDetailGroups.length,0);assert(f.elements.get('outletDetails').innerHTML.includes('尚無數量大於 0'));assert.equal(f.displayed[0].actualQty,'30');
 });
 test('optional breakdown errors never block the total signing page',async()=>{
  const f=await receiptFixture([{hotel:'洲際 餐廳',item:'【大地】口布',doubleCount:'1.5'}],[]);assert.equal(f.context.dataReady,true);assert(f.elements.get('outletDetails').innerHTML.includes('仍可在上方簽收總數'));assert.equal(f.displayed[0].originalQty,'1.5');
@@ -87,4 +87,11 @@ test('only SEEDS share moves from signed mat total; other outlets, signed zero a
   assert.equal(out.find(i=>i.itemName==='口布').actualQty,String(10+Math.min(Number(total),4)));assert.equal(out.find(i=>i.itemName==='餐墊')?.actualQty ?? '0',String(Math.max(0,Number(total)-4)));
  }
  const legacy=m.receiptTotalItems([detail,{itemName:'【WARA】口布',originalQty:'2',actualQty:'2'},{itemName:'餐墊',originalQty:'4',actualQty:'3'}],'洲際');assert.equal(legacy.length,1);assert.equal(legacy[0].actualQty,'5');
+});
+
+test('receipt department detail hides zero items and empty outlets without deleting stored zero or changing totals',async()=>{
+ const f=await receiptFixture([{hotel:'洲際 餐廳',item:'【大地】方巾',doubleCount:'0'},{hotel:'洲際 餐廳',item:'【大地】口布',doubleCount:'3'},{hotel:'洲際 餐廳',item:'【WARA】服務巾',doubleCount:'0'}],[]),html=f.elements.get('outletDetails').innerHTML;
+ assert(html.includes('大地'));assert(html.includes('口布'));assert(!html.includes('方巾'));assert(!html.includes('WARA'));assert(!html.includes('服務巾'));assert(!html.includes('>0</td>'));
+ assert(f.context.outletDetailGroups.find(g=>g.outlet==='大地').items.some(i=>i.itemName==='方巾'&&i.quantity==='0'));assert.equal(f.displayed.find(i=>i.itemName==='方巾').originalQty,'0');
+ const zero=await receiptFixture([{hotel:'洲際 餐廳',item:'【WARA】服務巾',doubleCount:'0'}],[]);assert(!zero.elements.get('outletDetails').innerHTML.includes('<article'));assert(zero.elements.get('outletDetails').innerHTML.includes('本日尚無數量大於 0'));
 });

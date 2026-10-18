@@ -545,14 +545,15 @@
             if(!container||!heading)return;
             const enabled=currentHotel==='洲際';container.hidden=!enabled;heading.hidden=!enabled;
             if(!enabled){container.innerHTML='';return;}
+            const visibleGroups=outletDetailGroups.map(group=>({...group,items:group.items.filter(item=>Number(item.quantity)>0)})).filter(group=>group.items.length);
             const title='<h2 class="text-2xl font-black text-blue-900">各餐廳部門明細</h2><p class="text-base text-gray-600">以下為場內已儲存的部門數量，供核對；簽收與請款以上方總數區為準。</p>';
-            container.innerHTML=title+(outletDetailGroups.length?outletDetailGroups.map(group=>`
+            container.innerHTML=title+(visibleGroups.length?visibleGroups.map(group=>`
                 <article class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
                     <h3 class="font-black text-xl text-blue-900">${escapeHtml(group.outlet)}</h3>
                     <p class="text-base text-gray-500 mb-3">${escapeHtml(group.deptName)}</p>
                     <table class="w-full text-lg"><thead><tr class="border-b border-gray-200 text-gray-600"><th scope="col" class="text-left py-2">品項</th><th scope="col" class="text-right py-2 whitespace-nowrap">場內數量</th></tr></thead>
                     <tbody>${group.items.map(item=>`<tr class="border-b border-gray-100 last:border-0"><td class="py-3 pr-3 break-words font-bold">${escapeHtml(item.itemName)}${item.note?`<p class="text-base text-gray-600 font-normal mt-1 break-words">${escapeHtml(item.note)}</p>`:''}</td><td class="py-3 text-right align-top text-2xl font-black text-blue-900">${escapeHtml(item.quantity)}</td></tr>`).join('')}</tbody></table>
-                </article>`).join(''):`<p class="bg-white p-4 rounded-xl text-lg text-gray-500">${escapeHtml(outletDetailError || '本日尚無各部門已儲存的場內明細。')}</p>`);
+                </article>`).join(''):`<p class="bg-white p-4 rounded-xl text-lg text-gray-500">${escapeHtml(outletDetailError || '本日尚無數量大於 0 的部門明細。')}</p>`);
         }
 
         function processAndRenderData(rawData) {
