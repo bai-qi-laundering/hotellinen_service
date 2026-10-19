@@ -146,6 +146,9 @@
         let dataReady = false;
         let templatePromise;
         let sendwashSettings = [];
+        let sendwashSettingsLoaded = false;
+        let sendwashSettingsError = '';
+        let templateLoadSequence = 0;
         function withReadTimeout(promise, label, ms = 15000) {
             let timer;
             return Promise.race([promise, new Promise((_, reject) => {
@@ -291,6 +294,28 @@
             return new Date() >= lockDate;
         }
 
+        function loadReceiptTemplate() {
+            const request=++templateLoadSequence;
+            sendwashSettingsError='';
+            renderSendwashLinks();
+            // Apply late results on the original promise, even after the UI wait times out.
+            const pending=getDocFromServer(doc(db,'inventory_config','master_template')).then(templateDoc=>{
+                if(request!==templateLoadSequence)return;
+                if(!templateDoc.exists()||!Array.isArray(templateDoc.data().items))throw new Error('找不到品項設定');
+                masterTemplate=templateDoc.data().items;
+                sendwashSettings=templateDoc.data().sendwashSettings || [];
+                sendwashSettingsLoaded=true;sendwashSettingsError='';
+                masterTemplate.forEach((t,idx)=>{if(globalItemOrder[t.item]===undefined)globalItemOrder[t.item]=idx;});
+                if(dataReady&&Object.keys(groupedData).length)renderDepartments();
+                else renderSendwashLinks();
+            });
+            templatePromise=withReadTimeout(pending,'品項設定',8000).catch(error=>{
+                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();}
+                console.warn('品項設定讀取較慢',error);
+            });
+            return templatePromise;
+        }
+
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -319,18 +344,7 @@
             updateDateDisplay();
 
             // 排序設定與單據同時讀取；設定較慢不阻擋單據顯示。
-            templatePromise = withReadTimeout(getDocFromServer(doc(db, 'inventory_config', 'master_template')), '品項設定', 8000)
-                .then(templateDoc => {
-                    if (templateDoc.exists() && Array.isArray(templateDoc.data().items)) {
-                        masterTemplate = templateDoc.data().items;
-                        sendwashSettings = templateDoc.data().sendwashSettings || [];
-                        if (dataReady && Object.keys(groupedData).length) renderDepartments();
-                        else renderSendwashLinks();
-                        masterTemplate.forEach((t, idx) => {
-                            if (globalItemOrder[t.item] === undefined) globalItemOrder[t.item] = idx;
-                        });
-                    }
-                }).catch(e => console.warn('品項排序設定未載入，使用現有順序', e));
+            loadReceiptTemplate();
             await fetchData(false);
         }
 
@@ -338,6 +352,25 @@
             const container = document.getElementById('sendwashLinks');
             if (!container) return;
             container.replaceChildren();
+            if(currentHotel==='承億'){
+                const title=document.createElement('h2');title.textContent='送洗對點單｜選擇部門';title.className='text-xl font-black text-blue-900 mt-4 mb-2';container.append(title);
+                const seen=new Set(),entries=sendwashSettings.filter(row=>['承億','承億休閒','承億健身房'].includes(row.hotel)).filter(row=>{const key=JSON.stringify([row.hotel,row.department]);if(seen.has(key))return false;seen.add(key);return true;});
+                const grid=document.createElement('div');grid.className='grid grid-cols-2 gap-3 mb-4';
+                entries.forEach(row=>{
+                    const link=document.createElement('a'),url=new URL('sendwash.html',location.href);url.searchParams.set('hotel',row.hotel);url.searchParams.set('department',row.department);
+                    link.href=url.href;link.textContent=row.department;link.className='flex items-center justify-center p-4 bg-white border-2 border-blue-200 text-blue-800 rounded-xl font-bold text-lg text-center break-words';grid.append(link);
+                });container.append(grid);
+                if(!entries.length){
+                    const link=document.createElement('a'),url=new URL('sendwash.html',location.href);url.searchParams.set('hotel',currentHotel);link.href=url.href;link.textContent='開啟承億送洗對點單';link.className='block my-3 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg text-center';container.append(link);
+                }
+                if(!sendwashSettingsLoaded||sendwashSettingsError){
+                    const status=document.createElement('p');status.textContent=sendwashSettingsError || '正在讀取各部門對點設定…';status.className='text-base text-gray-600 mb-3';container.append(status);
+                }
+            }
+            if(sendwashSettingsError){
+                const retry=document.createElement('button');retry.type='button';retry.textContent='重新載入對點設定';retry.className='block w-full my-3 p-4 bg-blue-100 text-blue-800 rounded-xl font-bold text-lg';retry.onclick=()=>loadReceiptTemplate();container.append(retry);
+            }
+            if(currentHotel==='承億')return;
             const departments = [...new Set(sendwashSettings.filter(r => r.hotel === currentHotel).map(r => r.department))];
             departments.forEach(dept => {
                 if ([...document.querySelectorAll('[data-sendwash-dept]')].some(el => el.dataset.sendwashDept === dept)) return;
@@ -563,6 +596,7 @@
                 uniqueDataMap[key] = item; 
             });
             const cleanData = Object.values(uniqueDataMap);
+            groupedData = {};
 
             if (cleanData.length === 0) {
                 document.getElementById('departmentsContainer').innerHTML = '<div class="text-center py-16 text-gray-500 font-bold text-xl">此日期無待點交資料！<br><span class="text-sm">請點擊上方日曆切換查詢日期</span></div>';
@@ -570,7 +604,6 @@
                 return;
             }
 
-            groupedData = {};
             cleanData.forEach(item => {
                 if (Number(item.originalQty || 0) === 0 && Number(item.actualQty || 0) === 0) return; 
 
