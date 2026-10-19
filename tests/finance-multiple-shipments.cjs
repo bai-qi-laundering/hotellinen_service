@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-let billingReceiptItems;test.before(async()=>{({billingReceiptItems}=await import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8'))));});
+let billingReceiptItems,financeItemSnapshot;test.before(async()=>{({billingReceiptItems,financeItemSnapshot}=await import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8'))));});
 const source=fs.readFileSync('finance.html','utf8');
 const helpers=source.slice(source.indexOf('function distinctShipmentRows('),source.indexOf('async function fetchRecordsForSelectedHotels()'));
 const fetchCode=source.slice(source.indexOf('async function fetchRecordsForSelectedHotels()'),source.indexOf('// 💰 系統1：財務載入'));
@@ -7,7 +7,7 @@ const reportCode=source.slice(source.indexOf('function buildInvoiceReport()'),so
 const plain=x=>JSON.parse(JSON.stringify(x));
 function context(docs=[]){
  const elements={startDate:{value:'2026-10-12'},endDate:{value:'2026-10-12'},invoiceTargetCompany:{value:'飯店A'}};
- const ctx=vm.createContext({billingReceiptItems,document:{getElementById:id=>elements[id],querySelectorAll:()=>[{value:'飯店A 房務'}]},getLogisticsDocsForPeriod:async()=>docs,ensureEffectivePrices:async()=>{},syncMasterDataFromSheet:async()=>{},ensurePricingRules:async()=>{},ensureLogisticsItemOrder:async()=>{},standardizeDate:s=>s,logisticsMasterItems:[{}],rawLogisticsData:[],invoiceCustomerKeyForRecord:r=>r.parentCompany,reportRecordPrice:r=>r.savedPrice == null?18:Number(r.savedPrice),compareLogisticsItems:()=>0,rebateForReport:()=>({amount:0,percent:0}),managementFeeForReport:()=>({amount:0,percent:0}),alert(){},console});
+ const ctx=vm.createContext({billingReceiptItems,financeItemSnapshot,document:{getElementById:id=>elements[id],querySelectorAll:()=>[{value:'飯店A 房務'}]},getLogisticsDocsForPeriod:async()=>docs,ensureEffectivePrices:async()=>{},syncMasterDataFromSheet:async()=>{},ensurePricingRules:async()=>{},ensureLogisticsItemOrder:async()=>{},standardizeDate:s=>s,logisticsMasterItems:[{}],rawLogisticsData:[],invoiceCustomerKeyForRecord:r=>r.parentCompany,reportRecordPrice:r=>r.savedPrice == null?18:Number(r.savedPrice),compareLogisticsItems:()=>0,rebateForReport:()=>({amount:0,percent:0}),managementFeeForReport:()=>({amount:0,percent:0}),alert(){},console});
  vm.runInContext(helpers+fetchCode+reportCode,ctx);return ctx;
 }
 const receipt=(id,qty,price=18)=>({id,data:()=>({date:'2026-10-12',hotelKeyword:'飯店A',deptName:'房務',items:[{itemName:'浴巾',actualQty:String(qty),price,manualFinancePrice:true}]})});
@@ -53,4 +53,24 @@ test('October 16 legacy total plus department structure bills only canonical qua
  const items=[{itemName:'【SEEDS(大地)】餐墊',actualQty:'164',originalQty:'164'},{itemName:'【CLUB】口布',actualQty:'33'},{itemName:'口布',actualQty:'232',originalQty:'232',price:8.5},{itemName:'餐墊',actualQty:'164',originalQty:'164'}],ctx=context([{id:'old-total',data:()=>({date:'2026-10-12',hotelKeyword:'洲際',deptName:'餐廳',items})}]);
  ctx.document.querySelectorAll=()=>[{value:'洲際 餐廳'}];const rows=await ctx.fetchRecordsForSelectedHotels();assert.deepEqual(plain(rows.map(i=>[i.item,i.qty])),[['口布',396]]);
  const blank=billingReceiptItems({hotelKeyword:'洲際',deptName:'餐廳',items:[{itemName:'【大地】餐墊',actualQty:'2',originalQty:'2'},{itemName:'口布',actualQty:'',originalQty:'10'},{itemName:'餐墊',actualQty:'',originalQty:'2'}]});assert.equal(blank.find(i=>i.itemName==='口布').actualQty,'0');
+});
+
+test('actual rename UI accepts an existing name and records separate row identity for saving',async()=>{
+ const {applyFinanceItemNames}=await import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8')));
+ const items=[{itemName:'嬰兒地墊',originalQty:'1',actualQty:'1',price:3},{itemName:'地墊',originalQty:'2',actualQty:'2',price:7}];
+ const rows=items.map((i,receiptOrder)=>({docId:'same',receiptOrder,item:i.itemName,originalItemName:i.itemName,sourceItemName:i.itemName,date:'2026-10-01',qty:Number(i.actualQty),sourceRowSnapshot:financeItemSnapshot(i)})),alerts=[];
+ const ctx=vm.createContext({window:{},rawLogisticsData:rows,pendingUpdatesArray:[],crypto:{randomUUID:()=> 'new-row-1'},document:{getElementById:()=>({classList:{remove(){},add(){}},innerHTML:''})},getPrice:()=>7,recalculateFinanceUI(){},alert:msg=>alerts.push(msg),customPricesDirty:false});
+ vm.runInContext(source.slice(source.indexOf('function registerPendingUpdate('),source.indexOf('window.markPriceChanged =')),ctx);
+ ctx.window.markItemChanged('same',0,'飯店A 房務','地墊',{value:'',style:{},closest:()=>({querySelector:()=>({style:{}})})});
+ assert.deepEqual(alerts,[]);assert.equal(rows[0].item,'地墊');assert.equal(ctx.pendingUpdatesArray.length,1);
+ const saved=applyFinanceItemNames(items,plain(ctx.pendingUpdatesArray));assert.deepEqual(saved.map(i=>[i.itemName,i.actualQty,i.price]),[['地墊','1',3],['地墊','2',7]]);assert.equal(saved[0].financeItemId,'new-row-1');assert.equal(saved[0].inventoryItemName,'嬰兒地墊');
+ const f=context([{id:'same',data:()=>({date:'2026-10-12',hotelKeyword:'飯店A',deptName:'房務',items:saved})}]);const loaded=await f.fetchRecordsForSelectedHotels();assert.equal(loaded.length,2);assert.equal(loaded.reduce((s,r)=>s+r.qty,0),3);
+});
+test('duplicate source names can be renamed separately, retried, and renamed after server rows reorder',async()=>{
+ const {applyFinanceItemNames}=await import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8'))),items=[{itemName:'地墊',actualQty:'1',price:3},{itemName:'地墊',actualQty:'2',price:7}];
+ const updates=items.map((i,receiptOrder)=>({receiptOrder,financeItemId:'row-'+receiptOrder,sourceRowSnapshot:financeItemSnapshot(i),originalItemName:i.itemName,sourceItemName:i.itemName,newItemName:'防滑墊'}));
+ const saved=applyFinanceItemNames(items,updates);assert.deepEqual(saved.map(i=>[i.financeItemId,i.itemName,i.actualQty]),[['row-0','防滑墊','1'],['row-1','防滑墊','2']]);assert.deepEqual(applyFinanceItemNames(saved,updates),saved);
+ const again={...updates[1],originalItemName:'防滑墊',newItemName:'地墊'};const reordered=applyFinanceItemNames([...saved].reverse(),[again]);assert.equal(reordered[0].financeItemId,'row-1');assert.equal(reordered[0].itemName,'地墊');assert.equal(reordered[1].itemName,'防滑墊');
+ const changed=items.map(i=>({...i,actualQty:'99'}));assert.throws(()=>applyFinanceItemNames(changed,[updates[0]]),/重新載入/);assert.equal(changed[0].itemName,'地墊');
+ const identical=[{itemName:'同名',actualQty:'1'},{itemName:'同名',actualQty:'1'}];const both=applyFinanceItemNames(identical,identical.map((i,receiptOrder)=>({receiptOrder,financeItemId:'same-'+receiptOrder,sourceRowSnapshot:financeItemSnapshot(i),originalItemName:'同名',sourceItemName:'同名',newItemName:'改名'})));assert.equal(new Set(both.map(i=>i.financeItemId)).size,2);
 });

@@ -489,14 +489,14 @@ body { background: white; padding: 0; margin: 0; }
 <div class="excel-bottom-bar no-print">
 <a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
 <a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
-<a href="finance.html?v=20261018-seeds-mats" class="excel-tab active">💰 結帳戰情系統</a>
+<a href="finance.html?v=20261019-same-names" class="excel-tab active">💰 結帳戰情系統</a>
 </div>
 
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems } from './logistics-items.js?v=20261018-seeds-mats';
+import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -1066,7 +1066,9 @@ function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newP
         existing.newPrice = newPrice;
     } else {
         const record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+        if(!record.financeItemId)record.financeItemId=crypto.randomUUID();
         pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice,
+            financeItemId:record.financeItemId, sourceRowSnapshot:record.sourceRowSnapshot,
             originalItemName: record.originalItemName, sourceItemName: record.sourceItemName });
     }
     customPricesDirty = true;
@@ -1089,11 +1091,6 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
         return;
     }
 
-    if (rawLogisticsData.some(r => r.docId === docId && r !== record && normalizeItemName(r.item) === normalizeItemName(newItemName))) {
-        inputEl.value = record.item;
-        alert('同一張單已有這個品項名稱，請使用不同名稱，避免重複計算。');
-        return;
-    }
     record.item = newItemName; // 更新本地記憶體
     inputEl.style.backgroundColor = '#fef08a';
 
@@ -1611,6 +1608,7 @@ async function fetchRecordsForSelectedHotels() {
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
                             date: dDate, item: item.itemName, qty: actual,
                             receiptOrder: idx, 
+                            financeItemId:item.financeItemId || null, sourceRowSnapshot:financeItemSnapshot(item),
                             originalItemName: item.itemName, sourceItemName: item.inventoryItemName || item.itemName,
                             savedPrice: item.price, manualPriceOverride: !!item.manualFinancePrice 
                         });

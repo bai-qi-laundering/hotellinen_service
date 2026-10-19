@@ -39,8 +39,8 @@ test('finance save identifies the source even after another screen reorders item
     assert.equal(next[1].itemName, '大浴巾');
 });
 
-test('finance rejects name collisions, missing source and concurrent renames', () => {
-    assert.throws(() => applyFinanceItemNames([bath,{itemName:'大浴巾'}], [rename('浴巾','大浴巾')]));
+test('finance allows name collisions but rejects missing source and concurrent renames', () => {
+    assert.equal(applyFinanceItemNames([bath,{itemName:'大浴巾'}], [rename('浴巾','大浴巾')]).filter(i=>i.itemName==='大浴巾').length,2);
     assert.throws(() => applyFinanceItemNames([], [rename('浴巾','大浴巾')]));
     const changed = applyFinanceItemNames([bath],[rename('浴巾','大浴巾')]);
     assert.throws(() => applyFinanceItemNames(changed,[rename('浴巾','毛巾')]));
@@ -212,4 +212,14 @@ test('legacy-only restaurant receipt details become totals while separate shipme
 test('other hotels keep their existing inventory repair behavior',async()=>{
  const h=await restaurantAudit([{id:'i',date:'2026-10-01',hotel:'A 房務',item:'中毛',doubleCount:'8'}],{a:{date:'2026-10-01',hotelKeyword:'A',deptName:'房務',items:[{itemName:'浴巾',originalQty:'10',actualQty:'9'}]}});
  assert.equal(h.records[0].items.length,2);assert(h.docs.get('a').items.some(i=>i.itemName==='中毛'));
+});
+
+test('signing matches original inventory identity when finance gives two source items the same display name',()=>{
+ const saved=applyFinanceItemNames([{itemName:'嬰兒地墊',actualQty:'1'},{itemName:'地墊',actualQty:'2'}],[{originalItemName:'嬰兒地墊',sourceItemName:'嬰兒地墊',newItemName:'地墊'}]);
+ const next=mergeSignedItems(saved,[{itemName:'地墊',originalQty:'2',actualQty:'3',loadedActualQty:'2'}]);assert.deepEqual(next.map(i=>[i.inventoryItemName||i.itemName,i.actualQty]),[['嬰兒地墊','1'],['地墊','3']]);
+});
+test('audit load and quantity edits preserve separate finance rows sharing a name',async()=>{
+ const receipt={date:'2026-10-01',hotelKeyword:'A',deptName:'房務',clientSig:'H',driverSig:'D',items:[{itemName:'地墊',inventoryItemName:'嬰兒地墊',financeItemId:'row-1',originalQty:'1',actualQty:'1',price:3},{itemName:'地墊',inventoryItemName:'地墊',financeItemId:'row-2',originalQty:'2',actualQty:'2',price:7}]};
+ const h=await restaurantAudit([],{signed:receipt});assert.equal(h.records[0].items.length,2);assert.equal(h.docs.get('signed').items.length,2);
+ await h.context.window.updateLogQty('signed','地墊','4',{style:{}},'1','row-1');assert.deepEqual(h.docs.get('signed').items.map(i=>[i.financeItemId,i.actualQty,i.price]),[['row-1','4',3],['row-2','2',7]]);assert.equal(h.docs.get('signed').clientSig,'H');assert.deepEqual(h.alerts,[]);
 });

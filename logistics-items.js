@@ -152,21 +152,31 @@ export function renameItem(item, newName) {
     };
 }
 
+export function financeItemSnapshot(item) {
+    return JSON.stringify([item.inventoryItemName || item.itemName, String(item.originalQty ?? ''), String(item.actualQty ?? ''), item.price ?? null]);
+}
+
 export function applyFinanceItemNames(items, updates) {
     const next = items.map(item => ({...item}));
     for (const update of updates) {
         // Price-only changes must not undo a name changed by another user.
         if (update.newItemName === update.originalItemName) continue;
-        const matches = next.filter(item => itemMatchesName(item, update.sourceItemName));
+        let matches = update.financeItemId ? next.filter(item => item.financeItemId === update.financeItemId) : [];
+        if(!matches.length && update.sourceRowSnapshot){
+            matches=next.filter(item=>financeItemSnapshot(item)===update.sourceRowSnapshot);
+            if(matches.length>1){const indexed=next[update.receiptOrder];matches=indexed&&matches.includes(indexed)?[indexed]:[];}
+            if(matches.some(item=>item.financeItemId&&item.financeItemId!==update.financeItemId))throw new Error('明細列已由其他人更新，請重新載入後確認。');
+        } else if(!matches.length) {
+            matches=next.filter(item=>normalizeItemName(item.inventoryItemName || item.itemName)===normalizeItemName(update.sourceItemName));
+            if(!matches.length)matches=next.filter(item => itemMatchesName(item, update.sourceItemName));
+        }
         if (matches.length !== 1) throw new Error('品項已變更或重複，請重新載入後再修改名稱。');
         const target = matches[0];
         if (target.itemName !== update.originalItemName && target.itemName !== update.newItemName) {
             throw new Error('其他使用者已修改此品項名稱，請重新載入後確認。');
         }
-        if (next.some(item => item !== target && normalizeItemName(item.itemName) === normalizeItemName(update.newItemName))) {
-            throw new Error('同一張單已有這個品項名稱，請使用不同名稱，避免重複計算。');
-        }
-        Object.assign(target, renameItem(target, update.newItemName));
+        if(target.itemName!==update.newItemName)Object.assign(target, renameItem(target, update.newItemName));
+        if(update.financeItemId)target.financeItemId=update.financeItemId;
     }
     return next;
 }
@@ -175,7 +185,8 @@ export function mergeSignedItems(latestItems, submittedItems) {
     const next = latestItems.map(item => ({...item}));
     for (const submitted of submittedItems) {
         const sourceName = submitted.inventoryItemName || submitted.itemName;
-        const matches = next.filter(item => itemMatchesName(item, sourceName));
+        let matches = next.filter(item=>normalizeItemName(item.inventoryItemName || item.itemName)===normalizeItemName(sourceName));
+        if(!matches.length)matches=next.filter(item => itemMatchesName(item, sourceName));
         if (matches.length > 1) throw new Error('品項來源重複，請重新載入後確認。');
         if (!matches.length) {
             next.push({...submitted});

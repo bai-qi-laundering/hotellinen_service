@@ -310,14 +310,14 @@
     <div class="excel-bottom-bar">
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
         <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">📦 物流查帳後台</button>
-        <a href="finance.html?v=20261018-seeds-mats" class="excel-tab">💰 財務對帳單</a>
+        <a href="finance.html?v=20261019-same-names" class="excel-tab">💰 財務對帳單</a>
     </div>
 
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261018-seeds-mats';
+        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261019-same-names';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -903,6 +903,7 @@
 
                             validItems.push({
                                 itemName: item.itemName,
+                                ...(item.financeItemId ? {financeItemId:item.financeItemId} : {}),
                                 bqQty: trueOrig,
                                 actualQty: actual
                             });
@@ -1110,7 +1111,7 @@
                         <td class="text-center py-1">
                             <input type="number" value="${i.actualQty}" 
                                 class="w-20 text-center py-1 rounded border border-transparent hover:border-emerald-300 focus:border-emerald-500 focus:bg-white transition-colors outline-none ${qtyClass}"
-                                onblur="updateLogQty('${r.id}', '${i.itemName}', this.value, this, '${i.bqQty}')"
+                                onblur="updateLogQty('${r.id}', '${i.itemName}', this.value, this, '${i.bqQty}', '${String(i.financeItemId || '').replace(/[^A-Za-z0-9_-]/g,'')}')"
                                 title="點擊直接修改實收數量">
                         </td>
                     </tr>
@@ -1449,13 +1450,15 @@
             }
         };
 
-        // 同品項只保留一筆：如果有實收修改，優先採用已修改的數量；
+        // 財務明細以列 ID 或原始品項辨識；顯示名稱相同仍保留不同來源。
+        // 舊資料若同一來源重複，實收修改優先；
         // 若都有修改，保留最後一筆。空格、全形空白不造成兩種品項。
         const normalizedLogItemName = name => String(name || '').replace(/[\s\u3000]+/g, '').trim();
         function uniqueLogItems(items) {
             const map = new Map();
             for (const item of (Array.isArray(items) ? items : [])) {
-                const key = normalizedLogItemName(item.itemName);
+                if(!normalizedLogItemName(item.itemName))continue;
+                const key = item.financeItemId ? `id:${item.financeItemId}` : `source:${normalizedLogItemName(item.inventoryItemName || item.itemName)}`;
                 if (!key) continue;
                 const old = map.get(key);
                 const changed = v => v.actualQty !== undefined && v.actualQty !== null && String(v.actualQty) !== String(v.originalQty ?? '0');
@@ -1463,7 +1466,7 @@
             }
             return [...map.values()];
         }
-        window.updateLogQty = async function(docId, itemName, newValue, inputElement, bqQty) {
+        window.updateLogQty = async function(docId, itemName, newValue, inputElement, bqQty, financeItemId = '') {
             const finalNewValue = String(newValue).trim();
             if (finalNewValue === '' || !Number.isFinite(Number(finalNewValue)) || Number(finalNewValue) < 0) {
                 await customAlert('請輸入有效且不小於零的實收數量。'); return;
@@ -1483,10 +1486,13 @@
                         auntNote: '', driverNote: '後台修改實收同步建立'
                     }));
                     const items=uniqueLogItems(restaurantTotals?receiptTotalItems(sourceItems,'洲際'):sourceItems);
-                    const target = items.find(i => itemMatchesName(i, itemName));
+                    let matches=financeItemId?items.filter(i=>i.financeItemId===financeItemId):items.filter(i=>normalizedLogItemName(i.inventoryItemName || i.itemName)===normalizedLogItemName(itemName));
+                    if(!matches.length&&!financeItemId)matches=items.filter(i=>itemMatchesName(i,itemName));
+                    if(matches.length>1)throw new Error('同品名有多筆明細，請重新載入後選取正確的明細列。');
+                    const target = matches[0];
                     if (!target) throw new Error('找不到原品項，請重新載入');
                     target.actualQty = finalNewValue;
-                    // 整筆陣列只會存在一個相同品項；其他單據欄位（簽名等）不碰。
+                    // Update this source row only; finance may give distinct rows the same name.
                     if (snap.exists()) tx.update(docRef, {items});
                     else tx.set(docRef, {date: local.date, hotelKeyword: local.hotelKeyword,
                         deptName: local.deptName || '房務', items, forcedSync: true,
@@ -1496,12 +1502,10 @@
                 lastLogFetchKey = '';
                 const localRecord = logRecords.find(r=>r.id===docId);
                 if (localRecord) {
-                    localRecord.items = localRecord.items.filter((i,idx,arr)=>
-                        arr.findIndex(x=>normalizedLogItemName(x.itemName)===normalizedLogItemName(i.itemName))===idx);
-                    const localItem=localRecord.items.find(i=>normalizedLogItemName(i.itemName)===normalizedLogItemName(itemName));
+                    const localItem=localRecord.items.find(i=>financeItemId?i.financeItemId===financeItemId:!i.financeItemId&&normalizedLogItemName(i.itemName)===normalizedLogItemName(itemName));
                     if(localItem)localItem.actualQty=finalNewValue;
                 }
-                showToast('✅ 已更新實收數量，同品項只保留一筆');
+                showToast('✅ 已更新此筆實收數量');
             } catch(err) {
                 console.error('實收更新失敗',err);
                 await customAlert('更新失敗：'+err.message);
