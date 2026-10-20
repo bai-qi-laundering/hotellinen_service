@@ -6,7 +6,7 @@ async function fixture(seed,extraRows=[],deliverySchedules=[]){
   const el={tagName:tag.toUpperCase(),value:'',disabled:false,children:[],append(child){this.children.push(child);if(child.id)elements.set(child.id,child);},replaceChildren(){for(const child of this.children){child.replaceChildren();if(child.id)elements.delete(child.id);}this.children=[];},setAttribute(key,value){this[key]=value;},required:false};
   let text='';Object.defineProperty(el,'textContent',{get:()=>text,set:value=>{text=value;el.replaceChildren();}});return el;
  }
- for(const id of ['title','back','department','sourceDate','target','items','message','submit','form','outletTabs'])elements.set(id,element());elements.get('department').value='餐廳';
+ for(const id of ['title','back','department','sourceDate','target','items','message','submit','form','outletTabs','extraItemPanel','extraItemName','extraItemOptions','addExtraItem'])elements.set(id,element());elements.get('department').value='餐廳';
  const settings=['大地','WARA','湛露'].flatMap(outlet=>['口布','小毛巾'].map(item=>({hotel,department:'餐廳',outlet,item,unit:'條',defaultQuantity:'',order:''}))).concat(extraRows);
  const template={items:settings.filter((r,i)=>settings.findIndex(x=>x.department===r.department&&x.item===r.item)===i).map(r=>({baseName:hotel,deptName:r.department,hotel:`${hotel} ${r.department}`,item:r.item})),sendwashSettings:settings,deliverySchedules};
  const tables={inventory_config:{master_template:template},sendwash_records:{},logistics_records:{}},transactions=[];let seeded=false;
@@ -75,4 +75,13 @@ test('CLUB cocktail towels are available without a new spreadsheet row and submi
 test('CLUB cocktail towels move directly below existing square towels without duplicate fields or losing defaults',()=>{
  const base={hotel,department:'餐廳',outlet:'CLUB',unit:'條',defaultQuantity:''};const rows=core.displayRows([{...base,item:'雞尾酒巾',defaultQuantity:'4'},{...base,item:'口布'},{...base,item:'方巾'},{...base,item:'服務巾'}]);
  assert.deepEqual(rows.map(r=>r.item),['口布','方巾','雞尾酒巾','服務巾']);assert.equal(rows[2].defaultQuantity,'4');
+});
+
+test('temporary items stay in their restaurant draft and all restaurants submit together, then restore on a fresh page',async()=>{
+ const f=await fixture();f.fill(['11','']);f.elements.get('extraItemName').value='臨時桌裙';f.elements.get('addExtraItem').onclick();f.fill(['11','','5']);
+ await f.tab(1);assert.equal(f.elements.get('items').children.length,2);f.elements.get('extraItemName').value='臨時桌裙';f.elements.get('addExtraItem').onclick();f.fill(['4','','0']);
+ await f.tab(0);assert.equal(f.elements.get('qty2').value,'5');await f.submit();
+ assert.equal(f.transactions.length,1);assert.deepEqual(f.tables.sendwash_records[f.id('大地')].items.map(i=>[i.item,i.quantity]),[['口布','11'],['臨時桌裙','5']]);assert.deepEqual(f.tables.sendwash_records[f.id('WARA')].items.map(i=>[i.item,i.quantity]),[['口布','4'],['臨時桌裙','0']]);
+ const g=await fixture(()=>f.tables.sendwash_records);assert.equal(g.elements.get('qty2').value,'5');await g.tab(1);assert.equal(g.elements.get('qty2').value,'0');
+ await g.tab(2);g.elements.get('extraItemName').value='口布';g.elements.get('addExtraItem').onclick();assert.match(g.elements.get('message').textContent,/黃口布/);assert(!g.elements.get('items').children.some(e=>e.textContent==='口布（條）'));
 });

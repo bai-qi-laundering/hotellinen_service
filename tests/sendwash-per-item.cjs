@@ -61,3 +61,10 @@ test('actual red-button retry with CACHED signatures saves supervisor quantity',
  const code=fs.readFileSync('index.html','utf8'),start=code.indexOf('                window.firebaseSubmit = async function('),end=code.indexOf('                window.syncSettingsFromSheet =',start);vm.runInContext(code.slice(start,end),ctx);await ctx.window.firebaseSubmit('hotel','廚衣');
  const saved=f.tables.inventory_records['2026-10-13_hotel_廚衣'];assert.equal(saved.count,'22');assert.equal(saved.doubleCount,'21');assert.equal(saved.signature,'signature-廚衣');assert.equal(saved.doubleSignature,'supervisor');assert.equal(u.saveError,false);assert.equal(u.sendwashPending,null);assert.equal(u.doubleHasSigned,false);assert.equal(ctx.error,undefined);
 });
+
+test('temporary hotel-submitted item reaches plant pending rows and saves with its own original signature flow',async()=>{
+ const f=fixture();f.tables.sendwash_records.source.items.push({item:'臨時床罩',quantity:'0',unit:'件'});await f.start();
+ const win=f.context.window,item='臨時床罩',u=f.inputs['2026-10-13'].hotel[item];assert.equal(u.count,'0');assert(win.sendwashPendingItems('2026-10-13','hotel').includes(item));
+ const saved=await win.persistPendingSendwash('2026-10-13','hotel',item,{date:'2026-10-13',hotel:'hotel',item,count:'0',doubleCount:'',signature:'receiver',note:''},u.sendwashPending,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+ assert.equal(saved.item,item);assert.equal(saved.count,'0');assert.equal(saved.signature,'receiver');assert(f.tables.sendwash_records.source.receivedItems[item]);assert(!f.tables.sendwash_records.source.acceptedAt);
+});

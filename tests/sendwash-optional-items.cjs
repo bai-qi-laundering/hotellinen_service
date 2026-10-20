@@ -7,13 +7,14 @@ test('blank is omitted while explicit zero is preserved; filled items retain row
  assert.deepEqual(core.submissionItems(rows,[' ','']),[]);
  for(const value of ['-1','1.5','1+2'])assert.throws(()=>core.submissionItems(rows,['',value]));
 });
-async function fixture(seed={},configured){
+async function fixture(seed={},configured,extraTemplate=[]){
  const elements=new Map();
  function element(tag='div'){return{tagName:tag.toUpperCase(),value:'',disabled:false,children:[],append(el){this.children.push(el);if(el.id)elements.set(el.id,el);},replaceChildren(){this.children=[];},setAttribute(key,value){this[key]=value;},scrollIntoView(){},textContent:'',required:false};}
- for(const id of ['title','back','department','sourceDate','target','items','message','submit','form','outletTabs'])elements.set(id,element());
+ for(const id of ['title','back','department','sourceDate','target','items','message','submit','form','outletTabs','extraItemPanel','extraItemName','extraItemOptions','addExtraItem'])elements.set(id,element());
  elements.get('department').value='房務';
  const settings=configured || [{hotel:'飯店A',department:'房務',item:'浴巾',unit:'條',defaultQuantity:'20',order:''},{hotel:'飯店A',department:'房務',item:'制服',unit:'件',defaultQuantity:'',order:''}];
  const template={items:settings.filter((r,i)=>settings.findIndex(x=>x.hotel===r.hotel&&x.department===r.department&&x.item===r.item)===i).map(r=>({baseName:r.hotel,deptName:r.department,hotel:r.hotel,item:r.item})),sendwashSettings:settings,deliverySchedules:[]};
+ template.items.push(...extraTemplate);
  const tables={inventory_config:{master_template:template},sendwash_records:structuredClone(seed)};
  const snap=ref=>({exists:()=>!!tables[ref.name]?.[ref.id],data:()=>structuredClone(tables[ref.name]?.[ref.id])});
  const api={initializeApp:()=>({}),initializeFirestore:()=>({}),memoryLocalCache:()=>({}),doc:(_,name,id)=>({name,id}),getDocFromServer:async r=>snap(r),runTransaction:async(_,fn)=>{const pending=[];await fn({get:async r=>snap(r),set:(r,d)=>pending.push([r,d])});pending.forEach(([r,d])=>{tables[r.name] ||= {};tables[r.name][r.id]=structuredClone(d);});}};
@@ -47,4 +48,30 @@ test('clear previously entered item removes it instead of reviving default or ol
 });
 test('no-shipment record can be updated later that day, and explicit zero remains a real item',async()=>{
  const f=await fixture();await f.submit(['','']);await f.submit(['','0']);const record=Object.values(f.tables.sendwash_records)[0];assert.equal(record.revision,2);assert.equal(record.noSendwash,false);assert.equal(record.items[0].quantity,'0');await f.reload();assert.equal(f.elements.get('qty1').value,'0');assert.equal(f.elements.get('qty0').value,'');
+});
+
+test('temporary items preserve existing quantities and survive submit plus fresh page load, including explicit zero',async()=>{
+ const f=await fixture();f.elements.get('qty0').value='31';f.elements.get('extraItemName').value='臨時床罩';f.elements.get('addExtraItem').onclick();
+ assert.equal(f.elements.get('qty0').value,'31');assert.equal(f.elements.get('items').children.length,3);assert.equal(f.elements.get('qty2').value,'');
+ await f.submit(['31','','0']);const record=Object.values(f.tables.sendwash_records)[0];assert.deepEqual(record.items.map(i=>[i.item,i.quantity]),[['浴巾','31'],['臨時床罩','0']]);assert.equal(record.department,'房務');
+ const g=await fixture(f.tables.sendwash_records);assert.equal(g.elements.get('qty2').value,'0');assert.match(g.elements.get('items').children[2].textContent,/臨時床罩/);await g.submit(['31','','4']);assert.equal(Object.values(g.tables.sendwash_records)[0].items[1].quantity,'4');
+ assert.equal(f.tables.inventory_config.master_template.sendwashSettings.length,2);
+});
+test('temporary item validation rejects duplicates, reserved keys and markup without altering fields',async()=>{
+ const f=await fixture();
+ for(const name of ['浴 巾','<img>','bad\'name','A/B','A\\B','A&b','【其他部門】浴巾','_MANUAL_BORDER_','A\nB','']){f.elements.get('extraItemName').value=name;f.elements.get('addExtraItem').onclick();assert.equal(f.elements.get('items').children.length,2,name);assert(f.elements.get('message').textContent);}
+ assert.equal(Object.keys(f.tables.sendwash_records).length,0);
+});
+test('temporary rows and values remain isolated by source date and locked source records cannot add items',async()=>{
+ const f=await fixture(),date=f.elements.get('sourceDate').value;
+ f.elements.get('extraItemName').value='臨時桌裙';f.elements.get('addExtraItem').onclick();f.elements.get('qty2').value='3';
+ f.elements.get('sourceDate').value='2026-11-02';await f.reload();assert.equal(f.elements.get('items').children.length,2);
+ f.elements.get('sourceDate').value=date;await f.reload();assert.equal(f.elements.get('qty2').value,'3');
+ await f.submit(['','','3']);const record=Object.values(f.tables.sendwash_records)[0];record.receivedItems={'臨時桌裙':{signature:'received'}};await f.reload();assert.equal(f.elements.get('addExtraItem').disabled,true);
+ f.elements.get('extraItemName').value='不得新增';f.elements.get('addExtraItem').onclick();assert.equal(f.elements.get('items').children.length,3);assert.equal(f.elements.get('submit').disabled,true);
+});
+test('add-item selection offers other template items in the same department',async()=>{
+ const f=await fixture({},undefined,[{baseName:'飯店A',deptName:'房務',hotel:'飯店A',item:'床單'},{baseName:'其他飯店',deptName:'房務',hotel:'其他飯店',item:'不可選'}]);
+ assert.deepEqual(f.elements.get('extraItemOptions').children.map(option=>option.value),['床單']);
+ f.elements.get('extraItemName').value='床單';f.elements.get('addExtraItem').onclick();await f.submit(['','','6']);assert.equal(Object.values(f.tables.sendwash_records)[0].items[0].item,'床單');
 });
