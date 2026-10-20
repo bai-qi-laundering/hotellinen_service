@@ -66,8 +66,16 @@
         const values = Object.values(sources);
         return {sendwashSources:sources,count:quantity(values.reduce((s,r)=>s+Number(r.declared),0)),doubleCount:quantity(values.reduce((s,r)=>s+Number(r.actual),0))};
     }
-    // Only InterContinental's restaurant outlets skip the dirty-linen signature.
-    const recheckOnly = record => normalize(record.baseHotel || String(record.hotel || '').split(/\s+/)[0]) === '洲際' && !!record.outlet && department(record.department || '') !== '制服';
+    // These linen departments keep the hotel count on the left and sign only the recheck.
+    const recheckOnly = record => {
+        const parts = String(record.hotel || '').trim().split(/\s+/);
+        const hotel = normalize(record.baseHotel || parts[0]);
+        const dept = department(record.department || parts.slice(1).join(''));
+        if (hotel === '洲際') return !!record.outlet && dept !== '制服';
+        return (hotel === '承億休閒' && (!dept || dept === '休閒')) ||
+            (hotel === '承億健身房' && (!dept || dept === '健身房')) ||
+            (hotel === '承億' && ['休閒','健身房'].includes(dept));
+    };
     function sendwashInventoryPatch(latest, payload, expectedCount, expectedDoubleCount) {
         if (latest.countSource !== 'sendwash') throw new Error('來源單已變更，請重新載入');
         if (String(latest.count ?? '') !== String(expectedCount ?? '') || String(latest.doubleCount ?? '') !== String(expectedDoubleCount ?? '')) throw new Error('數量已由其他人更新，請重新載入後確認');

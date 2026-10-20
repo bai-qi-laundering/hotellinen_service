@@ -12,7 +12,7 @@
   const saved=userInputs[date]?.[hotel]?.[item];
   return saved?.outlet ? {baseHotel:saved.baseHotel,department:saved.department,outlet:saved.outlet,sourceItem:saved.sourceItem} : null;
  };
- window.sendwashRecheckOnly=(date,hotel,item)=>core.recheckOnly(window.sendwashItemContext(date,hotel,item) || {});
+ window.sendwashRecheckOnly=(date,hotel,item)=>core.recheckOnly(window.sendwashItemContext(date,hotel,item) || {hotel});
  window.sendwashSupplementContext=(date,hotel,item)=>{
   const outlet=activeOutlet.get(hotel),setting=settings.find(r=>r.inventoryHotel===hotel&&r.outlet===outlet);
   if(!outlet||!setting)return null;
