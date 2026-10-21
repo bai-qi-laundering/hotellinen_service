@@ -207,7 +207,7 @@
         </div>
     </div>
 
-    <script src="inventory-save.js?v=20261021-save-recovery"></script>
+    <script src="inventory-save.js?v=20261021-unlock-retry"></script>
     <script src="sendwash-core.js?v=20261020-cheng-recheck"></script>
     <script src="sendwash-verification.js?v=20261021-save-recovery"></script>
     <script>
@@ -842,8 +842,6 @@
         }
         
         function openSign(category, item, role) { 
-            const pendingKey = window.InventorySave?.key(document.getElementById('datePicker').value, category, item);
-            if (window.InventorySave?.pending(pendingKey)) return showMessage('前一筆仍在等待雲端確認，請先恢復網路並點重傳確認，避免重複修改。');
             if (window.prepareSendwashFullItem) window.prepareSendwashFullItem(document.getElementById('datePicker').value, category, item);
             const before = (userInputs[document.getElementById('datePicker').value] && userInputs[document.getElementById('datePicker').value][category] && userInputs[document.getElementById('datePicker').value][category][item]) || {};
             const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(document.getElementById('datePicker').value, category, item);
@@ -867,7 +865,9 @@
                 else { titleEl.innerText = role === 'aunt' ? "第一步：現場人員簽名解鎖" : (recheckOnly ? "複點人員簽名" : "第二步：複點人員簽名"); titleEl.className = "text-lg font-black text-blue-800"; }
                 
                 if (existingSig) {
-                    if (existingSig === 'CACHED') {
+                    if (existingSig === 'CACHED' && u.saveError) {
+                        titleEl.innerText = '簽名影像未保留，請在下方重新簽名';
+                    } else if (existingSig === 'CACHED') {
                         ctx.fillStyle = '#9ca3af'; 
                         ctx.font = 'bold 20px sans-serif';
                         ctx.textAlign = 'center';
@@ -1209,13 +1209,27 @@
                     originalDateChanged();
                 }
 
-                window.firebaseSubmit = async function(category, item) {
+                window.firebaseSubmit = async function(category, item, requestedDate) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
-                    const dateStr = document.getElementById('datePicker').value;
+                    const dateStr = requestedDate || document.getElementById('datePicker').value;
                     const u = userInputs[dateStr]?.[category]?.[item];
                     if (!u) return;
                     const saver=window.InventorySave,key=saver.key(dateStr,category,item);
                     const fingerprint=value=>JSON.stringify([value.count ?? '',value.doubleCount ?? '',value.note || '',value.signature || '',value.doubleSignature || '']);
+                    const recheckOnly=window.sendwashRecheckOnly?.(dateStr,category,item) || false;
+                    const signatureRole=saver.signatureRole(u,recheckOnly);
+                    const reopenSignature=role=>{
+                        if(document.getElementById('datePicker').value===dateStr){openSign(category,item,role);return;}
+                        showMessage('數量已保留，請回到 '+dateStr+' 的品項重新簽名。');
+                    };
+                    if(u.saveError&&signatureRole){
+                        Object.assign(u,{isSaving:false,isSubmitted:false});saveToLocal();renderItems(false);reopenSignature(signatureRole);return;
+                    }
+                    if(saver.pending(key)){
+                        u.saveQueued=true;saveToLocal();
+                        return saver.withTimeout(saver.task(key),25000,'仍在等待雲端確認').catch(()=>{});
+                    }
+
                     handleInput(dateStr,category,item,'isSaving',true);handleInput(dateStr,category,item,'saveError',false);renderItems(false);
                     const task=saver.run(key,async()=>{
                         // Storage is optional: the original signature image can travel with the inventory write.
@@ -1226,8 +1240,8 @@
                             await window.savePendingSendwashNote(dateStr,category,item,u.note || '');
                             return {submitted,noteOnly:true,updates:{}};
                         }
-                        if(!u.signature&&!u.doubleSignature&&!u.hasSigned&&!u.doubleHasSigned)throw new Error('請先完成簽名');
-                        if((u.hasSigned&&u.signature==='CACHED')||(u.doubleHasSigned&&u.doubleSignature==='CACHED'))throw new Error('這台裝置先前未保留待存簽名影像，數量仍在，請點開簽名重新簽署後儲存。');
+                        const missingRole=saver.signatureRole(u,recheckOnly);
+                        if(missingRole){const error=new Error('簽名影像未保留，請重新簽署');error.signatureRole=missingRole;throw error;}
                         const payload={date:dateStr,hotel:category,item,count:u.count !== undefined&&u.count !== null&&u.count !== ''?String(u.count):'',note:u.note || '',doubleCount:u.doubleCount !== undefined&&u.doubleCount !== null&&u.doubleCount !== ''?String(u.doubleCount):'',doubleSignDate:u.doubleSignDate || '',timestamp:new Date().toLocaleString()};
                         if(u.signature&&u.signature!=='CACHED')payload.signature=u.signature;
                         if(u.doubleSignature&&u.doubleSignature!=='CACHED')payload.doubleSignature=u.doubleSignature;
@@ -1257,12 +1271,17 @@
                         Object.assign(current,result.updates,{isSaving:false,saveError:!unchanged});
                         if(unchanged&&!result.noteOnly)Object.assign(current,{isSubmitted:true,hasSigned:false,doubleHasSigned:false});
                         else if(!unchanged)current.isSubmitted=false;
+                        const queued=current.saveQueued;current.saveQueued=false;
                         saveToLocal();renderItems(false);
+                        if(queued&&!unchanged)window.firebaseSubmit(category,item,dateStr);
                     },()=>{}).catch(error=>console.error('儲存畫面更新失敗',error));
                     try{await saver.withTimeout(task,25000,'尚未收到雲端確認。數量與簽名已保留在本機，請確認網路後點紅色按鈕重傳；尚未確認前請勿當作已存入。');}
                     catch(error){
                         if(userInputs[dateStr]?.[category]?.[item]===u)Object.assign(u,{isSaving:false,saveError:true,isSubmitted:false});
-                        saveToLocal();renderItems(false);showMessage(error.message || '儲存失敗，請點紅色按鈕重傳。');
+                        saveToLocal();renderItems(false);
+                        const missingRole=error.signatureRole || (/簽名尚未成功儲存|請先完成回廠現場簽名/.test(error.message || '')?(recheckOnly?'sup':'aunt'):/請點開複點簽名|請完成複點簽名|請完成出貨複點簽名/.test(error.message || '')?'sup':null);
+                        if(missingRole)reopenSignature(missingRole);
+                        else showMessage(error.message || '儲存失敗，請點紅色按鈕重傳。');
                     }
                 };
 

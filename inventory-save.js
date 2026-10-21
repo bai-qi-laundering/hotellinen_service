@@ -10,6 +10,15 @@
   const task=Promise.resolve().then(work);active.set(id,task);
   task.then(()=>{if(active.get(id)===task)active.delete(id);},()=>{if(active.get(id)===task)active.delete(id);});return task;
  }
+ function signatureRole(input,recheckOnly){
+  const missing=value=>!value||value==='CACHED';
+  if(recheckOnly)return !input.doubleSignature||(input.doubleHasSigned&&missing(input.doubleSignature))?'sup':null;
+  if(input.countSource==='sendwash'&&!input.signature)return 'aunt';
+  if(input.hasSigned&&missing(input.signature))return 'aunt';
+  if(input.doubleHasSigned&&missing(input.doubleSignature))return 'sup';
+  if(!input.signature&&!input.doubleSignature)return input.doubleHasSigned?'sup':'aunt';
+  return null;
+ }
  function cacheItem(input){
   const data={...input};
   // Only confirmed data can replace signatures with a cloud placeholder.
@@ -25,6 +34,6 @@
   }
   return inputs;
  }
- const api={key,withTimeout,run,pending:id=>active.has(id),cacheItem,recover};
+ const api={key,withTimeout,run,signatureRole,task:id=>active.get(id),pending:id=>active.has(id),cacheItem,recover};
  if(typeof module==='object'&&module.exports)module.exports=api;else root.InventorySave=api;
 })(typeof window==='object'?window:globalThis);

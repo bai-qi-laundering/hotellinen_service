@@ -6,7 +6,7 @@ function fixture({write=async()=>{},log=async()=>{}}={}){
  const date='2026-10-21',hotel='連線測試'+ ++sequence,item='浴巾',input={count:'0',doubleCount:'',signature:'data:image/jpeg;base64,'+'a'.repeat(120),hasSigned:true,note:'保留備註'},inputs={[date]:{[hotel]:{[item]:input}}};
  const saver={...save,withTimeout:(promise,ms,message)=>save.withTimeout(promise,ms===25000?12:ms===10000?4:8,message)};
  const elements={datePicker:{value:date}};let writes=0,logs=0;
- const c=vm.createContext({window:{InventorySave:saver},userInputs:inputs,isFirebaseLoaded:true,db:{},document:{getElementById:id=>elements[id]},handleInput:(d,h,i,k,v)=>inputs[d][h][i][k]=v,renderItems(){},saveToLocal(){c.cached=save.cacheItem(input);},showMessage:message=>c.message=message,doc:()=>({}),setDoc:async(_,payload)=>{writes++;c.payload=payload;await write(payload);},collection:()=>({}),addDoc:()=>{logs++;return log();},getLocalDateString:()=>date,getLocalTimeString:()=>date,console});
+ const c=vm.createContext({window:{InventorySave:saver},userInputs:inputs,isFirebaseLoaded:true,db:{},document:{getElementById:id=>elements[id]},handleInput:(d,h,i,k,v)=>inputs[d][h][i][k]=v,renderItems(){},saveToLocal(){c.cached=save.cacheItem(input);},showMessage:message=>c.message=message,openSign:(hotel,item,role)=>c.openedRole=role,doc:()=>({}),setDoc:async(_,payload)=>{writes++;c.payload=payload;await write(payload);},collection:()=>({}),addDoc:()=>{logs++;return log();},getLocalDateString:()=>date,getLocalTimeString:()=>date,console});
  const begin=html.indexOf('                window.firebaseSubmit = async function('),end=html.indexOf('                window.syncSettingsFromSheet =',begin);vm.runInContext(html.slice(begin,end),c);
  return{c,input,inputs,date,hotel,item,elements,saver,get writes(){return writes;},get logs(){return logs;},submit:()=>c.window.firebaseSubmit(hotel,item)};
 }
@@ -42,5 +42,30 @@ test('cached pending saves recover to retryable state and retain full signatures
 });
 
 test('an old cache that already lost an unsubmitted signature must re-sign, never silently save unsigned quantities',async()=>{
- const f=fixture();f.input.signature='CACHED';await f.submit();assert.equal(f.writes,0);assert.equal(f.input.saveError,true);assert.equal(f.input.count,'0');assert.match(f.c.message,/重新簽署/);
+ const f=fixture();f.input.signature='CACHED';await f.submit();assert.equal(f.writes,0);assert.equal(f.input.saveError,true);assert.equal(f.input.count,'0');assert.equal(f.c.openedRole,'aunt');
+});
+
+test('red retry opens the missing signature instead of repeating an error dialog, including recheck-only departments',async()=>{
+ const f=fixture();Object.assign(f.input,{signature:'CACHED',saveError:true});await f.submit();assert.equal(f.c.openedRole,'aunt');assert.equal(f.writes,0);assert.equal(f.input.count,'0');assert.equal(f.input.isSaving,false);
+ const g=fixture();Object.assign(g.input,{signature:'CACHED',hasSigned:true,doubleSignature:'CACHED',doubleHasSigned:true,saveError:true});g.c.window.sendwashRecheckOnly=()=>true;await g.submit();assert.equal(g.c.openedRole,'sup');assert.equal(g.writes,0);
+});
+test('a confirmed edit during a timed-out write queues after its acknowledgement, preserving the original date',async()=>{
+ let acknowledge;const payloads=[];const f=fixture({write:payload=>{payloads.push(payload);return payloads.length===1?new Promise(resolve=>acknowledge=resolve):Promise.resolve();}});
+ await f.submit();f.input.count='7';f.input.signature='new-signature';const retry=f.submit();await tick();assert.equal(f.writes,1);
+ f.elements.datePicker.value='2026-10-22';acknowledge();await retry;for(let i=0;i<25&&!f.input.isSubmitted;i++)await tick();
+ assert.equal(f.writes,2);assert.equal(payloads[1].date,'2026-10-21');assert.equal(payloads[1].count,'7');assert.equal(payloads[1].signature,'new-signature');assert.equal(f.input.isSubmitted,true);assert.equal(f.input.saveError,false);
+});
+test('the actual signature dialog remains available while a previous write is pending and a missing cached image stays blank',async()=>{
+ let acknowledge;const f=fixture({write:()=>new Promise(resolve=>acknowledge=resolve)});await f.submit();f.input.signature='CACHED';
+ for(const id of ['signModal','signModalTitle','signCancelBtn','signConfirmBtn','signUploadStatus'])f.elements[id]={classList:{hidden:true,remove(){this.hidden=false},add(){this.hidden=true}}};
+ let placeholderDrawn=false;Object.assign(f.c,{canvas:{offsetWidth:300},ctx:{clearRect(){},fillRect(){},fillText(){placeholderDrawn=true;}},activeCategory:'',activeItem:'',activeRole:'',requestAnimationFrame:fn=>fn()});
+ const begin=html.indexOf('        function openSign('),end=html.indexOf('        async function confirmSignature()',begin);vm.runInContext(html.slice(begin,end),f.c);
+ f.c.openSign(f.hotel,f.item,'aunt');assert.equal(f.elements.signModal.classList.hidden,false);assert.equal(f.c.canvas.isLocked,false);assert.equal(placeholderDrawn,false);assert.match(f.elements.signModalTitle.innerText,/重新簽名/);
+ acknowledge();await tick();await tick();
+});
+
+test('legacy source signature errors also route to the right signing step instead of an endless retry alert',async()=>{
+ for(const [message,role] of [['簽名尚未成功儲存，請點開簽名重新簽署後儲存','aunt'],['請完成複點簽名','sup']]){
+  const f=fixture({write:async()=>{throw new Error(message);}});await f.submit();assert.equal(f.c.openedRole,role);assert.equal(f.input.count,'0');assert.equal(f.input.saveError,true);
+ }
 });
