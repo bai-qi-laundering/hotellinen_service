@@ -69,10 +69,10 @@
  };
  window.savePendingSendwashNote=async(date,hotel,item,value)=>{
   const sources=pending(date,hotel,item);if(!sources.length)return;
-  try{await api.runTransaction(db,async tx=>{
+  await api.runTransaction(db,async tx=>{
    const refs=sources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
    refs.forEach((ref,i)=>{if(!snaps[i].exists())throw new Error('來源單已不存在');const latest=snaps[i].data(),key=sourceItem(latest,item);if(latest.acceptedAt || latest.receivedItems?.[key])throw new Error('此品項已點收，請重新載入後編輯備註');tx.update(ref,{notes:{...(latest.notes || {}),[key]:value}});});
-  });showToast('✅ 備註已儲存');}catch(error){showMessage(error.message);}
+  });showToast('✅ 備註已儲存');
  };
  window.persistPendingSendwash=async(date,hotel,item,payload,expectedSources,expectedCount,expectedDoubleCount)=>{
   if(!ready)throw new Error('連線中，請稍後重試');

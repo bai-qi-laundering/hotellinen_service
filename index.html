@@ -207,8 +207,9 @@
         </div>
     </div>
 
+    <script src="inventory-save.js?v=20261021-save-recovery"></script>
     <script src="sendwash-core.js?v=20261020-cheng-recheck"></script>
-    <script src="sendwash-verification.js?v=20261020-cheng-recheck"></script>
+    <script src="sendwash-verification.js?v=20261021-save-recovery"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -273,9 +274,7 @@
                         }
                         storageInputs[d][hotel] = {};
                         for (let item in userInputs[d][hotel]) {
-                            let data = { ...userInputs[d][hotel][item] };
-                            if (data.signature && data.signature.length > 100) data.signature = 'CACHED';
-                            if (data.doubleSignature && data.doubleSignature.length > 100) data.doubleSignature = 'CACHED';
+                            let data = window.InventorySave.cacheItem(userInputs[d][hotel][item]);
                             storageInputs[d][hotel][item] = data;
                         }
                     }
@@ -299,7 +298,7 @@
                 const cachedInputs = localStorage.getItem('inventory_userInputs');
                 if (cachedMaster) {
                     masterData = JSON.parse(cachedMaster); buildHotelStructure();
-                    if (cachedInputs) userInputs = JSON.parse(cachedInputs);
+                    if (cachedInputs) userInputs = window.InventorySave.recover(JSON.parse(cachedInputs));
                     renderHome(true); 
                 } else {
                     document.getElementById('hotelGrid').innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-xl">請點擊上方【⚙️ 更新設定】載入清單</div>`;
@@ -843,6 +842,8 @@
         }
         
         function openSign(category, item, role) { 
+            const pendingKey = window.InventorySave?.key(document.getElementById('datePicker').value, category, item);
+            if (window.InventorySave?.pending(pendingKey)) return showMessage('前一筆仍在等待雲端確認，請先恢復網路並點重傳確認，避免重複修改。');
             if (window.prepareSendwashFullItem) window.prepareSendwashFullItem(document.getElementById('datePicker').value, category, item);
             const before = (userInputs[document.getElementById('datePicker').value] && userInputs[document.getElementById('datePicker').value][category] && userInputs[document.getElementById('datePicker').value][category][item]) || {};
             const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(document.getElementById('datePicker').value, category, item);
@@ -919,10 +920,14 @@
             openCalc(currentCat, currentItm, currentRol);
 
             if (!window.uploadPromises) window.uploadPromises = {};
-            const sigKey = `${currentCat}_${currentItm}_${currentRol}`;
+            const sigKey = `${dateStr}_${currentCat}_${currentItm}_${currentRol}`;
+            const signedInput = userInputs[dateStr][currentCat][currentItm];
 
-            window.uploadPromises[sigKey] = window.uploadSignatureToStorage(sigBase64, `inventory_${cBaseHotel}_${currentItm}_${currentRol}_${Date.now()}`)
+            const uploadTask = window.InventorySave.withTimeout(window.uploadSignatureToStorage(sigBase64, `inventory_${cBaseHotel}_${currentItm}_${currentRol}_${Date.now()}`), 15000, '簽名圖片上傳逾時，改隨數量儲存')
                 .then(url => {
+                    if (window.uploadPromises[sigKey] !== uploadTask) return;
+                    const field = currentRol === 'aunt' ? 'signature' : 'doubleSignature';
+                    if (signedInput[field] !== sigBase64) return;
                     if (currentRol === 'aunt') {
                         handleInput(dateStr, currentCat, currentItm, 'signature', url);
                     } else {
@@ -932,8 +937,9 @@
                 })
                 .catch(err => {
                     console.error("背景上傳失敗，已轉為備用模式", err);
-                    delete window.uploadPromises[sigKey];
+                    if (window.uploadPromises[sigKey] === uploadTask) delete window.uploadPromises[sigKey];
                 });
+            window.uploadPromises[sigKey] = uploadTask;
         }
 
         function openCalc(hotel, item, role) {
@@ -1031,7 +1037,8 @@
                 const app = initializeApp(firebaseConfig);
                 
                 db = initializeFirestore(app, {
-                    localCache: memoryLocalCache()
+                    localCache: memoryLocalCache(),
+                    experimentalForceLongPolling: true
                 });
                 
                 storage = getStorage(app);
@@ -1140,7 +1147,7 @@
                                 if(!userInputs[dDate][r.hotel]) userInputs[dDate][r.hotel] = {};
                                 
                                 let local = userInputs[dDate][r.hotel][r.item];
-                                if (local && local.isSaving) return; 
+                                if (local && (local.isSaving || local.saveError || local.hasSigned || local.doubleHasSigned)) return; 
                                 
                                 // ★ 編輯中防覆蓋保護機制
                                 let isSameDate = (dDate === document.getElementById('datePicker').value);
@@ -1205,78 +1212,57 @@
                 window.firebaseSubmit = async function(category, item) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     const dateStr = document.getElementById('datePicker').value;
-
-                    if (window.uploadPromises) {
-                        const auntKey = `${category}_${item}_aunt`;
-                        const supKey = `${category}_${item}_sup`;
-                        if (window.uploadPromises[auntKey]) await window.uploadPromises[auntKey];
-                        if (window.uploadPromises[supKey]) await window.uploadPromises[supKey];
-                    }
-
-                    const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || null;
-                    
-                    if (u && u.sendwashPending && !u.signature && !u.doubleSignature) return window.savePendingSendwashNote(dateStr, category, item, u.note || '');
-                    if (!u || (!u.signature && !u.doubleSignature && !u.hasSigned && !u.doubleHasSigned)) return; 
-
-                    handleInput(dateStr, category, item, 'isSaving', true); handleInput(dateStr, category, item, 'saveError', false); 
-                    renderItems(false); 
-
-                    const payload = { 
-                        date: dateStr, hotel: category, item: item, 
-                        count: (u.count !== undefined && u.count !== null && u.count !== '') ? String(u.count) : '', 
-                        note: u.note || '', 
-                        doubleCount: (u.doubleCount !== undefined && u.doubleCount !== null && u.doubleCount !== '') ? String(u.doubleCount) : '', 
-                        doubleSignDate: u.doubleSignDate || '',
-                        timestamp: new Date().toLocaleString() 
-                    };
-
-                    if (u.signature && u.signature !== 'CACHED') payload.signature = u.signature;
-                    if (u.doubleSignature && u.doubleSignature !== 'CACHED') payload.doubleSignature = u.doubleSignature;
-
-                    try {
-                        const safeItem = item.replace(/\//g, '-');
-                        const recordRef = doc(db, 'inventory_records', `${dateStr}_${category}_${safeItem}`);
-                        if (u.sendwashPending) {
-                            const saved = await window.persistPendingSendwash(dateStr, category, item, payload, u.sendwashPending, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
-                            handleInput(dateStr, category, item, 'sendwashSources', saved.sendwashSources);
-                            handleInput(dateStr, category, item, 'sendwashPending', null);
-                            handleInput(dateStr, category, item, 'sendwashLoadedCount', saved.count);
-                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', saved.doubleCount);
-                        } else if (u.sendwashSupplemental) {
-                            const saved = await window.persistSupplementalSendwash(dateStr, category, item, payload, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
-                            handleInput(dateStr, category, item, 'sendwashLoadedCount', saved.count);
-                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', saved.doubleCount);
-                        } else if (u.countSource === 'sendwash') {
-                            await runTransaction(db, async tx => {
-                                const latest = await tx.get(recordRef);
-                                if (!latest.exists()) throw new Error('來源單已不存在，請重新載入');
-                                const updated = SendwashCore.sendwashInventoryPatch(latest.data(), payload, u.sendwashLoadedCount, u.sendwashLoadedDoubleCount);
-                                tx.set(recordRef, {...updated, timestamp:new Date().toISOString()}, {merge:true});
-                            });
-                            handleInput(dateStr, category, item, 'sendwashLoadedCount', payload.count);
-                            handleInput(dateStr, category, item, 'sendwashLoadedDoubleCount', payload.doubleCount);
-                        } else {
-                            await setDoc(recordRef, payload, { merge: true });
+                    const u = userInputs[dateStr]?.[category]?.[item];
+                    if (!u) return;
+                    const saver=window.InventorySave,key=saver.key(dateStr,category,item);
+                    const fingerprint=value=>JSON.stringify([value.count ?? '',value.doubleCount ?? '',value.note || '',value.signature || '',value.doubleSignature || '']);
+                    handleInput(dateStr,category,item,'isSaving',true);handleInput(dateStr,category,item,'saveError',false);renderItems(false);
+                    const task=saver.run(key,async()=>{
+                        // Storage is optional: the original signature image can travel with the inventory write.
+                        const uploads=window.uploadPromises || {};
+                        await saver.withTimeout(Promise.all(['aunt','sup'].map(role=>uploads[`${dateStr}_${category}_${item}_${role}`]).filter(Boolean)),16000,'簽名上傳逾時').catch(()=>{});
+                        const submitted=fingerprint(u);
+                        if(u.sendwashPending&&!u.signature&&!u.doubleSignature){
+                            await window.savePendingSendwashNote(dateStr,category,item,u.note || '');
+                            return {submitted,noteOnly:true,updates:{}};
                         }
-
-                        try {
-                            await addDoc(collection(db, 'history_logs'), {
-                                logDate: getLocalDateString(new Date()), timestamp: Date.now(),
-                                actionTime: getLocalTimeString(new Date()), date: dateStr, hotel: category,
-                                item: item, count: payload.count, doubleCount: payload.doubleCount,
-                                signature: payload.signature || 'CACHED_RETAINED', 
-                                doubleSignature: payload.doubleSignature || 'CACHED_RETAINED', 
-                                note: payload.note
+                        if(!u.signature&&!u.doubleSignature&&!u.hasSigned&&!u.doubleHasSigned)throw new Error('請先完成簽名');
+                        if((u.hasSigned&&u.signature==='CACHED')||(u.doubleHasSigned&&u.doubleSignature==='CACHED'))throw new Error('這台裝置先前未保留待存簽名影像，數量仍在，請點開簽名重新簽署後儲存。');
+                        const payload={date:dateStr,hotel:category,item,count:u.count !== undefined&&u.count !== null&&u.count !== ''?String(u.count):'',note:u.note || '',doubleCount:u.doubleCount !== undefined&&u.doubleCount !== null&&u.doubleCount !== ''?String(u.doubleCount):'',doubleSignDate:u.doubleSignDate || '',timestamp:new Date().toLocaleString()};
+                        if(u.signature&&u.signature!=='CACHED')payload.signature=u.signature;
+                        if(u.doubleSignature&&u.doubleSignature!=='CACHED')payload.doubleSignature=u.doubleSignature;
+                        const recordRef=doc(db,'inventory_records',`${dateStr}_${category}_${item.replace(/\//g,'-')}`),updates={};
+                        if(u.sendwashPending){
+                            const saved=await window.persistPendingSendwash(dateStr,category,item,payload,u.sendwashPending,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+                            Object.assign(updates,{sendwashSources:saved.sendwashSources,sendwashPending:null,sendwashLoadedCount:saved.count,sendwashLoadedDoubleCount:saved.doubleCount});
+                        }else if(u.sendwashSupplemental){
+                            const saved=await window.persistSupplementalSendwash(dateStr,category,item,payload,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+                            Object.assign(updates,{sendwashLoadedCount:saved.count,sendwashLoadedDoubleCount:saved.doubleCount});
+                        }else if(u.countSource==='sendwash'){
+                            await runTransaction(db,async tx=>{
+                                const latest=await tx.get(recordRef);if(!latest.exists())throw new Error('來源單已不存在，請重新載入');
+                                const updated=SendwashCore.sendwashInventoryPatch(latest.data(),payload,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
+                                tx.set(recordRef,{...updated,timestamp:new Date().toISOString()},{merge:true});
                             });
-                        } catch (logErr) {}
-
-                        handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'isSubmitted', true); 
-                        handleInput(dateStr, category, item, 'hasSigned', false); handleInput(dateStr, category, item, 'doubleHasSigned', false); 
-                        saveToLocal(); 
-                        renderItems(false); 
-                    } catch(e) {
-                        handleInput(dateStr, category, item, 'isSaving', false); handleInput(dateStr, category, item, 'saveError', true);
-                        saveToLocal(); renderItems(false); showMessage(u.countSource === 'sendwash' ? e.message : '⚠️ 網路連線不穩！請點擊紅色按鈕重傳！');
+                            Object.assign(updates,{sendwashLoadedCount:payload.count,sendwashLoadedDoubleCount:payload.doubleCount});
+                        }else await setDoc(recordRef,payload,{merge:true});
+                        // A secondary log must never hold the confirmed inventory save open.
+                        saver.withTimeout(Promise.resolve().then(()=>addDoc(collection(db,'history_logs'),{logDate:getLocalDateString(new Date()),timestamp:Date.now(),actionTime:getLocalTimeString(new Date()),date:dateStr,hotel:category,item,count:payload.count,doubleCount:payload.doubleCount,signature:payload.signature || 'CACHED_RETAINED',doubleSignature:payload.doubleSignature || 'CACHED_RETAINED',note:payload.note})),10000,'操作紀錄逾時').catch(()=>{});
+                        return {submitted,updates};
+                    });
+                    // Retain this handler after a UI timeout so a late real acknowledgement can finish the card.
+                    task.then(result=>{
+                        const current=userInputs[dateStr]?.[category]?.[item];if(current!==u)return;
+                        const unchanged=fingerprint(current)===result.submitted;
+                        Object.assign(current,result.updates,{isSaving:false,saveError:!unchanged});
+                        if(unchanged&&!result.noteOnly)Object.assign(current,{isSubmitted:true,hasSigned:false,doubleHasSigned:false});
+                        else if(!unchanged)current.isSubmitted=false;
+                        saveToLocal();renderItems(false);
+                    },()=>{}).catch(error=>console.error('儲存畫面更新失敗',error));
+                    try{await saver.withTimeout(task,25000,'尚未收到雲端確認。數量與簽名已保留在本機，請確認網路後點紅色按鈕重傳；尚未確認前請勿當作已存入。');}
+                    catch(error){
+                        if(userInputs[dateStr]?.[category]?.[item]===u)Object.assign(u,{isSaving:false,saveError:true,isSubmitted:false});
+                        saveToLocal();renderItems(false);showMessage(error.message || '儲存失敗，請點紅色按鈕重傳。');
                     }
                 };
 
