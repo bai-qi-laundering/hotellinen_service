@@ -34,8 +34,8 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 <script src="sendwash-core.js?v=20261020-cheng-recheck"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
-import {initializeFirestore,memoryLocalCache,doc,getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
-const db=initializeFirestore(initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',storageBucket:'hotel-inventory-3a1ad.firebasestorage.app',messagingSenderId:'363844184412',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}),{localCache:memoryLocalCache()});
+import {getFirestore,doc,getDoc as getDocFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-lite.js';
+const db=getFirestore(initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',storageBucket:'hotel-inventory-3a1ad.firebasestorage.app',messagingSenderId:'363844184412',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}));
 const core=window.SendwashCore,$=id=>document.getElementById(id),params=new URLSearchParams(location.search),hotel=params.get('hotel');
 let config,settings,rows=[],current=null,busy=false,sequence=0,activeOutlet='';
 const batchDrafts=new Map();let shownBatchId=null,activeBatchId='';

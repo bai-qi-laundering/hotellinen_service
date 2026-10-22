@@ -102,18 +102,19 @@
             box.appendChild(button);
         }, 20000);
     </script>
+    <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
             import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js"),
-            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js"),
+            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-lite.js"),
             import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js")
         ]);
         const { initializeApp } = firebaseApp;
-        const { collection, query, where, getDocsFromServer, doc, setDoc,
-            getDocFromServer, deleteDoc, runTransaction, initializeFirestore, memoryLocalCache } = firestoreSDK;
+        const { collection, query, where, getDocs: getDocsFromServer, doc, setDoc,
+            getDoc: getDocFromServer, deleteDoc, runTransaction, getFirestore } = firestoreSDK;
         const { getStorage, ref, uploadString, getDownloadURL } = storageSDK;
 
         const firebaseConfig = {
@@ -128,8 +129,8 @@
 
         const app = initializeApp(firebaseConfig);
         
-        // 單據需確認伺服器資料，使用記憶體快取避免依賴手機 IndexedDB。
-        const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+        // 此頁只需伺服器單次讀寫；Lite 直接連線，不建立即時監聽或手機 IndexedDB。
+        const db = getFirestore(app);
 
         const storage = getStorage(app);
         
@@ -442,7 +443,10 @@
                 if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
 
                 // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
-                const [invSnap, logSnap] = await Promise.all([withReadTimeout(fetchMethod(invQ), '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
+                const inventoryRead = window.ReceiptInventoryRead
+                    ? window.ReceiptInventoryRead.read({projectId: firebaseConfig.projectId, date: fetchTargetDate, fallback: () => fetchMethod(invQ)})
+                    : fetchMethod(invQ);
+                const [invSnap, logSnap] = await Promise.all([withReadTimeout(inventoryRead, '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
 
                 if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
                     return; 

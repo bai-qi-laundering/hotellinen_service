@@ -18,7 +18,7 @@ async function fixture(seed={},configured,extraTemplate=[]){
  const tables={inventory_config:{master_template:template},sendwash_records:structuredClone(seed)};
  const snap=ref=>({exists:()=>!!tables[ref.name]?.[ref.id],data:()=>structuredClone(tables[ref.name]?.[ref.id])});
  const api={initializeApp:()=>({}),initializeFirestore:()=>({}),memoryLocalCache:()=>({}),doc:(_,name,id)=>({name,id}),getDocFromServer:async r=>snap(r),runTransaction:async(_,fn)=>{const pending=[];await fn({get:async r=>snap(r),set:(r,d)=>pending.push([r,d])});pending.forEach(([r,d])=>{tables[r.name] ||= {};tables[r.name][r.id]=structuredClone(d);});}};
- const ctx=vm.createContext({...api,window:{SendwashCore:core},document:{getElementById:id=>elements.get(id),createElement:element},location:{search:'?hotel='+encodeURIComponent('飯店A'),href:'https://fixture.local/sendwash.html'},URL,URLSearchParams,Intl,console});
+ const ctx=vm.createContext({...api,getFirestore:api.initializeFirestore,window:{SendwashCore:core},document:{getElementById:id=>elements.get(id),createElement:element},location:{search:'?hotel='+encodeURIComponent('飯店A'),href:'https://fixture.local/sendwash.html'},URL,URLSearchParams,Intl,console});
  const html=fs.readFileSync('sendwash.html','utf8');let script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm,'');
  await vm.runInContext('(async()=>{'+script+'})()',ctx);
  return{tables,elements,async submit(values){values.forEach((v,i)=>elements.get('qty'+i).value=v);await elements.get('form').onsubmit({preventDefault(){}});},async reload(){await elements.get('sourceDate').onchange();}};
