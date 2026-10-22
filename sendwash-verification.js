@@ -44,7 +44,22 @@
  window.attachSendwashListener=async dates=>{
   const request=++sequence;if(!ready){await window.sendwashVerificationReady;if(!ready)return;}if(request!==sequence)return;
   if(unsubscribe)unsubscribe();records.clear();
-  unsubscribe=api.onSnapshot(api.query(api.collection(db,'sendwash_records'),api.where('targetDate','in',dates)),snap=>{records.clear();snap.forEach(d=>records.set(d.id,{...d.data(),id:d.id}));renderItems(true);},error=>showMessage('送洗對點單無法載入：'+error.message));
+  unsubscribe=api.onSnapshot(api.query(api.collection(db,'sendwash_records'),api.where('targetDate','in',dates)),snap=>{
+   const date=typeof document==='undefined' ? '' : document.getElementById('datePicker')?.value;
+   const hotel=typeof currentHotelName==='undefined' ? '' : currentHotelName;
+   let visibleChanged=false;
+   const changes=typeof snap.docChanges==='function' ? snap.docChanges() : (()=>{const list=[];snap.forEach(doc=>list.push({type:'added',doc}));return list;})();
+   for(const change of changes){
+    const previous=records.get(change.doc.id);
+    if(!date||!hotel||previous?.targetDate===date&&previous.inventoryHotel===hotel)visibleChanged=true;
+    if(change.type==='removed')records.delete(change.doc.id);
+    else{
+     const record={...change.doc.data(),id:change.doc.id};records.set(change.doc.id,record);
+     if(!date||!hotel||record.targetDate===date&&record.inventoryHotel===hotel)visibleChanged=true;
+    }
+   }
+   if(visibleChanged&&hotel)renderItems(false);
+  },error=>showMessage('送洗對點單無法載入：'+error.message));
  };
  window.sendwashPendingItems=(date,hotel)=>[...new Set([...records.values()].filter(r=>r.targetDate===date&&r.inventoryHotel===hotel&&!r.acceptedAt).flatMap(r=>r.items.filter(i=>!r.receivedItems?.[i.item]).map(i=>itemKey(r,i.item))))];
  window.sendwashCard=()=>null; // All items render through index.html's original two-column card.

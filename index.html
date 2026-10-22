@@ -209,7 +209,7 @@
 
     <script src="inventory-save.js?v=20261021-unlock-retry"></script>
     <script src="sendwash-core.js?v=20261020-cheng-recheck"></script>
-    <script src="sendwash-verification.js?v=20261021-save-recovery"></script>
+    <script src="sendwash-verification.js?v=20261022-inventory-speed"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -285,6 +285,16 @@
                 
             } catch (e) { console.error("Local storage 存檔失敗", e); }
         }
+
+        // Cloud changes arrive in bursts; local operator edits still use saveToLocal immediately.
+        let cloudCacheTimer;
+        function scheduleCloudCacheSave() {
+            clearTimeout(cloudCacheTimer);
+            cloudCacheTimer = setTimeout(() => { cloudCacheTimer = null; saveToLocal(); }, 150);
+        }
+        window.addEventListener('pagehide', () => {
+            if (cloudCacheTimer) { clearTimeout(cloudCacheTimer); cloudCacheTimer = null; saveToLocal(); }
+        });
 
         function instantBoot() {
             const today = new Date();
@@ -1085,9 +1095,9 @@
                     }
                 }
 
+                let listeningDatesKey = '';
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
-                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe(); 
                     
                     const parts = baseDateStr.split('-');
                     const d = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -1102,21 +1112,28 @@
                     // 手動改日期時仍讀取使用者選定的單子。
                     const selectedDate = document.getElementById('datePicker').value;
                     if (selectedDate && !datesToListen.includes(selectedDate)) datesToListen.push(selectedDate);
+                    const datesKey = datesToListen.slice().sort().join('|');
+                    if (datesKey === listeningDatesKey) return;
+                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe();
+                    listeningDatesKey = datesKey;
                     if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(datesToListen);
                     const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
                     
                     currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
                         let dataChanged = false;
+                        let visibleDataChanged = false;
                         
                         snapshot.docChanges().forEach((change) => {
                             const r = change.doc.data();
                             let dDate = String(r.date || "").replace(/\//g, '-').trim();
+                            const visibleRecord = dDate === document.getElementById('datePicker').value && r.hotel === currentHotelName;
 
                             if (change.type === "removed") {
                                 if (r.item === '_MANUAL_BORDER_') {
                                     if(userInputs[dDate] && userInputs[dDate]['_MANUAL_STATES_']) {
                                         userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = false;
                                         dataChanged = true;
+                                        visibleDataChanged = visibleDataChanged || visibleRecord;
                                         if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
                                             if(window.updateBorderBtnState) window.updateBorderBtnState();
                                         }
@@ -1125,6 +1142,7 @@
                                     if(userInputs[dDate] && userInputs[dDate][r.hotel] && userInputs[dDate][r.hotel][r.item]) {
                                         delete userInputs[dDate][r.hotel][r.item]; 
                                         dataChanged = true;
+                                        visibleDataChanged = visibleDataChanged || visibleRecord;
                                     }
                                 }
                             } 
@@ -1136,6 +1154,7 @@
                                     if (userInputs[dDate]['_MANUAL_STATES_'][r.hotel] !== r.isBorder) {
                                         userInputs[dDate]['_MANUAL_STATES_'][r.hotel] = r.isBorder;
                                         dataChanged = true;
+                                        visibleDataChanged = visibleDataChanged || visibleRecord;
                                         if (currentBaseHotel === r.hotel && document.getElementById('datePicker').value === dDate) {
                                             if(window.updateBorderBtnState) window.updateBorderBtnState();
                                         }
@@ -1187,14 +1206,18 @@
                                     isSaving: false, saveError: false
                                 };
                                 dataChanged = true;
+                                visibleDataChanged = visibleDataChanged || visibleRecord;
                             }
                         });
 
                         if (dataChanged) {
-                            saveToLocal();
+                            scheduleCloudCacheSave();
                             if (!document.getElementById('homeView').classList.contains('hidden')) renderHome(false);
-                            else if (!document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);
+                            else if (visibleDataChanged && !document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);
                         }
+                    }, error => {
+                        listeningDatesKey = '';
+                        console.error('對點資料同步失敗', error);
                     });
                 };
 
