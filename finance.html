@@ -1053,15 +1053,16 @@ window.quickSelectGroup = quickSelectGroup;
 window.calculateDriverPerformance = calculateDriverPerformance;
 window.showDriverDetails = showDriverDetails;
 
-// ★ 處理待儲存清單 (共用)
+// ★ 處理待儲存清單 (共用) — 修正變數名稱錯誤，確保修改後按鈕立即亮起紅燈可存檔
 function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice) {
     let existing = pendingUpdatesArray.find(p => p.docId === docId && p.receiptOrder === receiptOrder);
     if (existing) {
         existing.newItemName = newItemName;
         existing.newPrice = newPrice;
     } else {
-        const record = rawLogisticsData.find(r => r.docId === docId && p.receiptOrder === receiptOrder) || rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
-        if(!record.financeItemId)record.financeItemId=crypto.randomUUID();
+        const record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+        if (!record) return;
+        if (!record.financeItemId) record.financeItemId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('fid_' + Date.now() + '_' + Math.random().toString(36).slice(2));
         pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice,
             financeItemId:record.financeItemId, sourceRowSnapshot:record.sourceRowSnapshot,
             originalItemName: record.originalItemName, sourceItemName: record.sourceItemName });
@@ -1120,11 +1121,11 @@ window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, input
     if(!record) return;
 
     record.currentPrice = newPrice;
+    record.savedPrice = newPrice;
     record.manualPriceOverride = false;
 
     // 從生效日起適用到下一個調價日；不改寫整段歷史價目。
     if (newVal.trim() !== '') queueEffectivePrice(record,hotelName,newPrice);
-    // 不再寫入全期間共用的 customPrices。
 
     inputEl.style.backgroundColor = '#fef08a';
     
@@ -1156,6 +1157,16 @@ window.batchSavePrices = async function() {
                 if (!docSnap.exists()) throw new Error('原物流單已不存在，請重新載入。');
                 const data = docSnap.data();
                 const items = applyFinanceItemNames(billingReceiptItems(data), updatesByDoc[docId]);
+                // ★ 同步將修改後的單價也寫入該筆物流明細，確保單純改價格時也能存回單據
+                for (const u of updatesByDoc[docId]) {
+                    let target = (u.financeItemId && items.find(it => it.financeItemId === u.financeItemId))
+                        || items[u.receiptOrder]
+                        || items.find(it => normalizeItemName(it.itemName) === normalizeItemName(u.newItemName));
+                    if (target && u.newPrice !== undefined && u.newPrice !== null) {
+                        target.price = Number(u.newPrice);
+                        if (u.financeItemId) target.financeItemId = u.financeItemId;
+                    }
+                }
                 if (JSON.stringify(items) !== JSON.stringify(data.items || [])) tx.update(refDoc, {items});
             });
             promises.push(promise);
