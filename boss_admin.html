@@ -265,7 +265,7 @@
                     </select>
                 </div>
 
-                <div class="flex ml-auto gap-2">
+                <div class="flex ml-auto gap-2 flex-wrap">
                     <button onclick="exportLogisticsToExcel()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
                         📊 匯出 Excel
                     </button>
@@ -340,10 +340,10 @@
         let logRecords = []; let logFiltered = []; 
         window.invHistoryRecords = []; 
         let masterData = []; 
+        let latestInvRawDataMap = {}; // 儲存當次載入的盤點備份，供誤刪時一鍵撈回
         
         let lastInvFetchKey = "";
         let lastLogFetchKey = "";
-        // ★ 記錄目前展開的物流單據 ID，避免修改品名/數量/刪除品項重繪時自動收合
         let openLogDetailDocIds = new Set();
 
         function escapeAttr(str) {
@@ -855,6 +855,8 @@
                     invRawDataMap[row.matchKey].items.push({itemName,qty});
                 }
 
+                latestInvRawDataMap = invRawDataMap;
+
                 let uniqueDocs = new Map();
                 logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
@@ -918,10 +920,11 @@
 
                         // ★ 自動修復：同日盤點有、既有物流單卻漏掉的品項，自動補進物流單。
                         // 已存在品項保留物流端 actualQty；只補缺少的品項，避免覆蓋司機已修改的實收數量。
+                        // （若使用者在物流後台曾手動刪除過品項 manualItemDeleted，則不自動補回，直到使用者點「🔄 從盤點撈回誤刪品項」）
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
-                        if (!restaurantTotals && invGroup && Array.isArray(invGroup.items)) {
-                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.inventoryItemName || i.itemName)));
+                        if (!restaurantTotals && !d.manualItemDeleted && invGroup && Array.isArray(invGroup.items)) {
+                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.itemName)));
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim();
                                 const qty = String(invItem.qty ?? '0');
@@ -1194,9 +1197,13 @@
                             <div class="p-6 bg-emerald-50/30">
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                     <div>
-                                        <div class="flex justify-between items-end mb-3 border-b-2 border-emerald-200 pb-2">
+                                        <div class="flex justify-between items-center mb-3 border-b-2 border-emerald-200 pb-2 flex-wrap gap-2">
                                             <h4 class="font-bold text-emerald-800">📦 點交數量明細</h4>
-                                            <span class="text-xs font-bold text-emerald-600">💡 點擊「品項」或「實收數量」可直接修改，或點擊右側刪除</span>
+                                            <div class="flex items-center gap-2">
+                                                <button type="button" onclick="restoreLogItemsFromInv('${safeDocId}', event)" class="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-1 rounded hover:bg-amber-200 font-bold shadow-sm transition-colors">
+                                                    🔄 從盤點撈回誤刪品項
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                                             <table class="w-full text-sm">
@@ -1513,7 +1520,7 @@
             return [...map.values()];
         }
 
-        // ★ 新增：直接修改物流單的「品項名稱」
+        // ★ 1. 直接修改物流單的「品項名稱」
         window.updateLogItemName = async function(docId, oldItemName, newValue, inputElement, financeItemId = '', invItemName = '') {
             const finalNewName = String(newValue || '').trim();
             if (!finalNewName) {
@@ -1557,7 +1564,6 @@
                     const target = matches[0];
                     if (!target) throw new Error('找不到原品項，請重新載入');
 
-                    // 保留原始盤點名稱 inventoryItemName，避免下次載入時自動修復又把舊品名補回來
                     if (!target.inventoryItemName) {
                         target.inventoryItemName = invItemName || target.itemName || oldItemName;
                     }
@@ -1602,21 +1608,19 @@
             }
         };
 
-        // ★ 新增：直接刪除物流單內的單一「品項」（並同步清除同日對應盤點紀錄，防止重新載入時死灰復燃）
+        // ★ 2. 直接刪除物流單內的單一「品項」（真刪，但保留盤點資料供誤刪時撈回）
         window.deleteLogItem = async function(docId, itemName, financeItemId = '', invItemName = '', e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
             if (!localRecord) return;
 
-            const confirmDel = await customConfirm(`⚠️ 確定要從【${localRecord.date} ${localRecord.hotel}】\n永久刪除品項「${itemName}」嗎？\n\n（系統會一併移除對應的當日盤點品項，避免重整後又自動補回）`);
+            const confirmDel = await customConfirm(`⚠️ 確定要從此物流單刪除品項「${itemName}」嗎？\n\n（若誤刪，可點明細右上角「🔄 從盤點撈回誤刪品項」救回）`);
             if (!confirmDel) return;
 
             openLogDetailDocIds.add(docId);
 
             try {
                 const docRef = doc(db, 'logistics_records', docId);
-                let remainingCount = 0;
-
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
                     if (snap.exists()) {
@@ -1628,9 +1632,8 @@
                             if (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedLogItemName(invItemName)) return false;
                             return true;
                         });
-                        remainingCount = filtered.length;
-                        if (remainingCount > 0) {
-                            tx.update(docRef, { items: filtered });
+                        if (filtered.length > 0) {
+                            tx.update(docRef, { items: filtered, manualItemDeleted: true });
                         } else {
                             tx.delete(docRef);
                         }
@@ -1647,13 +1650,13 @@
                             auntNote: '',
                             driverNote: '後台刪除品項後同步建立'
                         }));
-                        remainingCount = filtered.length;
-                        if (remainingCount > 0) {
+                        if (filtered.length > 0) {
                             tx.set(docRef, {
                                 date: localRecord.date,
                                 hotelKeyword: localRecord.hotelKeyword,
                                 deptName: localRecord.deptName || '房務',
                                 items: filtered,
+                                manualItemDeleted: true,
                                 forcedSync: true,
                                 assignedDriver: localRecord.assignedDriver || '',
                                 timestamp: getLocalTimeString(new Date()),
@@ -1664,26 +1667,6 @@
                     }
                 });
 
-                // 同步刪除對應的 inventory_records，防止 loadLogData 的自動修復又把該品項補回來
-                const targetNames = new Set([itemName, invItemName].map(v => String(v || '').trim()).filter(Boolean));
-                const hotelCandidates = new Set([
-                    localRecord.hotel,
-                    localRecord.hotelKeyword,
-                    `${localRecord.hotelKeyword} ${localRecord.deptName || '房務'}`.trim()
-                ].map(v => String(v || '').trim()).filter(Boolean));
-
-                const deleteInvPromises = [];
-                for (const h of hotelCandidates) {
-                    for (const tName of targetNames) {
-                        const safeItem = tName.replace(/\//g, '-');
-                        const invId = `${localRecord.date}_${h}_${safeItem}`;
-                        deleteInvPromises.push(deleteDoc(doc(db, 'inventory_records', invId)).catch(() => {}));
-                    }
-                }
-                await Promise.allSettled(deleteInvPromises);
-
-                // 同步更新本地記憶體
-                invRecords = invRecords.filter(r => !(r.date === localRecord.date && r.hotel === localRecord.hotel && targetNames.has(String(r.item || '').trim())));
                 localRecord.items = localRecord.items.filter(i => {
                     if (financeItemId && i.financeItemId === financeItemId) return false;
                     if (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) return false;
@@ -1707,6 +1690,105 @@
             } catch (err) {
                 console.error('刪除品項失敗', err);
                 await customAlert('刪除品項失敗：' + err.message);
+            }
+        };
+
+        // ★ 3. 誤刪救援：從盤點資料庫一鍵撈回該單據被誤刪的品項
+        window.restoreLogItemsFromInv = async function(docId, e) {
+            if (e) e.stopPropagation();
+            const localRecord = logRecords.find(r => r.id === docId);
+            if (!localRecord) return;
+
+            const logHotelKey = (localRecord.hotelKeyword || "").replace(/\s+/g, '');
+            const logDeptKey = (localRecord.deptName || "房務").replace(/\s+/g, '');
+            const matchKey = `${localRecord.date}_${logHotelKey}${logDeptKey}`;
+            const invGroup = latestInvRawDataMap[matchKey];
+
+            if (!invGroup || !Array.isArray(invGroup.items) || invGroup.items.length === 0) {
+                await customAlert("💡 盤點資料庫中沒有找到這張單據的其他品項紀錄。");
+                return;
+            }
+
+            const existingNames = new Set(localRecord.items.map(i => normalizedLogItemName(i.inventoryItemName || i.itemName)));
+            const missingItems = invGroup.items.filter(invItem => {
+                const norm = normalizedLogItemName(invItem.itemName);
+                return norm && String(invItem.qty ?? '0') !== '0' && !existingNames.has(norm);
+            });
+
+            if (missingItems.length === 0) {
+                await customAlert("✅ 目前這張單據的品項已經是完整的，沒有被刪除的盤點品項需要撈回！");
+                return;
+            }
+
+            const namesPreview = missingItems.map(i => `${i.itemName} (${i.qty})`).join('、');
+            const ok = await customConfirm(`🔍 在盤點紀錄中找到以下 ${missingItems.length} 筆被移除的品項：\n【${namesPreview}】\n\n確定要將它們撈回這張物流單嗎？`);
+            if (!ok) return;
+
+            openLogDetailDocIds.add(docId);
+
+            try {
+                const docRef = doc(db, 'logistics_records', docId);
+                await runTransaction(db, async tx => {
+                    const snap = await tx.get(docRef);
+                    const currentItems = snap.exists()
+                        ? (Array.isArray(snap.data().items) ? [...snap.data().items] : [])
+                        : localRecord.items.map(i => ({
+                            itemName: i.itemName,
+                            ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
+                            originalQty: String(i.bqQty),
+                            actualQty: String(i.actualQty),
+                            auntNote: '',
+                            driverNote: ''
+                        }));
+
+                    missingItems.forEach(m => {
+                        currentItems.push({
+                            itemName: m.itemName,
+                            originalQty: String(m.qty),
+                            actualQty: String(m.qty),
+                            auntNote: '',
+                            driverNote: '從盤點撈回誤刪品項'
+                        });
+                    });
+
+                    if (snap.exists()) {
+                        tx.update(docRef, { items: currentItems, manualItemDeleted: false });
+                    } else {
+                        tx.set(docRef, {
+                            date: localRecord.date,
+                            hotelKeyword: localRecord.hotelKeyword,
+                            deptName: localRecord.deptName || '房務',
+                            items: currentItems,
+                            manualItemDeleted: false,
+                            forcedSync: true,
+                            assignedDriver: localRecord.assignedDriver || '',
+                            timestamp: getLocalTimeString(new Date()),
+                            clientSig: '',
+                            driverSig: ''
+                        });
+                    }
+                });
+
+                missingItems.forEach(m => {
+                    localRecord.items.push({
+                        itemName: m.itemName,
+                        bqQty: String(m.qty),
+                        actualQty: String(m.qty)
+                    });
+                });
+                localRecord.items.sort((a, b) => {
+                    let indexA = getItemSortIndex(localRecord.hotel, a.itemName);
+                    let indexB = getItemSortIndex(localRecord.hotel, b.itemName);
+                    if (indexA !== indexB) return indexA - indexB;
+                    return (a.itemName < b.itemName) ? -1 : 1;
+                });
+
+                populateLogDropdowns();
+                applyLogFilters();
+                showToast(`✅ 已成功從盤點撈回 ${missingItems.length} 筆品項！`);
+            } catch (err) {
+                console.error('撈回品項失敗', err);
+                await customAlert('撈回失敗：' + err.message);
             }
         };
 
