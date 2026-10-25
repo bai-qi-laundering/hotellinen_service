@@ -343,6 +343,7 @@
         
         let lastInvFetchKey = "";
         let lastLogFetchKey = "";
+        // ★ 記錄目前展開的物流單據 ID，避免修改品名/數量/刪除品項重繪時自動收合
         let openLogDetailDocIds = new Set();
 
         function escapeAttr(str) {
@@ -764,7 +765,7 @@
         };
 
         // ===============================================
-        // 📦 物流簽收後台載入 (完美保留原有自動修復機制)
+        // 📦 物流簽收後台載入 (完美修復空白鍵導致無法配對的問題)
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -920,7 +921,7 @@
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
                         if (!restaurantTotals && invGroup && Array.isArray(invGroup.items)) {
-                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.itemName)));
+                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.inventoryItemName || i.itemName)));
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim();
                                 const qty = String(invItem.qty ?? '0');
@@ -1556,6 +1557,7 @@
                     const target = matches[0];
                     if (!target) throw new Error('找不到原品項，請重新載入');
 
+                    // 保留原始盤點名稱 inventoryItemName，避免下次載入時自動修復又把舊品名補回來
                     if (!target.inventoryItemName) {
                         target.inventoryItemName = invItemName || target.itemName || oldItemName;
                     }
@@ -1600,19 +1602,21 @@
             }
         };
 
-        // ★ 新增：直接從物流單刪除單一「品項」（純粹更新 logistics_records，不改動修復機制或盤點表）
+        // ★ 新增：直接刪除物流單內的單一「品項」（並同步清除同日對應盤點紀錄，防止重新載入時死灰復燃）
         window.deleteLogItem = async function(docId, itemName, financeItemId = '', invItemName = '', e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
             if (!localRecord) return;
 
-            const confirmDel = await customConfirm(`⚠️ 確定要從此物流單刪除品項「${itemName}」嗎？`);
+            const confirmDel = await customConfirm(`⚠️ 確定要從【${localRecord.date} ${localRecord.hotel}】\n永久刪除品項「${itemName}」嗎？\n\n（系統會一併移除對應的當日盤點品項，避免重整後又自動補回）`);
             if (!confirmDel) return;
 
             openLogDetailDocIds.add(docId);
 
             try {
                 const docRef = doc(db, 'logistics_records', docId);
+                let remainingCount = 0;
+
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
                     if (snap.exists()) {
@@ -1624,7 +1628,8 @@
                             if (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedLogItemName(invItemName)) return false;
                             return true;
                         });
-                        if (filtered.length > 0) {
+                        remainingCount = filtered.length;
+                        if (remainingCount > 0) {
                             tx.update(docRef, { items: filtered });
                         } else {
                             tx.delete(docRef);
@@ -1642,7 +1647,8 @@
                             auntNote: '',
                             driverNote: '後台刪除品項後同步建立'
                         }));
-                        if (filtered.length > 0) {
+                        remainingCount = filtered.length;
+                        if (remainingCount > 0) {
                             tx.set(docRef, {
                                 date: localRecord.date,
                                 hotelKeyword: localRecord.hotelKeyword,
@@ -1658,6 +1664,26 @@
                     }
                 });
 
+                // 同步刪除對應的 inventory_records，防止 loadLogData 的自動修復又把該品項補回來
+                const targetNames = new Set([itemName, invItemName].map(v => String(v || '').trim()).filter(Boolean));
+                const hotelCandidates = new Set([
+                    localRecord.hotel,
+                    localRecord.hotelKeyword,
+                    `${localRecord.hotelKeyword} ${localRecord.deptName || '房務'}`.trim()
+                ].map(v => String(v || '').trim()).filter(Boolean));
+
+                const deleteInvPromises = [];
+                for (const h of hotelCandidates) {
+                    for (const tName of targetNames) {
+                        const safeItem = tName.replace(/\//g, '-');
+                        const invId = `${localRecord.date}_${h}_${safeItem}`;
+                        deleteInvPromises.push(deleteDoc(doc(db, 'inventory_records', invId)).catch(() => {}));
+                    }
+                }
+                await Promise.allSettled(deleteInvPromises);
+
+                // 同步更新本地記憶體
+                invRecords = invRecords.filter(r => !(r.date === localRecord.date && r.hotel === localRecord.hotel && targetNames.has(String(r.item || '').trim())));
                 localRecord.items = localRecord.items.filter(i => {
                     if (financeItemId && i.financeItemId === financeItemId) return false;
                     if (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) return false;
@@ -1677,7 +1703,7 @@
                 lastLogFetchKey = '';
                 populateLogDropdowns();
                 applyLogFilters();
-                showToast(`🗑️ 已從物流單移除品項「${itemName}」`);
+                showToast(`🗑️ 已刪除品項「${itemName}」`);
             } catch (err) {
                 console.error('刪除品項失敗', err);
                 await customAlert('刪除品項失敗：' + err.message);
