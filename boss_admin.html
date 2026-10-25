@@ -276,6 +276,9 @@
                     <button onclick="batchChangeLogisticsDate()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-1">
                         📅 批量改日期
                     </button>
+                    <button onclick="restoreDeletedReceiptsFromInv()" class="bg-orange-100 text-orange-800 hover:bg-orange-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-orange-300 flex items-center gap-1">
+                        🔄 撈回誤刪單據
+                    </button>
                     <button onclick="openManualEntryModal()" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-emerald-300">
                         ➕ 歷史補單
                     </button>
@@ -341,6 +344,7 @@
         window.invHistoryRecords = []; 
         let masterData = []; 
         let latestInvRawDataMap = {}; // 儲存當次載入的盤點備份，供誤刪時一鍵撈回
+        let deletedReceiptTombstones = new Map(); // 記錄區間內被手動整張刪除的物流單封條
         
         let lastInvFetchKey = "";
         let lastLogFetchKey = "";
@@ -706,7 +710,7 @@
             }
 
             if (newLogSnap.exists()) {
-                batch.set(newLogRef, { items: newItems, forcedSync: true }, { merge: true });
+                batch.set(newLogRef, { items: newItems, forcedSync: true, manualDeletedReceipt: false }, { merge: true });
             } else {
                 batch.set(newLogRef, {
                     date: newDate,
@@ -716,6 +720,7 @@
                     driverSig: '',
                     timestamp: getLocalTimeString(new Date()),
                     forcedSync: true,
+                    manualDeletedReceipt: false,
                     assignedDriver: oldLogData?.assignedDriver || '',
                     items: newItems
                 });
@@ -856,6 +861,7 @@
                 }
 
                 latestInvRawDataMap = invRawDataMap;
+                deletedReceiptTombstones.clear();
 
                 let uniqueDocs = new Map();
                 logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
@@ -880,6 +886,19 @@
 
                         let hotelName = d.hotelKeyword || "";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
+
+                        // ★ 若此單據被標記為「整張手動刪除 (manualDeletedReceipt)」，直接跳過不顯示，且因為已加入 processedLogKeys，第 2 階段也不會自動從盤點補回！
+                        if (d.manualDeletedReceipt) {
+                            deletedReceiptTombstones.set(docSnap.id, {
+                                docId: docSnap.id,
+                                matchKey,
+                                date: dDate,
+                                hotelKeyword: d.hotelKeyword || "",
+                                deptName: d.deptName || "房務",
+                                hotelName
+                            });
+                            return;
+                        }
 
                         // 網頁端關鍵字模糊比對 (忽略空白，容錯率更高)
                         if (hotelKey && !hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) return;
@@ -1608,7 +1627,7 @@
             }
         };
 
-        // ★ 2. 直接刪除物流單內的單一「品項」（真刪，但保留盤點資料供誤刪時撈回）
+        // ★ 2. 直接刪除物流單內的單一「品項」（若刪到最後一筆，自動轉為整張刪除封條，重新載入不再跳出）
         window.deleteLogItem = async function(docId, itemName, financeItemId = '', invItemName = '', e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
@@ -1621,6 +1640,8 @@
 
             try {
                 const docRef = doc(db, 'logistics_records', docId);
+                let becameEmptyReceipt = false;
+
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
                     if (snap.exists()) {
@@ -1635,7 +1656,15 @@
                         if (filtered.length > 0) {
                             tx.update(docRef, { items: filtered, manualItemDeleted: true });
                         } else {
-                            tx.delete(docRef);
+                            becameEmptyReceipt = true;
+                            tx.set(docRef, {
+                                date: localRecord.date,
+                                hotelKeyword: localRecord.hotelKeyword,
+                                deptName: localRecord.deptName || '房務',
+                                items: [],
+                                manualDeletedReceipt: true,
+                                deletedAt: getLocalTimeString(new Date())
+                            }, { merge: true });
                         }
                     } else {
                         const filtered = localRecord.items.filter(i => {
@@ -1663,6 +1692,16 @@
                                 clientSig: '',
                                 driverSig: ''
                             });
+                        } else {
+                            becameEmptyReceipt = true;
+                            tx.set(docRef, {
+                                date: localRecord.date,
+                                hotelKeyword: localRecord.hotelKeyword,
+                                deptName: localRecord.deptName || '房務',
+                                items: [],
+                                manualDeletedReceipt: true,
+                                deletedAt: getLocalTimeString(new Date())
+                            });
                         }
                     }
                 });
@@ -1674,7 +1713,17 @@
                     return true;
                 });
 
-                if (localRecord.items.length === 0) {
+                if (localRecord.items.length === 0 || becameEmptyReceipt) {
+                    const logHotelKey = (localRecord.hotelKeyword || "").replace(/\s+/g, '');
+                    const logDeptKey = (localRecord.deptName || "房務").replace(/\s+/g, '');
+                    deletedReceiptTombstones.set(docId, {
+                        docId,
+                        matchKey: `${localRecord.date}_${logHotelKey}${logDeptKey}`,
+                        date: localRecord.date,
+                        hotelKeyword: localRecord.hotelKeyword || "",
+                        deptName: localRecord.deptName || "房務",
+                        hotelName: localRecord.hotel
+                    });
                     logRecords = logRecords.filter(r => r.id !== docId);
                     openLogDetailDocIds.delete(docId);
                 } else {
@@ -1693,7 +1742,7 @@
             }
         };
 
-        // ★ 3. 誤刪救援：從盤點資料庫一鍵撈回該單據被誤刪的品項
+        // ★ 3. 誤刪救援 A：從盤點資料庫一鍵撈回該單據被誤刪的「單一品項」
         window.restoreLogItemsFromInv = async function(docId, e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
@@ -1752,7 +1801,7 @@
                     });
 
                     if (snap.exists()) {
-                        tx.update(docRef, { items: currentItems, manualItemDeleted: false });
+                        tx.update(docRef, { items: currentItems, manualItemDeleted: false, manualDeletedReceipt: false });
                     } else {
                         tx.set(docRef, {
                             date: localRecord.date,
@@ -1760,6 +1809,7 @@
                             deptName: localRecord.deptName || '房務',
                             items: currentItems,
                             manualItemDeleted: false,
+                            manualDeletedReceipt: false,
                             forcedSync: true,
                             assignedDriver: localRecord.assignedDriver || '',
                             timestamp: getLocalTimeString(new Date()),
@@ -1789,6 +1839,78 @@
             } catch (err) {
                 console.error('撈回品項失敗', err);
                 await customAlert('撈回失敗：' + err.message);
+            }
+        };
+
+        // ★ 4. 誤刪救援 B：從盤點資料庫撈回被「整張刪除」的物流單據
+        window.restoreDeletedReceiptsFromInv = async function() {
+            const tombstones = [...deletedReceiptTombstones.values()];
+            if (tombstones.length === 0) {
+                await customAlert("💡 目前查詢區間內，沒有被手動整張刪除的物流單據！（若剛切換日期，請先點「載入物流單據」）");
+                return;
+            }
+
+            const targetId = await new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').innerHTML = '🔄 從盤點明細撈回誤刪單據';
+                const options = `<option value="ALL">🌟 全部撈回（共 ${tombstones.length} 張單據）</option>` +
+                    tombstones.map(t => `<option value="${escapeAttr(t.docId)}">${escapeAttr(t.date)} - ${escapeAttr(t.hotelName)}</option>`).join('');
+
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="mb-3">在目前區間找到 ${tombstones.length} 張已刪除的單據，請選擇要從盤點明細撈回哪一張：</div>
+                    <select id="restoreReceiptSelect" class="w-full border border-orange-300 p-2 rounded focus:outline-none focus:border-orange-500 font-bold text-orange-900 bg-orange-50 cursor-pointer">
+                        ${options}
+                    </select>
+                `;
+                const btnCancel = document.getElementById('modalCancel');
+                const btnOk = document.getElementById('modalOk');
+                modal.classList.remove('hidden');
+                btnCancel.classList.remove('hidden');
+                btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(null); };
+                btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('restoreReceiptSelect').value); };
+            });
+
+            if (!targetId) return;
+
+            const toRestore = targetId === 'ALL' ? tombstones : tombstones.filter(t => t.docId === targetId);
+            showToast(`⏳ 正在從盤點明細撈回單據...`);
+
+            try {
+                for (const t of toRestore) {
+                    const invGroup = latestInvRawDataMap[t.matchKey];
+                    const restoredItems = (invGroup && Array.isArray(invGroup.items))
+                        ? invGroup.items.filter(i => String(i.qty ?? '0') !== '0').map(i => ({
+                            itemName: i.itemName,
+                            originalQty: String(i.qty),
+                            actualQty: String(i.qty),
+                            auntNote: '',
+                            driverNote: '從盤點撈回誤刪單據'
+                        }))
+                        : [];
+
+                    if (restoredItems.length > 0) {
+                        await setDoc(doc(db, 'logistics_records', t.docId), {
+                            date: t.date,
+                            hotelKeyword: t.hotelKeyword,
+                            deptName: t.deptName || '房務',
+                            items: restoredItems,
+                            manualDeletedReceipt: false,
+                            manualItemDeleted: false,
+                            forcedSync: true,
+                            timestamp: getLocalTimeString(new Date())
+                        }, { merge: true });
+                    } else {
+                        // 直接移除封條，讓系統恢復預設狀態
+                        await deleteDoc(doc(db, 'logistics_records', t.docId));
+                    }
+                    deletedReceiptTombstones.delete(t.docId);
+                }
+
+                showToast(`✅ 已成功撈回 ${toRestore.length} 張單據！`);
+                await loadLogData();
+            } catch (err) {
+                console.error('撈回整張單據失敗', err);
+                await customAlert('撈回單據失敗：' + err.message);
             }
         };
 
@@ -1907,7 +2029,8 @@
                             driverNote: "後台強制同步新增"
                         });
                     }
-                    tx.set(logDocRef, { items: logItems, forcedSync: true }, { merge: true });
+                    // 若該單據原本被整張刪除，強制同步時一併解除 manualDeletedReceipt 封條！
+                    tx.set(logDocRef, { items: logItems, forcedSync: true, manualDeletedReceipt: false }, { merge: true });
                 } else {
                     tx.set(logDocRef, {
                         date: dateStr,
@@ -1917,6 +2040,7 @@
                         driverSig: "",
                         timestamp: getLocalTimeString(new Date()),
                         forcedSync: true,
+                        manualDeletedReceipt: false,
                         assignedDriver: "", // 建立時為空
                         items: [{
                             itemName: item,
@@ -1942,19 +2066,58 @@
 
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation();
-            const confirmDelete = await customConfirm(`⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！`);
+            const isLogistics = collectionName === 'logistics_records';
+            const confirmMsg = isLogistics
+                ? `⚠️ 確定要刪除此張物流單據嗎？\n\n删除後重新載入將不再出現！\n（💡 盤點明細仍會保留，若誤刪可點上方「🔄 撈回誤刪單據」救回）`
+                : `⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！`;
+            const confirmDelete = await customConfirm(confirmMsg);
             if (!confirmDelete) return;
 
             try {
-                await deleteDoc(doc(db, collectionName, docId));
-                showToast("🗑️ 紀錄已成功刪除！");
-                if (collectionName === 'inventory_records') {
-                    invRecords = invRecords.filter(r => r.docId !== docId);
-                    applyInvFilters();
-                } else if (collectionName === 'logistics_records') {
+                if (isLogistics) {
+                    const localRecord = logRecords.find(r => r.id === docId);
+                    let dDate = localRecord?.date || '';
+                    let hKey = localRecord?.hotelKeyword || '';
+                    let dName = localRecord?.deptName || '房務';
+                    if (!dDate && docId.includes('_')) {
+                        const parts = docId.split('_');
+                        dDate = parts[0] || '';
+                        hKey = parts[1] || '';
+                        dName = parts.slice(2).join('_') || '房務';
+                    }
+                    // 寫入已手動刪除封條，防止下次載入時自動從盤點補回整張單據！
+                    await setDoc(doc(db, 'logistics_records', docId), {
+                        date: dDate,
+                        hotelKeyword: hKey,
+                        deptName: dName,
+                        items: [],
+                        manualDeletedReceipt: true,
+                        deletedAt: getLocalTimeString(new Date())
+                    }, { merge: true });
+
+                    const cleanH = hKey.replace(/\s+/g, '');
+                    const cleanD = dName.replace(/\s+/g, '');
+                    deletedReceiptTombstones.set(docId, {
+                        docId,
+                        matchKey: `${dDate}_${cleanH}${cleanD}`,
+                        date: dDate,
+                        hotelKeyword: hKey,
+                        deptName: dName,
+                        hotelName: localRecord?.hotel || `${hKey} ${dName}`.trim()
+                    });
+
                     logRecords = logRecords.filter(r => r.id !== docId);
                     openLogDetailDocIds.delete(docId);
+                    populateLogDropdowns();
                     applyLogFilters();
+                    showToast("🗑️ 物流單據已刪除！（重新載入不會再跳出）");
+                } else {
+                    await deleteDoc(doc(db, collectionName, docId));
+                    showToast("🗑️ 紀錄已成功刪除！");
+                    if (collectionName === 'inventory_records') {
+                        invRecords = invRecords.filter(r => r.docId !== docId);
+                        applyInvFilters();
+                    }
                 }
             } catch (error) {
                 await customAlert("刪除失敗：" + error.message);
@@ -2089,7 +2252,7 @@
                         }
                     });
                     
-                    let updateData = { items: finalItems, forcedSync: true };
+                    let updateData = { items: finalItems, forcedSync: true, manualDeletedReceipt: false };
                     // 只要有指定司機就一併更新
                     if (assignedDriver) updateData.assignedDriver = assignedDriver;
                     await setDoc(logDocRef, updateData, { merge: true });
@@ -2102,6 +2265,7 @@
                         driverSig: "",
                         timestamp: getLocalTimeString(new Date()),
                         forcedSync: true,
+                        manualDeletedReceipt: false,
                         assignedDriver: assignedDriver,
                         items: itemsToAdd
                     });
