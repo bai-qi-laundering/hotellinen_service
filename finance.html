@@ -442,28 +442,34 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 <div class="p-6">
 <div class="mb-4">
-<label class="block text-gray-700 font-bold mb-2">1. 選擇飯店對象 (將自動帶入對應的發票抬頭)</label>
-<select id="invoiceTargetCompany" onchange="loadClientProfile()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
+<label class="block text-gray-700 font-bold mb-2">1. 選擇出帳範圍 (可單選飯店，或將勾選的多間飯店合併在同一份檔案結算)</label>
+<select id="invoiceTargetCompany" onchange="onInvoiceTargetChange()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
 <option value="">-- 請先載入預覽帳目 --</option>
+</select>
+</div>
+<!-- ★ 當選擇「合併多間飯店」時，可自由選擇要用哪一間飯店的發票抬頭與統編 -->
+<div id="invoiceProfilePickerWrap" class="mb-4 hidden bg-amber-50 border border-amber-200 rounded-lg p-3">
+<label class="block text-amber-900 font-bold mb-1.5 text-sm">1-1. 合併結算時，請選擇要帶入哪間代表飯店的發票抬頭／統編：</label>
+<select id="invoiceProfileSource" onchange="loadClientProfile(true)" class="w-full border border-amber-300 rounded-lg p-2 font-bold text-amber-900 bg-white focus:border-amber-500 outline-none text-sm">
 </select>
 </div>
 <div class="bg-gray-100 border border-gray-200 rounded-lg p-4 mb-4">
 <div class="flex justify-between items-end mb-3 border-b border-gray-300 pb-2">
-<h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，不可在此修改)</h4>
+<h4 class="font-bold text-gray-700">2. 客戶基本資料 (由大腦同步，亦可直接微調本次出帳抬頭)</h4>
 <div class="flex flex-col items-end gap-1">
-<span class="text-xs text-red-500 font-bold">如需修改請至試算表</span>
+<span class="text-xs text-red-500 font-bold">永久修改請至試算表</span>
 <button type="button" onclick="refreshInvoiceClientsFromSheet(true)" class="text-xs font-bold text-blue-700 border border-blue-200 bg-white rounded px-2 py-1 hover:bg-blue-50">🔄 重新讀取試算表抬頭／統編</button>
 </div>
 </div>
 <p id="invoiceClientSyncInfo" role="status" class="text-xs font-bold text-amber-700 mb-3">請選擇飯店，系統將比對試算表客戶資料。</p>
 <div class="grid grid-cols-2 gap-4 text-sm">
-<div><label class="font-bold text-gray-500 text-xs">發票抬頭</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">統編</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div class="col-span-2"><label class="font-bold text-gray-500 text-xs">地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
-<div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-gray-50 text-gray-600" readonly></div>
+<div><label class="font-bold text-gray-500 text-xs">發票抬頭</label><input type="text" id="ciName" class="w-full p-2 border rounded mt-1 bg-white text-gray-800 font-bold"></div>
+<div><label class="font-bold text-gray-500 text-xs">統編</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-white text-gray-800 font-bold"></div>
+<div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
+<div><label class="font-bold text-gray-500 text-xs">電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
+<div class="col-span-2"><label class="font-bold text-gray-500 text-xs">地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
+<div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
+<div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
 </div>
 </div>
 <div class="flex justify-end gap-3 mt-6">
@@ -521,6 +527,7 @@ let sheetClients = {};
 let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
+const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 
 // 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
 const LOCAL_CACHE_KEYS = {
@@ -546,7 +553,7 @@ function withTimeout(promise, ms, label='遠端資料') {
 let logisticsMasterItems = [];
 let logisticsOrderFetchedAt = 0;
 let logisticsOrderPending = null;
-const MASTER_CACHE_MS = 1800000; // 價目表/客戶資料快取 30 分鐘 // 價目、客戶與品項排序快取 10 分鐘，降低重複讀取
+const MASTER_CACHE_MS = 1800000; // 價目表/客戶資料快取 30 分鐘
 const cachedItemOrder = readLocalJson(LOCAL_CACHE_KEYS.itemOrder);
 if (cachedItemOrder?.items?.length) { logisticsMasterItems = cachedItemOrder.items; logisticsOrderFetchedAt = cachedItemOrder.at || 0; }
 async function ensureLogisticsItemOrder() {
@@ -958,19 +965,6 @@ window.updateBossPeriodHint=()=>{
   } catch(e){el.textContent=e.message;}
   if (document.getElementById('settlementGroupPanel')?.open) refreshSettlementHotels();
 };
-window.saveManagementFeeRule=async()=>{
- await ensurePricingRules();
- const hotel=document.getElementById('managementFeeHotel').value, input=document.getElementById('managementFeePercent').value;
- const percent=Number(input),start=document.getElementById('managementFeeStart').value,end=document.getElementById('managementFeeEnd').value;
- if(!hotel||input.trim()===''||!Number.isFinite(percent)||percent<0||percent>100||(start&&end&&start>end)) { alert('請選擇飯店、輸入 0～100% 的管理費比例，並檢查日期。');return; }
- pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);
- pricingRules.managementFees.push({hotel,percent,start,end});await persistPricingRules();
-};
-window.removeManagementFeeRule=async()=>{
- await ensurePricingRules();const hotel=document.getElementById('managementFeeHotel').value;
- if(!hotel||!confirm(`確定移除 ${hotel} 的布巾洗滌管理費設定？`))return;
- pricingRules.managementFees=pricingRules.managementFees.filter(r=>r.hotel!==hotel);await persistPricingRules();
-};
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('bossTargetMonth').value=getLocalDateString(new Date()).slice(0,7);
   updateBossMonth();
@@ -1043,6 +1037,7 @@ window.exportBossExcel = exportBossExcel;
 window.openInvoiceModal = openInvoiceModal;
 window.closeInvoiceModal = () => document.getElementById('invoiceModal').classList.replace('flex', 'hidden');
 window.loadClientProfile = loadClientProfile;
+window.onInvoiceTargetChange = onInvoiceTargetChange;
 window.generateOfficialInvoice = generateOfficialInvoice;
 window.closePreview = () => {
     document.getElementById('printControls').classList.replace('flex', 'hidden');
@@ -1065,7 +1060,7 @@ function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newP
         existing.newItemName = newItemName;
         existing.newPrice = newPrice;
     } else {
-        const record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
+        const record = rawLogisticsData.find(r => r.docId === docId && p.receiptOrder === receiptOrder) || rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
         if(!record.financeItemId)record.financeItemId=crypto.randomUUID();
         pendingUpdatesArray.push({ docId, receiptOrder, hotelName, newItemName, newPrice,
             financeItemId:record.financeItemId, sourceRowSnapshot:record.sourceRowSnapshot,
@@ -1229,8 +1224,6 @@ function refreshFinancePriceWarnings() {
         });
         const sorted = [...freq.entries()].sort((a,b) => b[1]-a[1]);
         const hasConflict = sorted.length > 1 && !rawLogisticsData.some(r => r.hotel === dept && r.item === item && activeHolidayRule(r.parentCompany, r.date));
-        // 僅以同部門、同品項出現最多的價格作為核對參考；
-        // 若票數相同，兩種價格都標示待確認，避免任意判定哪個正確。
         const peerReference = sorted.length && (!hasConflict || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
         group.forEach(({tr, input, price}) => {
             const warnings = [];
@@ -1279,7 +1272,7 @@ function recalculateFinanceUI() {
         let priceInput = tr.querySelector('.price-input');
         let price = priceInput ? (Number(priceInput.value) || 0) : 0;
         
-        let subtotal = qty * price; // ★ 復原：明細小計不四捨五入
+        let subtotal = qty * price;
         
         let subtotalEl = tr.querySelector('.subtotal-cell');
         if (subtotalEl) {
@@ -1304,7 +1297,6 @@ function recalculateFinanceUI() {
         }
     });
 
-    // ★ 只有最後的總結算才進行四捨五入
     let roundedGrandTotal = Math.round(grandTotal);
     let {managementFee,rebate,net,tax,final:finalAmount} = financeSelectionTotals();
 
@@ -1372,11 +1364,10 @@ if(json.prices) {
     json.prices.forEach((row, index) => {
         if(index === 0) return;
         let hotelKeyword = String(row[0]).trim();
-        let deptKeyword = String(row[1] || "").trim(); // 讀取 B 欄：部門分類
+        let deptKeyword = String(row[1] || "").trim();
         let item = String(row[2]).trim();
         let price = Number(row[3]) || 0;
         
-        // 組合飯店與部門，跟結帳畫面的格式統一 (例如: "然一 客衣")
         let combinedHotel = hotelKeyword;
         if (deptKeyword && deptKeyword !== hotelKeyword) {
             combinedHotel += ` ${deptKeyword}`;
@@ -1388,7 +1379,6 @@ if(json.prices) {
     });
 }
 
-// 客戶表必須確實回傳有效列，才替換既有快取；不能因回應缺少 clients 而清空抬頭。
 if (Array.isArray(json.clients) && json.clients.length) {
     const clients = parseFinanceClientRows(json.clients);
     if (Object.keys(clients).length) sheetClients = clients;
@@ -1396,12 +1386,11 @@ if (Array.isArray(json.clients) && json.clients.length) {
 
 if (priceDocResult && priceDocResult.exists() && priceDocResult.data().prices) customPrices = priceDocResult.data().prices;
 
-// 等待大腦資料全部抓回來後，再建立對帳單的下拉選單
 refreshInvoiceCompanyOptions();
 
 financeMasterFetchedAt = Date.now();
 writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
-renderPricingRules(); // 客戶資料載入後立即刷新春節與回饋飯店下拉選單
+renderPricingRules();
 setFinanceSyncStatus(Object.keys(sheetClients).length ? '✅ 大腦資料同步完成（含客戶資料）' : '⚠️ 價目表已同步，但客戶抬頭資料尚未取得', Object.keys(sheetClients).length ? 'green' : 'amber');
 } else throw new Error(json.error);
 } catch(e) {
@@ -1414,27 +1403,18 @@ if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
 }
 }
 
-// ----------------------------------------------------
-// ★ 更新後的 getPrice：加入「統一折扣」降級搜尋機制
-// ----------------------------------------------------
 function getPrice(hotelName, item, date=null) {
     const dated=datedPriceFor(hotelName,item,date);
     if (dated !== null) return dated;
-    // 1. 原本的精準比對 (尋找特定的飯店+品項)
     let exactKey = `${hotelName}_${item}`;
     if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
     if (sheetPrices[exactKey] !== undefined) return sheetPrices[exactKey];
 
-    // 2. 新增：部門統一價格/折數比對
-    // 如果找不到特定單號的價格，系統會自動找該部門的「統一折扣」
     let unifiedKey = `${hotelName}_統一折扣`;
     if (customPrices[unifiedKey] !== undefined && customPrices[unifiedKey] !== "") return Number(customPrices[unifiedKey]);
     if (sheetPrices[unifiedKey] !== undefined) return sheetPrices[unifiedKey];
-    
-    // 如果你要針對特定部門寫死邏輯也可以這樣加：
-    // if (hotelName.includes("客衣")) { return 0.8; }
 
-    return null; // 如果都沒有，才回傳 null 提示「請輸入單價」
+    return null;
 }
 
 function showToast(msg = "資料已自動儲存更新！") {
@@ -1444,11 +1424,7 @@ toast.classList.remove('opacity-0', 'translate-y-[-20px]');
 setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 }
 
-// 財務主檔改為延後背景同步，避免頁面開啟時阻塞物流資料。
-
-// 同一日期區間的三種日期格式查詢只做一次；選飯店與載入明細共用結果。
-// 背景操作可共用快取；手動更新明細必須讀取伺服器最新版本。
-const LOGISTICS_CACHE_MS = 600000; // 同日期區間物流資料快取 10 分鐘
+const LOGISTICS_CACHE_MS = 600000;
 const logisticsPeriodCache = new Map();
 async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
     const key = `${startDate}|${endDate}`;
@@ -1498,13 +1474,13 @@ const startDate = document.getElementById('startDate').value;
 const endDate = document.getElementById('endDate').value;
 if(!startDate || !endDate) return;
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
-// 使用者切換日期期間，避免舊請求稍晚完成而蓋掉最新選單。
 if (document.getElementById('startDate').value !== startDate || document.getElementById('endDate').value !== endDate) return;
 
 let hotels = new Set();
 uniqueCompanies.clear();
 uniqueDocs.forEach(docSnap => {
 let d = docSnap.data();
+if (d.manualDeletedReceipt) return;
 let dDate = standardizeDate(d.date);
 if (dDate >= startDate && dDate <= endDate) {
 let h = d.hotelKeyword || "未命名飯店";
@@ -1516,7 +1492,7 @@ if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword);
 }
 }
 });
-if (document.getElementById('pricingRulesPanel')?.open) refreshPricingActiveHotels(); // 期間更換時重算有效飯店
+if (document.getElementById('pricingRulesPanel')?.open) refreshPricingActiveHotels();
 if(hotels.size === 0) {
 container.innerHTML = `<div class="text-gray-500 font-bold w-full py-2">該區間無任何出貨紀錄</div>`;
 return;
@@ -1549,11 +1525,9 @@ function quickSelectGroup(type) {
 const checkboxes = document.querySelectorAll('.hotel-cb');
 if (type === 'clear') { checkboxes.forEach(cb => cb.checked = false); return; }
 checkboxes.forEach(cb => cb.checked = false);
-const keywords = type === '25th' ? group25th : groupEndOfMonth;
 checkboxes.forEach(cb => { const hotel=[...settlementHotels()].sort((a,b)=>b.length-a.length).find(n=>cb.value===n||cb.value.startsWith(n+' '))||cb.value; if (settlementGroupOf(hotel)===(type==='25th'?'25th':'month')) cb.checked=true; });
 }
 
-// 同日同品項可有多張出貨單；只去除同一來源列被重複讀取的情況。
 function distinctShipmentRows(records) {
     const seen = new Set();
     return records.filter(record => {
@@ -1581,8 +1555,6 @@ async function fetchRecordsForSelectedHotels() {
     
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
-    // 🚀 結帳明細優先：只等待物流資料。價目／春節規則／排序使用快取並在背景更新，
-    // 避免任何一個設定服務暫時連不上時，把整個明細載入一起拖死。
     const [uniqueDocs] = await Promise.all([getLogisticsDocsForPeriod(startDate, endDate, true),ensureEffectivePrices()]);
     const optionalSync = [syncMasterDataFromSheet(), ensurePricingRules(), ensureLogisticsItemOrder()];
     Promise.allSettled(optionalSync).then(results => {
@@ -1593,13 +1565,13 @@ async function fetchRecordsForSelectedHotels() {
     let results = [];
     uniqueDocs.forEach(docSnap => {
         const d = docSnap.data();
+        if (d.manualDeletedReceipt) return;
         let dDate = standardizeDate(d.date);
         if (dDate >= startDate && dDate <= endDate) {
             let hotelName = d.hotelKeyword || "未命名飯店";
             if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
             if (selectedSet.has(hotelName)) {
                 billingReceiptItems(d).forEach((item, idx) => {
-                    // 結帳一律以實收數量為準；0 或尚未填寫都不計入，不得回填原出貨量。
                     const actual = Number(item.actualQty) || 0;
 
                     if (actual > 0 && !String(item.itemName).includes("回洗")) {
@@ -1625,7 +1597,6 @@ async function loadFinanceData() {
     const tbody = document.getElementById('internalTableBody');
     const btn = document.getElementById('loadBtn');
     
-    // 每次重新載入前，重置未儲存狀態
     pendingUpdatesArray = [];
     customPricesDirty = false;
     const saveBtn = document.getElementById('batchSaveBtn');
@@ -1671,23 +1642,20 @@ async function loadFinanceData() {
                 r.currentPrice = priceVal;
                 r.autoHolidayRule = activeHolidayRule(r.parentCompany,r.date); 
 
-                // 防禦性處理字串引號
                 let safeDocId = String(r.docId || "").replace(/'/g, "\\'");
                 let safeHotel = String(r.hotel || "").replace(/'/g, "\\'");
                 let safeItem = String(r.item || "").replace(/"/g, "&quot;");
                 let safeDeptAttr = String(deptName || "").replace(/"/g, "&quot;");
 
-                // 品項輸入框 (可編輯)
                 let itemDisplay = `<input type="text" value="${safeItem}" class="item-input w-full text-left py-1 px-2 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-gray-800 transition" onchange="markItemChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
 
-                // 單價輸入框
                 let priceDisplay = `<input type="number" step="0.1" value="${priceVal}" placeholder="單價" class="price-input w-20 text-center py-1 rounded bg-white border border-gray-300 focus:border-blue-500 outline-none font-bold text-blue-800 transition" onchange="markPriceChanged('${safeDocId}', ${r.receiptOrder}, '${safeHotel}', this.value, this)">`;
                 
                 let subtotalDisplay = "";
                 if (price === null || price === "") {
                     subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
                 } else {
-                    let subtotal = r.qty * price; // ★ 復原：明細小計不四捨五入
+                    let subtotal = r.qty * price;
                     deptSubtotal += subtotal; 
                     grandTotal += subtotal;
                     subtotalDisplay = `$${subtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
@@ -1708,7 +1676,6 @@ async function loadFinanceData() {
             html += `<tr class="subtotal-row"><td colspan="4" class="text-right font-bold text-gray-600 py-3">【${deptName}】 結算小計：</td><td class="text-right pr-6 font-black text-blue-900 text-lg" data-subtotal-id="${String(deptName).replace(/"/g, '&quot;')}">$${deptSubtotal.toLocaleString(undefined, {maximumFractionDigits: 2})}</td></tr>`;
         });
 
-        // ★ 只有最後的總結算才進行四捨五入
         let roundedGrandTotal = Math.round(grandTotal);
         let {managementFee,rebate,net,tax:taxAmount,final:finalAmount} = financeSelectionTotals();
 
@@ -1730,7 +1697,7 @@ async function loadFinanceData() {
     }
 }
 
-// 📊 系統2：依既有兩組結帳名單，一次下載日期區間資料並分組，與勾選狀態無關。
+// 📊 系統2：老闆業績戰情室
 let currentBossGroups = null;
 function classifyBossGroup(hotel) {
     if (String(hotel).includes('回洗')) return null;
@@ -1753,7 +1720,6 @@ function summarizeBossGroup(records) {
     const tax = Math.round(untaxed * 0.05);
     return {records, stores, storeParents, untaxed, tax, final:untaxed + tax};
 }
-// 同一飯店的部門相鄰；同一飯店內以部門名稱排序，而非金額大小打散。
 function sortedBossStores(group) {
     return Object.entries(group.stores).sort(([nameA],[nameB])=>
         String(group.storeParents[nameA]||nameA).localeCompare(String(group.storeParents[nameB]||nameB),'zh-TW') ||
@@ -1772,9 +1738,9 @@ async function loadBossData() {
         const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate,true),ensureEffectivePrices()]);
         const groups = {'25th':[], month:[]};
         const unmatched = new Set();
-        const overlaps = new Set();
         docs.forEach(docSnap => {
             const d = docSnap.data();
+            if (d.manualDeletedReceipt) return;
             const date = standardizeDate(d.date);
             if (date < startDate || date > endDate) return;
             const hotel = d.hotelKeyword || '未命名飯店';
@@ -1795,7 +1761,6 @@ async function loadBossData() {
         currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), startDate, endDate, periods };
         currentBossData = [...groups['25th'],...groups.month];
         const a = currentBossGroups['25th'], b = currentBossGroups.month;
-        // 整體以兩組未稅合計重新計稅，與原本整體結算方式一致。
         const totalUntaxed = Math.round(a.untaxed + b.untaxed);
         const totalTax = Math.round(totalUntaxed * .05);
         document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}`;
@@ -1900,6 +1865,7 @@ async function exportBossExcel() {
             const groups = { '25th': [], month: [] };
             docs.forEach(docSnap => {
                 const d = docSnap.data();
+                if (d.manualDeletedReceipt) return;
                 const date = standardizeDate(d.date);
                 if (date < p.queryStart || date > p.queryEnd) return;
                 const hotel = d.hotelKeyword || '未命名飯店';
@@ -2069,8 +2035,6 @@ async function exportBossExcel() {
 }
 
 
-// 客戶抬頭獨立載入：只依賴 Apps Script 回應，不等 Firebase 價目表查詢。
-// 支援試算表常見的「第一列標題 + A~I 欄資料」結構。
 function parseFinanceClientRows(rows) {
     const out = {};
     const val = v => String(v ?? '').trim();
@@ -2119,7 +2083,6 @@ function setInvoiceClientInfo(msg, isError=false) {
 
 async function refreshInvoiceClientsFromSheet(force=false) {
     if (invoiceClientFetchPending) return invoiceClientFetchPending;
-    // Only avoid network access when a recently fetched, populated client table is present.
     if (!force && Object.keys(sheetClients || {}).length && Date.now()-invoiceClientLastFetch < 60000) {
         loadClientProfile(false);
         return true;
@@ -2139,7 +2102,6 @@ async function refreshInvoiceClientsFromSheet(force=false) {
             if (!Object.keys(refreshed).length) throw new Error('客戶清單空白或發票抬頭欄位格式不符');
             sheetClients = refreshed;
             invoiceClientLastFetch = Date.now();
-            // Keep the existing price list and pricing cache intact.
             writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {
                 at: financeMasterFetchedAt || Date.now(), sheetPrices, sheetClients, customPrices
             });
@@ -2147,12 +2109,12 @@ async function refreshInvoiceClientsFromSheet(force=false) {
             return true;
         } catch (err) {
             console.error('客戶抬頭獨立同步失敗', err);
-            const selected = document.getElementById('invoiceTargetCompany')?.value || '';
+            const selected = getEffectiveProfileCompanyKey();
             const cached = selected ? resolveClientProfile(selected) : null;
             if (cached && (cached.name || cached.taxId)) {
                 setInvoiceClientInfo(`⚠️ 最新同步失敗（${err.message}），目前顯示上次保存的客戶資料，請核對抬頭和統編。`, true);
             } else {
-                setInvoiceClientInfo(`❌ 抬頭及統編尚未取得：${err.message}。請按「重新讀取」；正式帳單暫不允許匯出。`, true);
+                setInvoiceClientInfo(`❌ 抬頭及統編尚未取得：${err.message}。您可按「重新讀取」或直接在下方欄位手動輸入抬頭與統編。`, true);
             }
             return false;
         }
@@ -2166,39 +2128,78 @@ window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
 function invoiceCustomerKeyForRecord(r) {
     const parent = String(r?.parentCompany || '').trim();
     const hotel = String(r?.hotel || parent).trim();
-    if (parent === '鼎王' || hotel.startsWith('鼎王 ')) return hotel; // 鼎王 七賢、鼎王 高雄…分開
-    return parent || hotel; // H2O、承億、洲際、日航…不分部門
+    if (parent === '鼎王' || hotel.startsWith('鼎王 ')) return hotel;
+    return parent || hotel;
 }
 function invoiceCustomerKeyFromHotelName(name) {
     const n = String(name || '').trim();
+    if (n === MERGE_ALL_KEY) return MERGE_ALL_KEY;
     if (n.startsWith('鼎王 ')) return n;
     const matched = (rawLogisticsData || []).find(r => String(r.hotel || '').trim() === n);
     return matched ? invoiceCustomerKeyForRecord(matched) : n;
 }
 
+// ★ 取得目前用哪間飯店來帶入發票抬頭與統編
+function getEffectiveProfileCompanyKey() {
+    const target = document.getElementById('invoiceTargetCompany')?.value || '';
+    if (target === MERGE_ALL_KEY) {
+        return document.getElementById('invoiceProfileSource')?.value || '';
+    }
+    return target;
+}
+
+function onInvoiceTargetChange() {
+    const target = document.getElementById('invoiceTargetCompany')?.value || '';
+    const wrap = document.getElementById('invoiceProfilePickerWrap');
+    if (wrap) {
+        wrap.classList.toggle('hidden', target !== MERGE_ALL_KEY);
+    }
+    loadClientProfile(true);
+}
+
 function refreshInvoiceCompanyOptions(preferred = '') {
     const compSelect = document.getElementById('invoiceTargetCompany');
+    const profileSelect = document.getElementById('invoiceProfileSource');
     if (!compSelect) return [];
 
-    const checkedHotels = [...document.querySelectorAll('.hotel-cb:checked')]
-        .map(cb => String(cb.value || '').trim()).filter(Boolean);
-
-    let names;
-    if (checkedHotels.length) {
-        names = checkedHotels.map(invoiceCustomerKeyFromHotelName);
-    } else if ((rawLogisticsData || []).length) {
+    let names = [];
+    if ((rawLogisticsData || []).length) {
         names = rawLogisticsData.map(invoiceCustomerKeyForRecord);
     } else {
-        names = Object.keys(sheetClients || {});
+        const checkedHotels = [...document.querySelectorAll('.hotel-cb:checked')]
+            .map(cb => String(cb.value || '').trim()).filter(Boolean);
+        names = checkedHotels.length ? checkedHotels.map(invoiceCustomerKeyFromHotelName) : Object.keys(sheetClients || {});
     }
     names = [...new Set(names.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
 
     const oldValue = invoiceCustomerKeyFromHotelName(preferred || compSelect.value);
-    compSelect.innerHTML = `<option value="">-- 請選擇飯店 --</option>` +
-        names.map(c => `<option value="${escapeReportHTML(c)}">${escapeReportHTML(c)}</option>`).join('');
 
-    if (oldValue && names.includes(oldValue)) compSelect.value = oldValue;
-    else if (names.length === 1) compSelect.value = names[0];
+    // 若目前載入了超過 1 間飯店（或不同分館），自動提供「🌟 合併目前載入的全部飯店一起結算」選項！
+    let html = `<option value="">-- 請選擇出帳對象 --</option>`;
+    if (names.length > 1) {
+        html += `<option value="${MERGE_ALL_KEY}">🌟 合併目前載入的全部飯店一起結算（共 ${names.length} 間：${escapeReportHTML(names.join('、'))}）</option>`;
+    }
+    html += names.map(c => `<option value="${escapeReportHTML(c)}">🏨 單獨結算：${escapeReportHTML(c)}</option>`).join('');
+    compSelect.innerHTML = html;
+
+    if (profileSelect) {
+        const prevProfile = profileSelect.value;
+        profileSelect.innerHTML = names.map(c => `<option value="${escapeReportHTML(c)}">${escapeReportHTML(c)}</option>`).join('');
+        if (prevProfile && names.includes(prevProfile)) profileSelect.value = prevProfile;
+        else if (names.length) profileSelect.value = names[0];
+    }
+
+    if (oldValue && (names.includes(oldValue) || (oldValue === MERGE_ALL_KEY && names.length > 1))) {
+        compSelect.value = oldValue;
+    } else if (names.length > 1) {
+        // 當使用者勾選多間飯店載入明細時，預設直接選中「合併全部飯店一起結算」！
+        compSelect.value = MERGE_ALL_KEY;
+    } else if (names.length === 1) {
+        compSelect.value = names[0];
+    }
+
+    const wrap = document.getElementById('invoiceProfilePickerWrap');
+    if (wrap) wrap.classList.toggle('hidden', compSelect.value !== MERGE_ALL_KEY);
 
     if (compSelect.value) loadClientProfile(false);
     return names;
@@ -2210,8 +2211,7 @@ async function openInvoiceModal() {
     const names = refreshInvoiceCompanyOptions();
     if (!names.length) { alert('目前明細沒有可產生對帳單的飯店資料。'); return; }
     document.getElementById('invoiceModal').classList.replace('hidden','flex');
-    // Force a fresh lookup if the chosen branch has no valid saved profile.
-    const selected = document.getElementById('invoiceTargetCompany').value;
+    const selected = getEffectiveProfileCompanyKey();
     const profile = resolveClientProfile(selected);
     if (!Object.keys(sheetClients).length || (selected && (!profile || !profile.name || !profile.taxId))) {
         await refreshInvoiceClientsFromSheet(true);
@@ -2221,14 +2221,14 @@ async function openInvoiceModal() {
 }
 
 function normalizeClientLookupKey(v) {
-    return String(v ?? '').normalize('NFKC').replace(/[\s　]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
+    return String(v ?? '').normalize('NFKC').replace(/[\s ]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
 }
 function resolveClientProfile(comp) {
+    if (!comp) return null;
     if (sheetClients[comp]) return sheetClients[comp];
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
     if (exact) return exact[1];
-    // 容錯：只在唯一匹配時使用前綴／包含比對，避免「鼎王 七賢、鼎王 富國」互相誤配。
     const candidates = Object.entries(sheetClients || {}).filter(([name]) => {
         const nk = normalizeClientLookupKey(name);
         return nk.startsWith(key) || key.startsWith(nk);
@@ -2237,16 +2237,16 @@ function resolveClientProfile(comp) {
     return null;
 }
 function loadClientProfile(tryRemote=true) {
-    const comp = document.getElementById('invoiceTargetCompany').value;
+    const targetVal = document.getElementById('invoiceTargetCompany').value;
+    const comp = getEffectiveProfileCompanyKey();
     const ids = ['ciName','ciTaxId','ciContact','ciPhone','ciAddress','ciTerms','ciMethod'];
-    if (!comp) {
+    if (!targetVal || !comp) {
         ids.forEach(id => document.getElementById(id).value = '');
         setInvoiceClientInfo('請先選擇飯店。');
         return;
     }
     const p = resolveClientProfile(comp);
-    // Do not pretend that fallback placeholder values came from the official sheet.
-    document.getElementById('ciName').value = p?.name || '';
+    document.getElementById('ciName').value = p?.name || comp;
     document.getElementById('ciTaxId').value = p?.taxId || '';
     document.getElementById('ciContact').value = p?.contact || '';
     document.getElementById('ciPhone').value = p?.phone || '';
@@ -2254,19 +2254,30 @@ function loadClientProfile(tryRemote=true) {
     document.getElementById('ciTerms').value = p?.terms || '月結 30 天';
     document.getElementById('ciMethod').value = p?.method || '銀行匯款 / 支票';
     if (p?.name && p?.taxId) {
-        setInvoiceClientInfo(`✅ 已比對試算表客戶：${comp}（${p.name}／${p.taxId}）`);
+        const mergeHint = targetVal === MERGE_ALL_KEY ? '【合併出帳模式】' : '';
+        setInvoiceClientInfo(`✅ ${mergeHint}已帶入「${comp}」試算表抬頭：${p.name}（統編：${p.taxId}）`);
     } else {
-        setInvoiceClientInfo(`⚠️ 尚未取得「${comp}」完整抬頭及統編，請重新讀取；不會用簡稱冒充正式抬頭。`, true);
+        setInvoiceClientInfo(`⚠️ 尚未取得「${comp}」完整試算表統編，可點右上重新讀取，或直接在下方輸入抬頭與統編後產出。`, true);
         if (tryRemote) void refreshInvoiceClientsFromSheet(true);
     }
 }
 
-// 匯出共用資料：僅取所選客戶，部門數量及金額採用相同資料來源。
+// ★ 匯出共用資料：支援「單一飯店」與「合併勾選的所有飯店一起出帳」
 function buildInvoiceReport() {
     if (!logisticsMasterItems.length) { alert('尚未載入物流後台的品項排序，請重新載入明細。'); return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 }; }
-    const comp = document.getElementById('invoiceTargetCompany').value;
-    // 鼎王依分館精準篩選；其他飯店依母公司合併所有部門。
-    const matches = distinctShipmentRows(rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === comp));
+    const targetVal = document.getElementById('invoiceTargetCompany').value;
+    if (!targetVal) return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 };
+
+    const isMergeAll = targetVal === MERGE_ALL_KEY;
+    const matches = distinctShipmentRows(
+        isMergeAll
+            ? rawLogisticsData
+            : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
+    );
+
+    const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    const compLabel = isMergeAll ? mergedCompanyNames.join('＋') : targetVal;
+
     const depts = {};
     let grandTotal = 0;
     matches.forEach(r => {
@@ -2276,9 +2287,7 @@ function buildInvoiceReport() {
         const qty = Number(r.qty) || 0;
         const amount = qty * price;
         depts[name].records.push({ docId: r.docId, rowId: r.rowId, date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
-        // 同品項若有不同單價，分開列示，避免月總量的單價與金額不一致。
         const key = JSON.stringify([r.item, price]);
-        // 月總量的排序由物流查帳後台 master_template 決定，不使用每日單據的陣列位置。
         if (!depts[name].summary[key]) depts[name].summary[key] = { item: r.item, qty: 0, price, amt: 0, firstSeen: depts[name].records.length - 1 };
         depts[name].summary[key].qty += qty;
         depts[name].summary[key].amt += amount;
@@ -2286,14 +2295,36 @@ function buildInvoiceReport() {
         grandTotal += amount;
     });
     Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder));
-    // 報表可以選分館名稱，但回饋／管理費仍沿用物流資料中的母公司設定。
-    const pricingCompany = [...new Set(matches.map(r => r.parentCompany).filter(Boolean))][0] || comp;
-    const rebate = rebateForReport(pricingCompany, matches);
-    const managementFee = managementFeeForReport(pricingCompany, matches);
+
+    // 分別計算各母公司的回饋與管理費並加總，支援多間飯店合併結算
+    const groupedByParent = new Map();
+    matches.forEach(r => {
+        const p = r.parentCompany || compLabel;
+        if (!groupedByParent.has(p)) groupedByParent.set(p, []);
+        groupedByParent.get(p).push(r);
+    });
+
+    let totalRebateAmt = 0, totalFeeAmt = 0;
+    const rebateLabels = [], feeLabels = [];
+    groupedByParent.forEach((recs, parentName) => {
+        const reb = rebateForReport(parentName, recs);
+        if (reb.amount > 0) {
+            totalRebateAmt += reb.amount;
+            rebateLabels.push(groupedByParent.size > 1 ? `${parentName} ${reb.percent}%` : `${reb.percent}%`);
+        }
+        const fee = managementFeeForReport(parentName, recs);
+        if (fee.amount > 0) {
+            totalFeeAmt += fee.amount;
+            feeLabels.push(groupedByParent.size > 1 ? `${parentName} ${fee.percent}%` : `${fee.percent}%`);
+        }
+    });
+
+    const rebate = { percent: rebateLabels.join('、') || 0, amount: totalRebateAmt };
+    const managementFee = { percent: feeLabels.join('、') || 0, amount: totalFeeAmt };
     const rounded = Math.round(grandTotal);
     const afterRebate = rounded + managementFee.amount - rebate.amount;
     const tax = Math.round(afterRebate * 0.05);
-    return { comp, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax };
+    return { comp: compLabel, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax };
 }
 
 function escapeReportHTML(value) {
@@ -2302,23 +2333,26 @@ function escapeReportHTML(value) {
 function moneyReport(value) { return Number(value).toLocaleString('zh-TW', { maximumFractionDigits: 2 }); }
 
 function generateOfficialInvoice() {
-    const selected = document.getElementById('invoiceTargetCompany').value;
-    const validProfile = resolveClientProfile(selected);
-    if (!validProfile?.name || !validProfile?.taxId) {
-        alert('尚未從試算表取得這間飯店的完整「發票抬頭＋統編」，請先按「重新讀取試算表抬頭／統編」，核對成功後再產生正式對帳單。');
+    const targetVal = document.getElementById('invoiceTargetCompany').value;
+    if (!targetVal) { alert('請先選擇出帳對象！'); return; }
+
+    const ciNameVal = document.getElementById('ciName').value.trim();
+    if (!ciNameVal) {
+        alert('請確認「發票抬頭」欄位已填寫！');
         return;
     }
+
     const report = buildInvoiceReport();
-    if (!report.comp) { alert('請選擇請款母公司！'); return; }
+    if (!report.comp) { alert('請選擇請款對象！'); return; }
     if (!Object.keys(report.depts).length) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
     const profile = {
-        name: document.getElementById('ciName').value || report.comp,
-        taxId: document.getElementById('ciTaxId').value,
-        contact: document.getElementById('ciContact').value,
-        phone: document.getElementById('ciPhone').value,
-        address: document.getElementById('ciAddress').value,
-        terms: document.getElementById('ciTerms').value,
-        method: document.getElementById('ciMethod').value
+        name: ciNameVal || report.comp,
+        taxId: document.getElementById('ciTaxId').value.trim(),
+        contact: document.getElementById('ciContact').value.trim(),
+        phone: document.getElementById('ciPhone').value.trim(),
+        address: document.getElementById('ciAddress').value.trim(),
+        terms: document.getElementById('ciTerms').value.trim(),
+        method: document.getElementById('ciMethod').value.trim()
     };
     const e = escapeReportHTML;
     const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
@@ -2339,20 +2373,17 @@ function generateOfficialInvoice() {
     deptEntries.forEach(([name, dept], index) => {
         html += `<tr><td>${index + 1}</td><td style="text-align:left">${e(name)}</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>`;
     });
-    // 合計改成獨立卡片，放在總表下方右側。
     html += `</tbody></table>
         <div class="report-totals">
           <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
-          ${report.managementFee.amount > 0 ? `<div><span>布巾洗滌管理費（${moneyReport(report.managementFee.percent)}%）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>` : ''}
-          ${report.rebate.amount > 0 ? `<div><span>客戶回饋（${moneyReport(report.rebate.percent)}%）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>` : ''}
+          ${report.managementFee.amount > 0 ? `<div><span>布巾洗滌管理費（${e(report.managementFee.percent)}）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>` : ''}
+          ${report.rebate.amount > 0 ? `<div><span>客戶回饋（${e(report.rebate.percent)}）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>` : ''}
           ${(report.managementFee.amount > 0 || report.rebate.amount > 0) ? `<div><span>調整後未稅金額</span><b>$${moneyReport(report.afterRebate)}</b></div>` : ''}
           <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
           <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.afterRebate + report.tax)}</b></div>
         </div></section>`;
 
-    // 每個部門各自從新頁開始；同部門月總量總結緊接交易明細。
     deptEntries.forEach(([name, dept]) => {
-        // PDF 月總量：依物流查帳後台 master_template 的品項順序。
         const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
         const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
         const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
@@ -2360,7 +2391,7 @@ function generateOfficialInvoice() {
             <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">部門對帳明細</div></header>
             <div class="report-dept-meta"><b>部門：${e(name)}</b><span>對帳期間：${e(period)}</span></div>
             <div class="report-monthly-block${density}">
-              <h2 class="report-section-title">01　月總量總結</h2>
+              <h2 class="report-section-title">01 月總量總結</h2>
               <table class="data-table monthly-table"><thead><tr><th>品項名稱</th><th>總數量</th><th>單價</th><th>未稅金額</th></tr></thead><tbody>`;
         items.forEach(item => {
             html += `<tr><td style="text-align:left">${e(item.item)}</td><td>${moneyReport(item.qty)}</td><td>${moneyReport(item.price)}</td><td style="text-align:right">${moneyReport(item.amt)}</td></tr>`;
@@ -2368,7 +2399,7 @@ function generateOfficialInvoice() {
         html += `<tr class="total-row"><td>部門合計</td><td>${moneyReport(totalQty)}</td><td></td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>
               </tbody></table></div>
             <div class="report-detail-block">
-              <h2 class="report-section-title">02　交易明細</h2>
+              <h2 class="report-section-title">02 交易明細</h2>
               <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
         const shipmentCounts = shipmentCountsByDate(dept.records);
         let previousDate = '';
@@ -2405,10 +2436,6 @@ function exportToExcel() {
     const headStyle = style(navy,true,white,15,'center');
     const totalStyle = style(pale,true,navy,16);
     const numberFormat = '#,##0.##';
-    const applyStyle = (ws, row, col, cellStyle) => {
-        const addr = XLSX.utils.encode_cell({r:row-1,c:col-1});
-        if (ws[addr]) ws[addr].s = cellStyle;
-    };
     const formatData = (ws, rows, numericCols, headers, totals, sections) => {
         rows.forEach((row, ri) => row.forEach((value, ci) => {
             const addr = XLSX.utils.encode_cell({r:ri,c:ci});
@@ -2418,7 +2445,6 @@ function exportToExcel() {
             ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
             if (typeof value === 'number' || (typeof value === 'string' && /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*[~～-]\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2})?\s*$/.test(value))) {
                 if (typeof value === 'number') ws[addr].z = numberFormat;
-                // Excel 數字及日期儲存格使用 Georgia；中文儲存格使用思源宋體。
                 ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia'}};
             }
         }));
@@ -2441,13 +2467,12 @@ function exportToExcel() {
     const hasRebate = report.rebate.amount > 0;
     totalRows.push([]);
     totalRows.push(['','未稅金額',report.rounded]);
-    if (hasManagementFee) totalRows.push(['',`布巾洗滌管理費（${report.managementFee.percent}%）`,report.managementFee.amount]);
-    if (hasRebate) totalRows.push(['',`客戶回饋（${report.rebate.percent}%）`,-report.rebate.amount]);
+    if (hasManagementFee) totalRows.push(['',`布巾洗滌管理費（${report.managementFee.percent}）`,report.managementFee.amount]);
+    if (hasRebate) totalRows.push(['',`客戶回饋（${report.rebate.percent}）`,-report.rebate.amount]);
     if (hasManagementFee || hasRebate) totalRows.push(['','調整後未稅金額',report.afterRebate]);
     totalRows.push(['','營業稅（5%）',report.tax]);
     totalRows.push(['','含稅總金額',report.afterRebate+report.tax]);
 
-    // 結算總表上方維持簡潔的部門＋金額；下方再附各部門的月總量總結。
     const totalHeaderRows = [5];
     const totalTotalRows = [];
     const totalSectionRows = [];
@@ -2456,7 +2481,7 @@ function exportToExcel() {
 
     totalRows.push([]);
     totalSectionRows.push(totalRows.length + 1);
-    totalRows.push(['01　月總量總結','','','']);
+    totalRows.push(['01 月總量總結','','','']);
 
     entries.forEach(([name,dept]) => {
         const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
@@ -2479,7 +2504,6 @@ function exportToExcel() {
     ];
     totalSectionRows.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
     formatData(totalSheet,totalRows,[0,1,2,3],totalHeaderRows,totalTotalRows,totalSectionRows);
-    // 結算總額區不要換行，並讓文字與金額有足夠空間。
     totalTotalRows.forEach(r => {
         for (let c = 0; c < 4; c++) {
             const addr = XLSX.utils.encode_cell({r:r-1,c});
@@ -2492,7 +2516,6 @@ function exportToExcel() {
         }
         totalSheet['!rows'][r-1] = {hpt:30};
     });
-    // 上方部門結算總表：項次置中、部門名稱靠左、金額靠右。
     for (let r = 6; r < 6 + entries.length; r++) {
         const a = XLSX.utils.encode_cell({r:r-1,c:0});
         const b = XLSX.utils.encode_cell({r:r-1,c:1});
@@ -2516,13 +2539,13 @@ function exportToExcel() {
         const rows = [
           ['百麒國際股份有限公司｜部門對帳明細'],
           ['部門名稱',name],['對帳期間',period],[],
-          ['01　月總量總結'],
+          ['01 月總量總結'],
           ['品項名稱','總數量','單價','未稅金額','']
         ];
         items.forEach(item => rows.push([item.item,item.qty,item.price,item.amt]));
         rows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
         const monthlyEnd = rows.length;
-        rows.push([],['02　交易明細'],['日期','品項名稱','數量','單價','金額']);
+        rows.push([],['02 交易明細'],['日期','品項名稱','數量','單價','金額']);
         const detailHeader = rows.length;
         const shipmentCounts = shipmentCountsByDate(dept.records);
         let lastDate = '';
@@ -2538,7 +2561,6 @@ function exportToExcel() {
         ];
         formatData(ws,rows,[1,2,3,4],[6,detailHeader],[monthlyEnd,rows.length],[5,monthlyEnd+2]);
         ws['!print_area'] = `A1:E${rows.length}`;
-        // 一個部門一張工作表：先月總量，再交易明細。
         XLSX.utils.book_append_sheet(wb,ws,allocateName(name));
     });
     XLSX.writeFile(wb,`百麒國際股份有限公司對帳單_${report.comp.replace(/[\\/:*?"<>|]/g,'_')}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
@@ -2558,9 +2580,7 @@ btn.innerHTML = `⏳ 計算中...`; btn.disabled = true;
 if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～ ${endDate}`;
 
 try {
-// 直接共用財務系統已優化的物流快取；不再另外發出三組 Firestore 查詢。
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
-// 價目表只在背景補同步；已有快取時不阻塞司機業績。
 if (!Object.keys(sheetPrices || {}).length) {
     try { await syncMasterDataFromSheet(); } catch (err) { console.warn('司機業績價目表同步失敗，沿用現有資料', err); }
 } else {
@@ -2572,12 +2592,12 @@ currentUnassignedStats = { totalAmt: 0, details: [] };
 
 uniqueDocs.forEach(docSnap => {
 const d = docSnap.data();
+if (d.manualDeletedReceipt) return;
 let dDate = standardizeDate(d.date);
 if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-// 過濾掉回洗
 if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
 
 let driverName = d.assignedDriver || null;
@@ -2614,7 +2634,6 @@ const unassignedBox = document.getElementById('unassignedBox');
 const unassignedAmt = document.getElementById('unassignedAmount');
 let html = "";
 for (let [driverName, data] of Object.entries(currentDriverStats)) {
-// ★ 只有最後的總結算才進行四捨五入
 let roundedTotalAmt = Math.round(data.totalAmt);
 let bonus = Math.round(roundedTotalAmt * 0.029);
 html += `
@@ -2694,5 +2713,3 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
-
-
