@@ -553,7 +553,7 @@ function withTimeout(promise, ms, label='遠端資料') {
 let logisticsMasterItems = [];
 let logisticsOrderFetchedAt = 0;
 let logisticsOrderPending = null;
-const MASTER_CACHE_MS = 1800000; // 價目表/客戶資料快取 30 分鐘
+const MASTER_CACHE_MS = 1800000;
 const cachedItemOrder = readLocalJson(LOCAL_CACHE_KEYS.itemOrder);
 if (cachedItemOrder?.items?.length) { logisticsMasterItems = cachedItemOrder.items; logisticsOrderFetchedAt = cachedItemOrder.at || 0; }
 async function ensureLogisticsItemOrder() {
@@ -572,7 +572,6 @@ async function ensureLogisticsItemOrder() {
     try { return await logisticsOrderPending; }
     finally { logisticsOrderPending = null; }
 }
-// 完全比照 boss_admin.html：先比對該飯店／部門的範本；若無範本，使用全域品項順序。
 function getLogisticsItemSortIndex(hotelName, itemName) {
     let expectedOrder = logisticsMasterItems.filter(d => d.hotel === hotelName).map(d => d.item);
     if (expectedOrder.length === 0) expectedOrder = [...new Set(logisticsMasterItems.map(d => d.item))];
@@ -619,13 +618,10 @@ function managementFeeForReport(company, records) {
   return {percent:Number(rule.percent)||0, amount:Math.round(base * (Number(rule.percent)||0) / 100), base};
 }
 function baseRecordPrice(r) {
-  // 儲存在單據裡的價格優先當作歷史基礎價；沒有才用試算表。
   if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
   return Number(getPrice(r.hotel,r.item,r.date)) || 0;
 }
 function reportRecordPrice(r) {
-  // 手動改價為該筆最終結帳價；春節價格只對原始價運算一次。
-  // 新版生效日價格優先；舊版手動單據只在未有有效日期規則時保留。
   const effective = datedPriceFor(r.hotel,r.item,r.date);
   if (effective !== null) {
     const holiday=activeHolidayRule(r.parentCompany,r.date);
@@ -653,15 +649,12 @@ async function persistPricingRules() {
   const status=document.getElementById('pricingRulesStatus');
   status.textContent='正在儲存設定…';
   try {
-    // 使用整份規則文件；同時更新時後寫者覆蓋，請勿於多台裝置同時編輯。
     await withTimeout(setDoc(PRICING_RULES_REF, {holidays:pricingRules.holidays, rebates:pricingRules.rebates, managementFees:pricingRules.managementFees, updatedAt:new Date().toISOString()}), 7000, '設定儲存');
     writeLocalJson(LOCAL_CACHE_KEYS.pricingRules, {at:Date.now(), data:pricingRules});
     status.textContent='✅ 規則已儲存；請重新載入明細／業績，使新設定套用到當期資料。';
     renderPricingRules();
   } catch(err) { status.textContent='❌ 儲存失敗：'+err.message; await ensurePricingRules(true); }
 }
-// 管理選單僅顯示財務查詢期間內，實收數量與洗滌金額皆大於 0 的飯店。
-// 不修改或刪除任何已儲存的春節、回饋及管理費設定。
 let pricingActiveHotels = new Set();
 let pricingActivePeriod = '';
 let pricingActiveRequest = 0;
@@ -690,13 +683,14 @@ async function refreshPricingActiveHotels() {
     const names = new Set();
     docs.forEach(snap => {
       const d = snap.data();
+      if (d.manualDeletedReceipt) return;
       const date = standardizeDate(d.date);
       if (date < start || date > end || String(d.deptName || '').includes('回洗')) return;
       const hotel = String(d.hotelKeyword || '').trim();
       if (!hotel) return;
       const fullHotel = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
       const hasBillable = billingReceiptItems(d).some(item => {
-        const qty = Number(item.actualQty);
+        const qty = resolveItemBillingQty(item);
         if (!(qty > 0) || String(item.itemName || '').includes('回洗')) return false;
         const itemName = String(item.itemName || '');
         const price = item.price !== undefined && item.price !== null && item.price !== ''
@@ -786,18 +780,15 @@ window.addEventListener('DOMContentLoaded',()=>{
     ds.addEventListener('change',update); de.addEventListener('change',update);
   }
   document.getElementById('pricingRulesPanel').addEventListener('toggle', e => { if (e.target.open) refreshPricingActiveHotels(); });
-  // 先使用本機快取立即繪製，不在開頁時與物流明細搶連線。
   renderPricingRules();
   if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
     setFinanceSyncStatus('✅ 大腦資料已就緒（快取）', 'green');
   }
-  // 遠端設定延後背景更新；失敗不阻塞財務結帳。
   setTimeout(()=>ensurePricingRules().catch(console.warn), 1200);
   setTimeout(()=>ensureLogisticsItemOrder().catch(console.warn), 1800);
   setTimeout(()=>syncMasterDataFromSheet().catch(console.warn), 2400);
 });
 
-// 生效日價目歷史：每個飯店部門與品項可有多次調價。既有帳單不重寫。
 const EFFECTIVE_PRICE_REF = doc(db, 'inventory_config', 'finance_effective_prices');
 let effectivePriceRules = [];
 let effectivePricesPending = null;
@@ -821,7 +812,6 @@ async function ensureEffectivePrices(force=false) {
 }
 let effectivePricesReady=false;
 function newPriceStart(record) {
-    // 修改哪一天的明細，哪一天起就沿用新單價，直到下一次調價。
     return record.date;
 }
 function queueEffectivePrice(record,hotel,price) {
@@ -830,20 +820,16 @@ function queueEffectivePrice(record,hotel,price) {
     const key=`${hotel}_${record.item}`;
     const rule={key,start,price:Number(price)};
     pendingEffectivePrices.set(`${key}|${start}`,rule);
-    // 畫面即時反映待儲存價目；按儲存後才會同步到雲端。
     effectivePriceRules = effectivePriceRules.filter(x=>!(x.key===key && x.start===start));
     effectivePriceRules.push(rule);
 }
 
-// ★ 待儲存更新陣列 (現在包含品項與價格)
 let pendingUpdatesArray = [];
- 
 let customPricesDirty = false;
 
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
 const groupEndOfMonth = ["捷站前", "捷中正", "歐遊", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心" , "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏"];
 
-// 飯店主名稱的結帳日設定，存於 Firestore；不改動既有物流／價目資料。
 const SETTLEMENT_REF = doc(db, 'inventory_config', 'finance_settlement_groups');
 let settlementGroups = {}, settlementGroupsReady = false, settlementGroupsPending = null;
 let settlementActiveHotels = new Set(), settlementActiveMonth = "", settlementHotelsLoading = false;
@@ -855,7 +841,7 @@ function settlementSuggestion(hotel) {
 }
 function settlementGroupOf(hotel) {
   if (Object.prototype.hasOwnProperty.call(settlementGroups,hotel)) return settlementGroups[hotel];
-  return settlementSuggestion(hotel); // 舊名單僅作未儲存設定的過渡預設。
+  return settlementSuggestion(hotel);
 }
 async function ensureSettlementGroups(force=false) {
   if (settlementGroupsReady && !force) return;
@@ -907,14 +893,13 @@ window.refreshSettlementHotels=async()=>{
     const active=new Set();
     docs.forEach(snap=>{
       const data=snap.data(), date=standardizeDate(data.date);
+      if (data.manualDeletedReceipt) return;
       const hotel=String(data.hotelKeyword||'').trim();
       if (!hotel || date < periods.queryStart || date > periods.queryEnd) return;
       if (String(data.deptName||'').includes('回洗')) return;
-      if (!billingReceiptItems(data).some(item=>Number(item.actualQty)>0 && !String(item.itemName||'').includes('回洗'))) return;
-      // 結帳日未分類的飯店也要能設定，故使用兩組日期的聯集。
+      if (!billingReceiptItems(data).some(item=>resolveItemBillingQty(item)>0 && !String(item.itemName||'').includes('回洗'))) return;
       active.add(hotel);
     });
-    // 使用者切換月份時，較晚完成的舊請求不得覆蓋新月份畫面。
     if (`${document.getElementById('bossTargetMonth').value}|${document.getElementById('bossCutoffDate').value}`!==targetMonth) return;
     settlementActiveHotels=active;
     settlementActiveMonth=targetMonth;
@@ -968,7 +953,6 @@ window.updateBossPeriodHint=()=>{
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('bossTargetMonth').value=getLocalDateString(new Date()).slice(0,7);
   updateBossMonth();
-  // 本月預設統計到今天；歷史月份切換則預設整月，亦可自行修改截至日。
   const now=getLocalDateString(new Date());
   document.getElementById('bossCutoffDate').value=now;
   updateBossPeriodHint();
@@ -997,6 +981,17 @@ return dStr;
 }
 
 function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
+
+// ★ 統一取得物流單上的結算數量：完全依物流單（logistics_records）為主！
+// 若在物流單被刪除則為 0；若物流單存在但尚未簽收填寫 actualQty，則採用物流單上的 originalQty / bqQty。
+function resolveItemBillingQty(item) {
+    if (!item || item.deletedInLogistics) return 0;
+    const raw = (item.actualQty !== undefined && item.actualQty !== null && String(item.actualQty).trim() !== '')
+        ? item.actualQty
+        : (item.originalQty ?? item.bqQty ?? 0);
+    return Number(raw) || 0;
+}
+
 const today = new Date();
 const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('startDate').value = getLocalDateString(firstDay);
@@ -1053,7 +1048,7 @@ window.quickSelectGroup = quickSelectGroup;
 window.calculateDriverPerformance = calculateDriverPerformance;
 window.showDriverDetails = showDriverDetails;
 
-// ★ 處理待儲存清單 (共用) — 修正變數名稱錯誤，確保修改後按鈕立即亮起紅燈可存檔
+// ★ 處理待儲存清單 (共用)
 function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice) {
     let existing = pendingUpdatesArray.find(p => p.docId === docId && p.receiptOrder === receiptOrder);
     if (existing) {
@@ -1075,22 +1070,20 @@ function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newP
     saveBtn.innerHTML = `💾 批次儲存 (${pendingUpdatesArray.length}筆修改)`;
 }
 
-// ★ 當使用者修改「品項名稱」時觸發
 window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputEl) {
     let newItemName = newVal.trim();
     let record = rawLogisticsData.find(r => r.docId === docId && r.receiptOrder === receiptOrder);
     if(!record) return;
 
     if(!newItemName) {
-        inputEl.value = record.item; // 不能為空，還原
+        inputEl.value = record.item;
         alert("品項名稱不可為空！");
         return;
     }
 
-    record.item = newItemName; // 更新本地記憶體
+    record.item = newItemName;
     inputEl.style.backgroundColor = '#fef08a';
 
-    // 去大腦查新名稱的單價
     let fetchedPrice = getPrice(hotelName, newItemName, record.date);
     let newPrice = fetchedPrice !== null ? fetchedPrice : 0;
     
@@ -1098,7 +1091,6 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
     record.savedPrice = newPrice;
     record.manualPriceOverride = true;
 
-    // 自動更新右邊那格單價的畫面
     let tr = inputEl.closest('tr');
     let priceInput = tr.querySelector('.price-input');
     if(priceInput) {
@@ -1107,12 +1099,9 @@ window.markItemChanged = function(docId, receiptOrder, hotelName, newVal, inputE
     }
 
     registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice);
-    
-    // 不會卡頓地重新計算小計與總計
     recalculateFinanceUI();
 }
 
-// ★ 當使用者修改「單價」時觸發
 window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, inputEl) {
     let newPrice = newVal.trim() === "" ? 0 : Number(newVal);
     if (isNaN(newPrice)) newPrice = 0;
@@ -1124,7 +1113,6 @@ window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, input
     record.savedPrice = newPrice;
     record.manualPriceOverride = false;
 
-    // 從生效日起適用到下一個調價日；不改寫整段歷史價目。
     if (newVal.trim() !== '') queueEffectivePrice(record,hotelName,newPrice);
 
     inputEl.style.backgroundColor = '#fef08a';
@@ -1157,7 +1145,6 @@ window.batchSavePrices = async function() {
                 if (!docSnap.exists()) throw new Error('原物流單已不存在，請重新載入。');
                 const data = docSnap.data();
                 const items = applyFinanceItemNames(billingReceiptItems(data), updatesByDoc[docId]);
-                // ★ 同步將修改後的單價也寫入該筆物流明細，確保單純改價格時也能存回單據
                 for (const u of updatesByDoc[docId]) {
                     let target = (u.financeItemId && items.find(it => it.financeItemId === u.financeItemId))
                         || items[u.receiptOrder]
@@ -1173,7 +1160,6 @@ window.batchSavePrices = async function() {
         }
 
         if (pendingEffectivePrices.size) {
-            // 單一設定文件；從伺服器最新版本合併以避免覆蓋其他帳期。
             const pendingRules = [...pendingEffectivePrices.values()];
             promises.push(runTransaction(db, async tx => {
             const latest = await tx.get(EFFECTIVE_PRICE_REF);
@@ -1190,7 +1176,7 @@ window.batchSavePrices = async function() {
         const failure = saveResults.find(result => result.status === 'rejected');
         if (failure) throw failure.reason;
 
-        logisticsPeriodCache.clear(); // 儲存單價或品項後，下次載入讀取最新單據。
+        logisticsPeriodCache.clear();
         pendingUpdatesArray = [];
         rawLogisticsData.forEach(r => { r.originalItemName = r.item; });
         customPricesDirty = false;
@@ -1212,7 +1198,6 @@ window.batchSavePrices = async function() {
     }
 }
 
-// 每次載入或更動品項／單價時重新核對，不改動原資料與金額。
 function refreshFinancePriceWarnings() {
     const rows = Array.from(document.querySelectorAll('#internalTableBody tr.main-row'));
     const groups = new Map();
@@ -1435,6 +1420,7 @@ toast.classList.remove('opacity-0', 'translate-y-[-20px]');
 setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 }
 
+// ★ 純粹讀取 logistics_records（物流簽收查帳台資料庫），完全不讀盤點表，100% 以物流查帳台為主！
 const LOGISTICS_CACHE_MS = 600000;
 const logisticsPeriodCache = new Map();
 async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
@@ -1583,7 +1569,7 @@ async function fetchRecordsForSelectedHotels() {
             if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
             if (selectedSet.has(hotelName)) {
                 billingReceiptItems(d).forEach((item, idx) => {
-                    const actual = Number(item.actualQty) || 0;
+                    const actual = resolveItemBillingQty(item);
 
                     if (actual > 0 && !String(item.itemName).includes("回洗")) {
                         results.push({
@@ -1758,12 +1744,12 @@ async function loadBossData() {
             const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
             if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
             const key = classifyBossGroup(hotel);
-            const hasValid = billingReceiptItems(d).some(item => Number(item.actualQty) > 0 && !String(item.itemName).includes('回洗'));
+            const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !String(item.itemName).includes('回洗'));
             if (!key) { if (hasValid) unmatched.add(fullName); return; }
             const groupPeriod = key==='25th' ? periods['25th'] : periods.monthGroup;
             if (date < groupPeriod.start || date > groupPeriod.end) return;
             billingReceiptItems(d).forEach((item,idx) => {
-                const qty = Number(item.actualQty) || 0;
+                const qty = resolveItemBillingQty(item);
                 if (qty <= 0 || String(item.itemName).includes('回洗')) return;
                 groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
                     receiptOrder:idx, savedPrice:item.price, manualPriceOverride:!!item.manualFinancePrice});
@@ -1887,7 +1873,7 @@ async function exportBossExcel() {
                 const gp = key === '25th' ? p['25th'] : p.monthGroup;
                 if (date < gp.start || date > gp.end) return;
                 billingReceiptItems(d).forEach((item, idx) => {
-                    const qty = Number(item.actualQty) || 0;
+                    const qty = resolveItemBillingQty(item);
                     if (qty <= 0 || String(item.itemName || '').includes('回洗')) return;
                     groups[key].push({
                         docId: docSnap.id,
@@ -2135,7 +2121,6 @@ async function refreshInvoiceClientsFromSheet(force=false) {
 }
 window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
 
-// 對帳單客戶層級規則：只有「鼎王」保留分館；其他飯店一律合併到母公司。
 function invoiceCustomerKeyForRecord(r) {
     const parent = String(r?.parentCompany || '').trim();
     const hotel = String(r?.hotel || parent).trim();
@@ -2150,7 +2135,6 @@ function invoiceCustomerKeyFromHotelName(name) {
     return matched ? invoiceCustomerKeyForRecord(matched) : n;
 }
 
-// ★ 取得目前用哪間飯店來帶入發票抬頭與統編
 function getEffectiveProfileCompanyKey() {
     const target = document.getElementById('invoiceTargetCompany')?.value || '';
     if (target === MERGE_ALL_KEY) {
@@ -2185,7 +2169,6 @@ function refreshInvoiceCompanyOptions(preferred = '') {
 
     const oldValue = invoiceCustomerKeyFromHotelName(preferred || compSelect.value);
 
-    // 若目前載入了超過 1 間飯店（或不同分館），自動提供「🌟 合併目前載入的全部飯店一起結算」選項！
     let html = `<option value="">-- 請選擇出帳對象 --</option>`;
     if (names.length > 1) {
         html += `<option value="${MERGE_ALL_KEY}">🌟 合併目前載入的全部飯店一起結算（共 ${names.length} 間：${escapeReportHTML(names.join('、'))}）</option>`;
@@ -2203,7 +2186,6 @@ function refreshInvoiceCompanyOptions(preferred = '') {
     if (oldValue && (names.includes(oldValue) || (oldValue === MERGE_ALL_KEY && names.length > 1))) {
         compSelect.value = oldValue;
     } else if (names.length > 1) {
-        // 當使用者勾選多間飯店載入明細時，預設直接選中「合併全部飯店一起結算」！
         compSelect.value = MERGE_ALL_KEY;
     } else if (names.length === 1) {
         compSelect.value = names[0];
@@ -2273,7 +2255,6 @@ function loadClientProfile(tryRemote=true) {
     }
 }
 
-// ★ 匯出共用資料：支援「單一飯店」與「合併勾選的所有飯店一起出帳」
 function buildInvoiceReport() {
     if (!logisticsMasterItems.length) { alert('尚未載入物流後台的品項排序，請重新載入明細。'); return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 }; }
     const targetVal = document.getElementById('invoiceTargetCompany').value;
@@ -2307,7 +2288,6 @@ function buildInvoiceReport() {
     });
     Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder));
 
-    // 分別計算各母公司的回饋與管理費並加總，支援多間飯店合併結算
     const groupedByParent = new Map();
     matches.forEach(r => {
         const p = r.parentCompany || compLabel;
@@ -2613,7 +2593,7 @@ if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗")
 
 let driverName = d.assignedDriver || null;
 billingReceiptItems(d).forEach(item => {
-const actual = Number(item.actualQty) || 0;
+const actual = resolveItemBillingQty(item);
 if (actual > 0 && !String(item.itemName).includes("回洗")) {
 let price = item.price !== undefined && item.price !== null && item.price !== '' ? Number(item.price) : (getPrice(hotelName, item.itemName) || 0);
 let amt = actual * price;
