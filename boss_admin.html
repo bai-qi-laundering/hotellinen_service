@@ -770,7 +770,7 @@
         };
 
         // ===============================================
-        // 📦 物流簽收後台載入 (完美修復空白鍵導致無法配對的問題)
+        // 📦 物流簽收後台載入 (完美同步未簽收單據至物流資料庫，讓結帳系統 100% 依物流查帳台為準)
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -1010,7 +1010,8 @@
                 // 等待既有物流單缺漏品項的自動修復寫回資料庫。
                 if (logisticsRepairPromises.length) await Promise.allSettled(logisticsRepairPromises);
 
-                // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據
+                // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據（並自動同步寫入物流資料庫，讓結帳系統 100% 依物流查帳台為準）
+                const newReceiptPromises = [];
                 for (const [matchKey, data] of Object.entries(invRawDataMap)) {
                      let standardId = `${data.date}_${data.hotelKeyword}_${data.deptName}`;
                      
@@ -1047,10 +1048,30 @@
                                 clientSig: "",
                                 signDate: "",
                                 status: "yellow" 
-                            });
+                             });
+
+                             // ★ 關鍵：將物流查帳台畫面上顯示的黃燈單據正式存入 logistics_records，確保結帳系統與物流查帳台 100% 同步！
+                             newReceiptPromises.push(setDoc(doc(db, 'logistics_records', standardId), {
+                                date: data.date,
+                                hotelKeyword: data.hotelKeyword,
+                                deptName: data.deptName,
+                                clientSig: "",
+                                driverSig: "",
+                                timestamp: "",
+                                forcedSync: true,
+                                assignedDriver: "",
+                                items: validItems.map(i => ({
+                                    itemName: i.itemName,
+                                    originalQty: String(i.bqQty),
+                                    actualQty: String(i.actualQty),
+                                    auntNote: "",
+                                    driverNote: "物流查帳台自動同步建立"
+                                }))
+                             }, { merge: true }).catch(err => console.error('自動建立物流單失敗', standardId, err)));
                          }
                      }
                 }
+                if (newReceiptPromises.length) await Promise.allSettled(newReceiptPromises);
 
                 logRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
@@ -2068,7 +2089,7 @@
             if(e) e.stopPropagation();
             const isLogistics = collectionName === 'logistics_records';
             const confirmMsg = isLogistics
-                ? `⚠️ 確定要刪除此張物流單據嗎？\n\n删除後重新載入將不再出現！\n（💡 盤點明細仍會保留，若誤刪可點上方「🔄 撈回誤刪單據」救回）`
+                ? `⚠️ 確定要刪除此張物流單據嗎？\n\n刪除後重新載入將不再出現！\n（💡 盤點明細仍會保留，若誤刪可點上方「🔄 撈回誤刪單據」救回）`
                 : `⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！`;
             const confirmDelete = await customConfirm(confirmMsg);
             if (!confirmDelete) return;
