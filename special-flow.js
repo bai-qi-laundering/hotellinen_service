@@ -111,17 +111,112 @@ export function addParsedEntry(docs, entry, { time, source = 'manual', idFactory
     return { docs: next, upserts };
 }
 
+function isOpenStatus(doc) {
+    return !!doc && !doc.deleted && (doc.status === FOLD_STATUS || doc.status === REWORK_STATUS);
+}
+
+export function splitChildren(docs, doc) {
+    if (!doc || doc.deleted || doc.status !== SIGNED_STATUS) return [];
+    const linked = (docs || []).filter(row => row.splitOf === doc.id && isOpenStatus(row));
+    if (linked.length) return linked;
+    const signedAt = doc.foldSignedAt;
+    if (!signedAt) return [];
+    return (docs || []).filter(row =>
+        isOpenStatus(row)
+        && row.id !== doc.id
+        && !row.splitOf
+        && row.hotel === doc.hotel
+        && row.item === doc.item
+        && row.receivedDate === doc.receivedDate
+        && (row.history || []).some(event => event.type === 'split' && event.time === signedAt));
+}
+
+export function signPoolQty(docs, doc) {
+    if (!doc) return 0;
+    if (doc.status !== SIGNED_STATUS) return Number(doc.qty) || 0;
+    return Number(doc.qty) + splitChildren(docs, doc).reduce((sum, row) => sum + Number(row.qty || 0), 0);
+}
+
+function markDeleted(doc, time) {
+    const next = clone(doc);
+    next.deleted = true;
+    next.deletedAt = time;
+    next.history.push({ type: 'deleted', time, qty: next.qty, round: next.round });
+    next.edits.push({
+        time,
+        before: { hotel: doc.hotel, item: doc.item, qty: doc.qty },
+        after: { hotel: doc.hotel, item: doc.item, qty: doc.qty },
+        clearedSignature: false,
+        deleted: true,
+    });
+    return next;
+}
+
+function reworkRemainder(source, { id, qty, reason, time, parentId, round }) {
+    const remain = clone(source);
+    if (id) remain.id = id;
+    remain.qty = qty;
+    remain.status = REWORK_STATUS;
+    remain.round = round || (Number(source.round) || 1) + 1;
+    remain.splitOf = parentId;
+    remain.foldSignature = '';
+    remain.foldSignedAt = '';
+    remain.shipDate = '';
+    remain.shipRule = '';
+    remain.officeName = source.item;
+    remain.officeSignature = '';
+    remain.sentAt = '';
+    remain.deleted = false;
+    remain.deletedAt = '';
+    remain.history.push({ type: 'split', time, qty, reason, round: remain.round });
+    remain.history.push({ type: 'rework', time, qty, reason, round: remain.round });
+    return remain;
+}
+
 export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipRule, time, idFactory }) {
     const current = docs.find(doc => doc.id === id);
-    requireOpen(current);
+    if (!current || current.deleted) throw new Error('找不到這筆品項');
+    if (current.status === SENT_STATUS) throw new Error('已送出，無法修改');
+    const resigning = current.status === SIGNED_STATUS;
+    if (!resigning && current.status !== FOLD_STATUS && current.status !== REWORK_STATUS) throw new Error('這筆已經簽名或送出');
+    const children = resigning ? splitChildren(docs, current) : [];
+    const pool = resigning ? signPoolQty(docs, current) : current.qty;
     const qty = Number(shipQty);
-    if (!Number.isInteger(qty) || qty < 1 || qty > current.qty) throw new Error('可出貨數量不正確');
+    if (!Number.isInteger(qty) || qty < 1 || qty > pool) throw new Error('可出貨數量不正確');
     if (!signature) throw new Error('請先簽名');
     if (!shipDate || !shipRule) throw new Error('出貨單日期還沒算出來');
     if (!time) throw new Error('缺少簽名時間');
     const why = String(reason || '').trim();
-    if (qty < current.qty && !why) throw new Error('數量沒有全部出貨，請選擇退回原因');
+    if (qty < pool && !why) throw new Error('數量沒有全部出貨，請選擇退回原因');
     const signed = clone(current);
+    if (resigning) {
+        signed.edits.push({
+            time,
+            before: {
+                hotel: current.hotel,
+                item: current.item,
+                qty: current.qty,
+                foldSignedAt: current.foldSignedAt || '',
+                foldSignature: current.foldSignature || '',
+            },
+            after: {
+                hotel: current.hotel,
+                item: current.item,
+                qty,
+                foldSignedAt: time,
+                foldSignature: signature,
+            },
+            clearedSignature: false,
+        });
+        signed.history.push({
+            type: 'resigned',
+            time,
+            qty,
+            previousQty: current.qty,
+            previousSignedAt: current.foldSignedAt || '',
+            round: current.round,
+        });
+    }
     signed.qty = qty;
     signed.status = SIGNED_STATUS;
     signed.foldSignature = signature;
@@ -129,30 +224,50 @@ export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipR
     signed.shipDate = shipDate;
     signed.shipRule = shipRule;
     signed.officeName = signed.officeName || signed.item;
-    if (qty < current.qty) signed.history.push({ type: 'split', time, qty, reason: why, round: current.round });
+    if (qty < pool) signed.history.push({ type: 'split', time, qty, reason: why, round: current.round });
     signed.history.push({ type: 'signed', time, qty, signature, round: current.round });
     let next = replace(docs.map(clone), signed);
     const upserts = [signed];
-    if (qty < current.qty) {
-        if (typeof idFactory !== 'function') throw new Error('缺少單號');
-        const remainQty = current.qty - qty;
-        const remain = clone(current);
-        remain.id = idFactory();
-        remain.qty = remainQty;
-        remain.status = REWORK_STATUS;
-        remain.round = current.round + 1;
-        remain.foldSignature = '';
-        remain.foldSignedAt = '';
-        remain.shipDate = '';
-        remain.shipRule = '';
-        remain.officeName = current.item;
-        remain.officeSignature = '';
-        remain.sentAt = '';
-        remain.history.push({ type: 'split', time, qty: remainQty, reason: why, round: remain.round });
-        remain.history.push({ type: 'rework', time, qty: remainQty, reason: why, round: remain.round });
-        next = [...next, remain];
-        upserts.push(remain);
+    const remainQty = pool - qty;
+    if (!resigning) {
+        if (remainQty > 0) {
+            if (typeof idFactory !== 'function') throw new Error('缺少單號');
+            const remain = reworkRemainder(current, { id: idFactory(), qty: remainQty, reason: why, time, parentId: current.id });
+            next = [...next, remain];
+            upserts.push(remain);
+        }
+        return { docs: next, upserts };
     }
+    if (remainQty === 0) {
+        for (const child of children) {
+            const gone = markDeleted(child, time);
+            next = replace(next, gone);
+            upserts.push(gone);
+        }
+        return { docs: next, upserts };
+    }
+    if (children.length) {
+        const [keep, ...rest] = children;
+        const remain = reworkRemainder(keep, {
+            qty: remainQty,
+            reason: why,
+            time,
+            parentId: current.id,
+            round: Math.max(Number(keep.round) || 1, current.round + 1),
+        });
+        next = replace(next, remain);
+        upserts.push(remain);
+        for (const extra of rest) {
+            const gone = markDeleted(extra, time);
+            next = replace(next, gone);
+            upserts.push(gone);
+        }
+        return { docs: next, upserts };
+    }
+    if (typeof idFactory !== 'function') throw new Error('缺少單號');
+    const remain = reworkRemainder(current, { id: idFactory(), qty: remainQty, reason: why, time, parentId: current.id });
+    next = [...next, remain];
+    upserts.push(remain);
     return { docs: next, upserts };
 }
 
@@ -244,14 +359,11 @@ export function editItem(docs, id, { hotel, item, qty, time, acceptResign } = {}
     return { docs: replace(docs.map(clone), next), upserts: [next] };
 }
 
-export function deleteItem(docs, id, { time } = {}) {
+export function deleteItem(docs, id, { time, allowSent } = {}) {
     const current = liveDoc(docs, id);
-    if (current.status === SENT_STATUS) throw new Error('已送出，無法修改');
+    if (current.status === SENT_STATUS && !allowSent) throw new Error('已送出，無法修改');
     if (!time) throw new Error('缺少時間');
-    const next = clone(current);
-    next.deleted = true;
-    next.deletedAt = time;
-    next.history.push({ type: 'deleted', time, qty: next.qty, round: next.round });
+    const next = markDeleted(current, time);
     return { docs: replace(docs.map(clone), next), upserts: [next] };
 }
 

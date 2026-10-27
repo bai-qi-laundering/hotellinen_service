@@ -310,12 +310,12 @@
         </div>
     </div>
 
-    <!-- 🧺 特處（唯讀。不改盤點／物流分頁的行為） -->
+    <!-- 🧺 特處（可刪除。不改盤點／物流分頁的行為） -->
     <div id="sectionSpecial" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]" style="display:none">
         <div class="flex justify-between items-end mb-6 border-b pb-4 gap-4 flex-wrap">
             <div>
                 <h1 class="text-3xl font-black text-gray-900 tracking-tight">特處</h1>
-                <p class="text-sm text-gray-500 font-bold mt-1">唯讀。摺疊與辦公室作業在 <a href="special.html" class="text-blue-700 underline">特處頁</a>。</p>
+                <p class="text-sm text-gray-500 font-bold mt-1">打錯的品項可以刪除。已送出的刪除不會改盤點。摺疊與辦公室作業在 <a href="special.html" class="text-blue-700 underline">特處頁</a>。</p>
             </div>
             <button onclick="loadSpecialData()" id="spLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-sm">重新整理</button>
         </div>
@@ -343,10 +343,11 @@
                             <th>出貨單日期</th>
                             <th>辦公室送出簽名＋時間</th>
                             <th>狀態</th>
+                            <th>刪除</th>
                         </tr>
                     </thead>
                     <tbody id="spTableBody">
-                        <tr class="main-row"><td colspan="10" class="py-20 text-center"><span class="text-gray-500 font-medium">開啟此頁籤後載入特處資料</span></td></tr>
+                        <tr class="main-row"><td colspan="11" class="py-20 text-center"><span class="text-gray-500 font-medium">開啟此頁籤後載入特處資料</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -361,13 +362,22 @@
         <a href="finance.html?v=20261019-same-names" class="excel-tab">💰 財務對帳單</a>
     </div>
 
+    <div id="spDeleteConfirm" class="hidden fixed inset-0 z-[90] bg-black/60 flex items-end justify-center p-4" role="alertdialog" aria-modal="true" aria-labelledby="spDeleteTitle" data-testid="sp-delete-confirm">
+        <div class="bg-white w-full max-w-md rounded-3xl p-5 shadow-xl mb-6">
+            <h2 id="spDeleteTitle" data-testid="sp-delete-title" class="text-2xl font-black text-red-700 leading-snug"></h2>
+            <p id="spDeleteWarn" data-testid="sp-delete-warn" class="hidden mt-3 text-lg font-bold text-amber-950 bg-amber-100 border border-amber-300 rounded-xl p-3"></p>
+            <button type="button" id="spDeleteOk" data-testid="sp-delete-ok" class="mt-4 w-full py-4 rounded-2xl bg-red-600 text-white font-black text-xl">刪除</button>
+            <button type="button" id="spDeleteCancel" data-testid="sp-delete-cancel" class="mt-2 w-full py-3 rounded-2xl bg-gray-200 font-black text-lg">取消</button>
+        </div>
+    </div>
+
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261019-same-names';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
-        import { reworkHistoryText } from './special-flow.js?v=20261027-special';
+        import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -2624,7 +2634,7 @@
             const count = document.getElementById('spRecordCount');
             if (count) count.textContent = String(shown.length);
             if (!shown.length) {
-                body.innerHTML = '<tr class="main-row"><td colspan="10" class="py-16 text-center text-gray-500 font-medium">這個區間沒有特處資料</td></tr>';
+                body.innerHTML = '<tr class="main-row"><td colspan="11" class="py-16 text-center text-gray-500 font-medium">這個區間沒有特處資料</td></tr>';
                 return;
             }
             window.specialSigs = [];
@@ -2643,7 +2653,7 @@
                 const ship = row.shipDate ? `${specialEsc(formatMd(row.shipDate))}<div class="text-xs text-gray-500 font-bold mt-1">${specialEsc(row.shipRule || '')}</div>` : '';
                 const officeName = row.officeName && row.officeName !== row.item ? `<div class="text-xs text-gray-500">出貨名 ${specialEsc(row.officeName)}</div>` : '';
                 const round = row.status === '重工中' && row.round ? `・第${row.round}輪` : '';
-                return `<tr class="main-row"><td>${specialEsc(row.receivedDate || '')}</td><td class="font-bold">${specialEsc(row.hotel || '')}</td><td>${specialEsc(row.item || '')}${officeName}</td><td class="text-center font-black">${specialEsc(row.qty ?? '')}</td><td>${specialEsc(specialStamp(row.createdAt))}</td><td>${fold}</td><td class="text-xs leading-5">${rework || '<span class="text-gray-400">無</span>'}</td><td>${ship}</td><td>${office}</td><td class="font-bold">${specialEsc((row.status || '') + round)}</td></tr>`;
+                return `<tr class="main-row"><td>${specialEsc(row.receivedDate || '')}</td><td class="font-bold">${specialEsc(row.hotel || '')}</td><td>${specialEsc(row.item || '')}${officeName}</td><td class="text-center font-black">${specialEsc(row.qty ?? '')}</td><td>${specialEsc(specialStamp(row.createdAt))}</td><td>${fold}</td><td class="text-xs leading-5">${rework || '<span class="text-gray-400">無</span>'}</td><td>${ship}</td><td>${office}</td><td class="font-bold">${specialEsc((row.status || '') + round)}</td><td><button type="button" class="bg-white text-red-700 border-2 border-red-600 font-black rounded-xl px-4 py-3 text-base whitespace-nowrap" data-testid="sp-delete" data-id="${specialEsc(row.id)}" onclick="askSpecialDelete(this.dataset.id)">刪除</button></td></tr>`;
             }).join('');
         }
         window.applySpecialFilters = applySpecialFilters;
@@ -2662,12 +2672,90 @@
             box.style.left = x + 'px';
             box.style.top = y + 'px';
         };
+        let pendingSpecialDelete = null;
+        function specialDeleteShape(item) {
+            const history = (item.history || []).map(event => {
+                const row = { type: event.type, time: event.time, round: event.round || 1 };
+                if (event.reason) row.reason = event.reason;
+                if (event.qty != null) row.qty = event.qty;
+                if (event.signature) row.signature = event.signature;
+                if (event.previousQty != null) row.previousQty = event.previousQty;
+                if (event.previousSignedAt) row.previousSignedAt = event.previousSignedAt;
+                return row;
+            });
+            const side = value => ({
+                hotel: value?.hotel || '',
+                item: value?.item || '',
+                qty: value?.qty ?? 0,
+                foldSignedAt: value?.foldSignedAt || '',
+                foldSignature: value?.foldSignature || '',
+            });
+            return {
+                deleted: true,
+                deletedAt: item.deletedAt || '',
+                history,
+                edits: (item.edits || []).map(edit => ({
+                    time: edit.time || '',
+                    before: side(edit.before),
+                    after: side(edit.after),
+                    clearedSignature: !!edit.clearedSignature,
+                    deleted: !!edit.deleted,
+                })),
+            };
+        }
+        window.askSpecialDelete = function(id) {
+            const row = specialRows.find(item => item.id === id && !item.deleted);
+            if (!row) return;
+            pendingSpecialDelete = row;
+            document.getElementById('spDeleteTitle').textContent = `確定刪除 ${row.hotel} ${row.item}*${row.qty}？`;
+            const warn = document.getElementById('spDeleteWarn');
+            if (row.status === '已送出') {
+                warn.textContent = '這筆已送出。已經寫進盤點的數量不會被改。';
+                warn.classList.remove('hidden');
+            } else {
+                warn.textContent = '';
+                warn.classList.add('hidden');
+            }
+            document.getElementById('spDeleteConfirm').classList.remove('hidden');
+        };
+        window.cancelSpecialDelete = function() {
+            pendingSpecialDelete = null;
+            document.getElementById('spDeleteConfirm').classList.add('hidden');
+        };
+        window.confirmSpecialDelete = async function() {
+            const row = pendingSpecialDelete;
+            if (!row) return;
+            const ok = document.getElementById('spDeleteOk');
+            if (ok) ok.disabled = true;
+            try {
+                const applied = deleteItem(specialRows, row.id, { time: new Date().toISOString(), allowSent: true });
+                const next = applied.upserts[0];
+                if (new URLSearchParams(location.search).get('specialMock') === '1') {
+                    localStorage.setItem('baiqi_special_items_mock_v1', JSON.stringify(applied.docs));
+                } else {
+                    await setDoc(doc(db, 'special_items', next.id), specialDeleteShape(next), { merge: true });
+                }
+                specialRows = applied.docs;
+                pendingSpecialDelete = null;
+                document.getElementById('spDeleteConfirm').classList.add('hidden');
+                applySpecialFilters();
+                showToast('已刪除');
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || '沒有刪除');
+            } finally {
+                if (ok) ok.disabled = false;
+            }
+        };
+        document.getElementById('spDeleteOk').addEventListener('click', () => window.confirmSpecialDelete());
+        document.getElementById('spDeleteCancel').addEventListener('click', () => window.cancelSpecialDelete());
+
         window.loadSpecialData = async function() {
             const body = document.getElementById('spTableBody');
             const button = document.getElementById('spLoadBtn');
             if (!body) return;
             if (button) button.disabled = true;
-            body.innerHTML = '<tr class="main-row"><td colspan="10" class="py-20 text-center text-gray-500 font-medium">載入中...</td></tr>';
+                body.innerHTML = '<tr class="main-row"><td colspan="11" class="py-20 text-center text-gray-500 font-medium">載入中...</td></tr>';
             try {
                 if (new URLSearchParams(location.search).get('specialMock') === '1') {
                     specialRows = JSON.parse(localStorage.getItem('baiqi_special_items_mock_v1') || '[]');
@@ -2679,7 +2767,7 @@
             } catch (error) {
                 console.error(error);
                 const denied = (error && error.code) === 'permission-denied' || /permission-denied|insufficient permissions|PERMISSION_DENIED/i.test(String(error && error.message || ''));
-                body.innerHTML = `<tr class="main-row"><td colspan="10" class="py-16 text-center text-red-600 font-bold">${specialEsc(denied ? '沒有讀取權限。請在 Firebase 規則允許 special_items 讀取。' : '載入失敗：' + (error.message || error))}</td></tr>`;
+                body.innerHTML = `<tr class="main-row"><td colspan="11" class="py-16 text-center text-red-600 font-bold">${specialEsc(denied ? '沒有讀取權限。請在 Firebase 規則允許 special_items 讀取。' : '載入失敗：' + (error.message || error))}</td></tr>`;
             } finally {
                 if (button) button.disabled = false;
             }

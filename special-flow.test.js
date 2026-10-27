@@ -215,12 +215,19 @@ test('sent lines cannot be edited or deleted, and a soft delete leaves the scree
     const sent = sendSheet(signed.docs, [sheet.id], { signature: 'office', time: '2026-10-27T07:00:00.000Z' });
     assert.throws(() => editItem(sent.docs, sheet.id, { hotel: '好六', item: '床單', qty: 2, time: '2026-10-27T08:00:00.000Z', acceptResign: true }), /已送出，無法修改/);
     assert.throws(() => deleteItem(sent.docs, sheet.id, { time: '2026-10-27T08:00:00.000Z' }), /已送出，無法修改/);
+    const forced = deleteItem(sent.docs, sheet.id, { time: '2026-10-27T08:30:00.000Z', allowSent: true });
+    const forcedDoc = forced.docs.find(doc => doc.id === sheet.id);
+    assert.equal(forcedDoc.deleted, true);
+    assert.equal(forcedDoc.edits.at(-1).deleted, true);
+    assert.equal(officeSheets(forced.docs).some(group => group.items.some(item => item.id === sheet.id)), false);
     const cover = sent.docs.find(doc => doc.item === '特處被套');
     const removed = deleteItem(sent.docs, cover.id, { time: '2026-10-27T08:00:00.000Z' });
     const gone = removed.docs.find(doc => doc.id === cover.id);
     assert.equal(gone.deleted, true);
     assert.equal(gone.deletedAt, '2026-10-27T08:00:00.000Z');
     assert.equal(gone.history.at(-1).type, 'deleted');
+    assert.equal(gone.edits.at(-1).deleted, true);
+    assert.deepEqual(gone.edits.at(-1).before, { hotel: '好六', item: '特處被套', qty: 1 });
     assert.equal(foldCards(removed.docs).flatMap(card => card.hotels.flatMap(hotel => hotel.lines)).some(line => line.id === cover.id), false);
     assert.equal(officeSheets(removed.docs).some(group => group.items.some(item => item.id === cover.id)), false);
     assert.equal(removed.docs.some(doc => doc.id === cover.id), true);
@@ -253,4 +260,102 @@ test('one message shares an entry id, and deleting it removes every unsent line'
     const sent = sendSheet(signed.docs, [blocked.docs[0].id], { signature: 'office', time: '2026-10-27T07:00:00.000Z' });
     assert.equal(entryMates(sent.docs, sent.docs[1]).length, 0);
     assert.throws(() => deleteEntry(sent.docs, 'en_sent', { time: '2026-10-27T08:00:00.000Z' }), /已經送出/);
+});
+
+function liveRework(docs) {
+    return docs.filter(doc => !doc.deleted && doc.status === '重工中');
+}
+
+test('re-signing replaces the signature and recomputes the one rework split', () => {
+    const idFactory = ids();
+    const ship = { shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單' };
+    const created = addParsedEntry([], entry('好六被套三'), { time: '2026-10-27T01:00:00.000Z', idFactory });
+    const original = created.docs[0];
+    const signed = signItem(created.docs, original.id, {
+        shipQty: 2, signature: 'sig-old', reason: '髒污', ...ship, time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    assert.equal(liveRework(signed.docs).length, 1);
+    assert.equal(liveRework(signed.docs)[0].qty, 1);
+    assert.equal(liveRework(signed.docs)[0].splitOf, original.id);
+    assert.throws(() => signItem(signed.docs, original.id, {
+        shipQty: 1, signature: 'sig-new', reason: '', ...ship, time: '2026-10-27T08:00:00.000Z', idFactory,
+    }), /退回原因/);
+    const again = signItem(signed.docs, original.id, {
+        shipQty: 1, signature: 'sig-new', reason: '黃斑', ...ship, time: '2026-10-27T08:00:00.000Z', idFactory,
+    });
+    const parent = again.docs.find(doc => doc.id === original.id);
+    const rework = liveRework(again.docs);
+    assert.equal(parent.qty, 1);
+    assert.equal(parent.foldSignature, 'sig-new');
+    assert.equal(parent.foldSignedAt, '2026-10-27T08:00:00.000Z');
+    assert.equal(parent.status, '已簽名');
+    assert.equal(parent.edits[0].before.qty, 2);
+    assert.equal(parent.edits[0].before.foldSignature, 'sig-old');
+    assert.equal(parent.edits[0].before.foldSignedAt, '2026-10-27T06:05:00.000Z');
+    assert.equal(parent.edits[0].after.qty, 1);
+    assert.equal(parent.edits[0].after.foldSignature, 'sig-new');
+    assert.equal(parent.history.filter(event => event.type === 'signed').length, 2);
+    assert.equal(parent.history.some(event => event.type === 'resigned' && event.previousQty === 2), true);
+    assert.equal(rework.length, 1);
+    assert.equal(rework[0].qty, 2);
+    assert.equal(rework[0].splitOf, original.id);
+    assert.equal(again.docs.filter(doc => doc.splitOf === original.id && !doc.deleted).length, 1);
+    const full = signItem(again.docs, original.id, {
+        shipQty: 3, signature: 'sig-all', reason: '', shipDate: '2026-10-28', shipRule: '隔日', time: '2026-10-27T09:00:00.000Z', idFactory,
+    });
+    const done = full.docs.find(doc => doc.id === original.id);
+    assert.equal(done.qty, 3);
+    assert.equal(done.foldSignature, 'sig-all');
+    assert.equal(done.shipDate, '2026-10-28');
+    assert.equal(liveRework(full.docs).length, 0);
+    assert.equal(full.docs.some(doc => doc.deleted && doc.splitOf === original.id), true);
+    assert.equal(foldCards(full.docs).flatMap(card => card.hotels.flatMap(hotel => hotel.lines)).length, 1);
+    assert.equal(officeSheets(full.docs)[0].items[0].qty, 3);
+    const sent = sendSheet(full.docs, [original.id], { signature: 'office', time: '2026-10-27T10:00:00.000Z' });
+    assert.throws(() => signItem(sent.docs, original.id, {
+        shipQty: 3, signature: 'nope', reason: '', ...ship, time: '2026-10-27T11:00:00.000Z', idFactory,
+    }), /已送出，無法修改/);
+});
+
+test('a later rework split is folded back into one row when the signature is redone', () => {
+    const idFactory = ids();
+    const ship = { shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單' };
+    const created = addParsedEntry([], entry('好六被套三'), { time: '2026-10-27T01:00:00.000Z', idFactory });
+    const original = created.docs[0];
+    const signed = signItem(created.docs, original.id, {
+        shipQty: 1, signature: 'sig-old', reason: '髒污', ...ship, time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    const child = liveRework(signed.docs)[0];
+    const split = reworkItem(signed.docs, child.id, { reworkQty: 1, reason: '破損', time: '2026-10-27T07:00:00.000Z', idFactory });
+    assert.equal(liveRework(split.docs).length, 2);
+    const again = signItem(split.docs, original.id, {
+        shipQty: 2, signature: 'sig-new', reason: '黃斑', ...ship, time: '2026-10-27T08:00:00.000Z', idFactory,
+    });
+    const rework = liveRework(again.docs);
+    assert.equal(rework.length, 1);
+    assert.equal(rework[0].qty, 1);
+    assert.equal(again.docs.find(doc => doc.id === original.id).qty, 2);
+    assert.equal(again.docs.filter(doc => !doc.deleted).length, 2);
+});
+
+test('an older split without splitOf is still reused instead of duplicated', () => {
+    const idFactory = ids();
+    const ship = { shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單' };
+    const created = addParsedEntry([], entry('文七足巾二'), { time: '2026-10-27T01:00:00.000Z', idFactory });
+    const signed = signItem(created.docs, created.docs[0].id, {
+        shipQty: 1, signature: 'sig-old', reason: '髒污', ...ship, time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    const legacy = signed.docs.map(doc => {
+        if (doc.splitOf) {
+            const { splitOf, ...rest } = doc;
+            return rest;
+        }
+        return doc;
+    });
+    const again = signItem(legacy, created.docs[0].id, {
+        shipQty: 1, signature: 'sig-new', reason: '黃斑', ...ship, time: '2026-10-27T08:00:00.000Z', idFactory,
+    });
+    assert.equal(liveRework(again.docs).length, 1);
+    assert.equal(liveRework(again.docs)[0].qty, 1);
+    assert.equal(liveRework(again.docs)[0].id, signed.docs.find(doc => doc.status === '重工中').id);
 });

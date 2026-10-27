@@ -14,7 +14,7 @@
         @media (min-width: 800px) { .day-card { flex-basis: 340px; } }
         .step-btn { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; font-weight: 900; background: #e2e8f0; }
     </style>
-    <link rel="stylesheet" href="special-theme-factory.css?v=20261027-edit">
+    <link rel="stylesheet" href="special-theme-factory.css?v=20261027-resign">
 </head>
 <body class="pb-10">
     <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold opacity-0 pointer-events-none z-[80] transition-opacity"></div>
@@ -90,20 +90,11 @@
         </div>
     </div>
 
-    <div id="deleteConfirm" class="hidden fixed inset-0 z-[70] flex items-end justify-center p-3" role="alertdialog" aria-modal="true" aria-labelledby="deleteConfirmTitle" data-testid="delete-confirm">
-        <div class="w-full max-w-md p-4">
-            <h2 id="deleteConfirmTitle" data-testid="delete-confirm-title" class="text-2xl font-black mb-2"></h2>
-            <p id="deleteConfirmNote"></p>
-            <button type="button" data-action="confirm-delete" data-testid="confirm-delete" class="w-full py-4 font-black text-lg">刪除</button>
-            <button type="button" data-action="cancel-delete" data-testid="cancel-delete" class="w-full mt-2 py-3 font-black">取消</button>
-        </div>
-    </div>
-
     <script type="module">
         import { FALLBACK_HOTELS, FALLBACK_ITEMS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { parseSpecialEntry } from './special-parser.js?v=20261027-special';
         import { computeShipDate, shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName, editItem, deleteItem, deleteEntry, entryMates, foldCards, officeSheets, reworkBadge, signedMark, newSpecialId } from './special-flow.js?v=20261027-edit';
+        import { addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261027-resign';
         import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261027-inventory';
         import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-inventory';
 
@@ -120,11 +111,8 @@
         let mode = 'fold';
         let saving = false;
         let popupId = null;
-        let popupMode = 'view';
         let shipQty = 1;
         let reworkQty = 1;
-        let editQty = 1;
-        let deleteMode = 'item';
         let reason = '';
         let officeIds = [];
         let foldPad = null;
@@ -160,7 +148,16 @@
                 if (event.reason) row.reason = event.reason;
                 if (event.qty != null) row.qty = event.qty;
                 if (event.signature) row.signature = event.signature;
+                if (event.previousQty != null) row.previousQty = event.previousQty;
+                if (event.previousSignedAt) row.previousSignedAt = event.previousSignedAt;
                 return row;
+            });
+            const snap = side => ({
+                hotel: side?.hotel || '',
+                item: side?.item || '',
+                qty: side?.qty ?? 0,
+                foldSignedAt: side?.foldSignedAt || '',
+                foldSignature: side?.foldSignature || '',
             });
             return {
                 hotel: item.hotel, receivedDate: item.receivedDate, item: item.item, qty: item.qty,
@@ -168,12 +165,13 @@
                 status: item.status, history, foldSignature: item.foldSignature || '', foldSignedAt: item.foldSignedAt || '',
                 shipDate: item.shipDate || '', shipRule: item.shipRule || '', officeName: item.officeName || item.item,
                 officeSignature: item.officeSignature || '', sentAt: item.sentAt || '', unknown: !!item.unknown,
-                entryId: item.entryId || '', deleted: !!item.deleted, deletedAt: item.deletedAt || '',
+                entryId: item.entryId || '', splitOf: item.splitOf || '', deleted: !!item.deleted, deletedAt: item.deletedAt || '',
                 edits: (item.edits || []).map(edit => ({
                     time: edit.time || '',
-                    before: { hotel: edit.before?.hotel || '', item: edit.before?.item || '', qty: edit.before?.qty ?? 0 },
-                    after: { hotel: edit.after?.hotel || '', item: edit.after?.item || '', qty: edit.after?.qty ?? 0 },
+                    before: snap(edit.before),
+                    after: snap(edit.after),
                     clearedSignature: !!edit.clearedSignature,
+                    deleted: !!edit.deleted,
                 })),
             };
         }
@@ -393,7 +391,7 @@
             }).join('');
         }
         function historyHtml(doc) {
-            const label = { created: '寫入', rework: '退回重工', signed: '簽名可出貨', split: '拆分', sent: '辦公室送出', edited: '修改', deleted: '刪除' };
+            const label = { created: '寫入', rework: '退回重工', signed: '簽名可出貨', split: '拆分', sent: '辦公室送出', edited: '修改', deleted: '刪除', resigned: '重新簽名' };
             const rounds = [];
             for (const event of doc.history || []) {
                 const round = event.round || 1;
@@ -416,34 +414,6 @@
                 return `<p>${lines}</p>`;
             }).join('');
         }
-        function foldSigned(doc) {
-            return doc.status === '已簽名' || !!doc.foldSignature;
-        }
-        function manageButtons(doc) {
-            const mates = entryMates(docs, doc);
-            const whole = mates.length > 1
-                ? `<button type="button" data-action="ask-delete-entry" data-testid="delete-entry" class="manage-btn manage-danger w-full">刪除這次輸入的全部（${mates.length}）</button>`
-                : '';
-            return `<div class="manage-row">
-                <button type="button" data-action="start-edit" data-testid="edit-item" class="manage-btn">修改</button>
-                <button type="button" data-action="ask-delete" data-testid="delete-item" class="manage-btn manage-danger">刪除</button>
-                ${whole}
-            </div>`;
-        }
-        function editForm(doc) {
-            const options = hotels.map(name => `<option value="${esc(name)}"></option>`).join('');
-            return `<div class="edit-form">
-                <label for="editHotel">飯店</label>
-                <input id="editHotel" data-testid="edit-hotel" list="editHotelList" value="${esc(doc.hotel)}" autocomplete="off">
-                <datalist id="editHotelList">${options}</datalist>
-                <label for="editItemName">品名</label>
-                <input id="editItemName" data-testid="edit-item-name" value="${esc(doc.item)}" autocomplete="off">
-                <div class="flex items-center gap-3 mt-3"><span class="font-black">數量</span><button type="button" class="step-btn" data-action="step" data-which="edit" data-dir="-1">－</button><b id="editQtyLabel" class="text-2xl w-8 text-center">${editQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="edit" data-dir="1">＋</button></div>
-                ${foldSigned(doc) ? '<p class="resign-note">修改後簽名會清除，要重新簽名。</p>' : ''}
-                <button type="button" data-action="save-edit" data-testid="save-edit">儲存</button>
-                <button type="button" data-action="cancel-edit">取消</button>
-            </div>`;
-        }
         function paintActions(doc) {
             const actions = document.getElementById('popupActions');
             const signature = doc.foldSignature ? `<img src="${esc(doc.foldSignature)}" alt="摺疊簽名" class="mt-3 h-20 border rounded bg-white">` : '';
@@ -451,37 +421,32 @@
                 actions.innerHTML = `${signature}<p data-testid="locked-note" class="locked-note">已送出，無法修改</p>`;
                 return;
             }
-            if (popupMode === 'warn') {
-                actions.innerHTML = `<div class="resign-warn"><p>這筆已簽名。修改後簽名會清除，要重新簽名。</p><button type="button" data-action="continue-edit" data-testid="continue-edit">繼續修改</button><button type="button" data-action="cancel-edit">取消</button></div>`;
-                return;
-            }
-            if (popupMode === 'edit') {
-                actions.innerHTML = editForm(doc);
-                return;
-            }
-            const manage = manageButtons(doc);
-            if (doc.status === '已簽名') {
-                actions.innerHTML = `${signature}${manage}`;
-                return;
-            }
-            const shipStep = doc.qty > 1 ? `<div class="flex items-center gap-3 mt-3"><span class="font-black">可出貨</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="-1">－</button><b id="shipQtyLabel" class="text-2xl w-8 text-center">${shipQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="1">＋</button></div><p id="partialHint" class="hidden text-sm font-bold text-amber-700 mt-1">沒有全部出貨的部分會退回重工，請選原因</p>` : '';
-            const reworkStep = doc.qty > 1 ? `<div class="flex items-center gap-3 mt-2"><span class="font-black">退回</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="-1">－</button><b id="reworkQtyLabel" class="text-2xl w-8 text-center">${reworkQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="1">＋</button></div>` : '';
-            actions.innerHTML = `${manage}${shipStep}
+            const pool = signPoolQty(docs, doc);
+            const resigning = doc.status === '已簽名';
+            const hint = resigning
+                ? `<p data-testid="resign-hint" class="resign-note">已簽名 ${esc(formatTaipeiStamp(doc.foldSignedAt))}，重新簽名會覆蓋</p>`
+                : '';
+            const shipStep = pool > 1 ? `<div class="flex items-center gap-3 mt-3"><span class="font-black">可出貨</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="-1">－</button><b id="shipQtyLabel" class="text-2xl w-8 text-center">${shipQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="1">＋</button></div><p id="partialHint" class="hidden text-sm font-bold text-amber-700 mt-1">沒有全部出貨的部分會退回重工，請選原因</p>` : '';
+            const reworkStep = !resigning && doc.qty > 1 ? `<div class="flex items-center gap-3 mt-2"><span class="font-black">退回</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="-1">－</button><b id="reworkQtyLabel" class="text-2xl w-8 text-center">${reworkQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="1">＋</button></div>` : '';
+            const reworkBlock = resigning
+                ? (pool > 1 ? `<div class="mt-4 pt-3 border-t"><p class="font-black text-red-700 mb-2">沒出完的原因</p><div class="flex flex-wrap gap-2">${reasonChips()}</div></div>` : '')
+                : `<div class="mt-4 pt-3 border-t"><p class="font-black text-red-700 mb-2">退回原因</p><div class="flex flex-wrap gap-2">${reasonChips()}</div>${reworkStep}
+                <button type="button" data-action="confirm-rework" data-testid="rework-confirm" class="w-full mt-3 py-4 rounded-xl bg-red-600 text-white font-black">發現髒污，退回重工</button></div>`;
+            const signLabel = resigning ? '重新簽名，可以出貨' : '簽名完成，可以出貨';
+            actions.innerHTML = `${hint}${shipStep}
                 <div class="flex justify-between items-center mt-3"><span class="font-black">摺疊簽名</span><button type="button" data-action="clear-fold" class="text-sm font-black text-red-600">清除</button></div>
                 <canvas id="foldCanvas" class="sign-canvas" data-testid="sign-pad"></canvas>
-                <button type="button" data-action="confirm-sign" data-testid="sign-confirm" class="w-full mt-3 py-4 rounded-xl bg-green-600 text-white font-black text-lg">簽名完成，可以出貨</button>
-                <div class="mt-4 pt-3 border-t"><p class="font-black text-red-700 mb-2">退回原因</p><div class="flex flex-wrap gap-2">${reasonChips()}</div>${reworkStep}
-                <button type="button" data-action="confirm-rework" data-testid="rework-confirm" class="w-full mt-3 py-4 rounded-xl bg-red-600 text-white font-black">發現髒污，退回重工</button></div>`;
+                <button type="button" data-action="confirm-sign" data-testid="sign-confirm" class="w-full mt-3 py-4 rounded-xl bg-green-600 text-white font-black text-lg">${signLabel}</button>
+                ${reworkBlock}`;
             requestAnimationFrame(() => { foldPad = setupPad(document.getElementById('foldCanvas')); });
         }
         function openItem(id) {
             const doc = docs.find(item => item.id === id);
             if (!doc || doc.deleted) return;
             popupId = id;
-            popupMode = 'view';
-            shipQty = doc.qty;
+            const pool = signPoolQty(docs, doc);
+            shipQty = Math.min(Math.max(1, doc.qty), Math.max(1, pool));
             reworkQty = doc.qty;
-            editQty = doc.qty;
             reason = '';
             document.getElementById('popupTitle').textContent = `${doc.hotel}・${doc.item}*${doc.qty}`;
             document.getElementById('popupDate').textContent = `收件日 ${taipeiParts(`${doc.receivedDate}T00:00:00+08:00`).md}`;
@@ -492,15 +457,8 @@
         }
         function closeItem() {
             popupId = null;
-            popupMode = 'view';
             foldPad = null;
             document.getElementById('itemPopup').classList.add('hidden');
-            document.getElementById('deleteConfirm').classList.add('hidden');
-        }
-        function openDeleteConfirm(title, note) {
-            document.getElementById('deleteConfirmTitle').textContent = title;
-            document.getElementById('deleteConfirmNote').textContent = note || '';
-            document.getElementById('deleteConfirm').classList.remove('hidden');
         }
         function paintReason() {
             document.querySelectorAll('[data-reason]').forEach(button => {
@@ -509,7 +467,7 @@
             });
             const doc = currentPopupDoc();
             const hint = document.getElementById('partialHint');
-            if (hint && doc) hint.classList.toggle('hidden', shipQty >= doc.qty);
+            if (hint && doc) hint.classList.toggle('hidden', shipQty >= signPoolQty(docs, doc));
         }
         function chosenReason() {
             return reason;
@@ -570,7 +528,9 @@
             const doc = currentPopupDoc();
             if (!doc || saving) return;
             if (!foldPad?.hasInk()) return toast('請先簽名');
-            if (shipQty < doc.qty && !chosenReason()) return toast('數量沒有全部出貨，請選擇退回原因');
+            const pool = signPoolQty(docs, doc);
+            if (shipQty < pool && !chosenReason()) return toast('數量沒有全部出貨，請選擇退回原因');
+            const resigning = doc.status === '已簽名';
             try {
                 saving = true;
                 const time = new Date().toISOString();
@@ -584,7 +544,7 @@
                 docs = applied.docs;
                 closeItem();
                 render();
-                toast(shipQty < doc.qty ? '已拆成可出貨與重工' : '已簽名，可以出貨');
+                toast(resigning ? '已重新簽名' : (shipQty < pool ? '已拆成可出貨與重工' : '已簽名，可以出貨'));
             } catch (error) {
                 toast(error.message || '簽名沒有存好');
                 if (/權限不足/.test(error.message || '')) showBanner(error.message);
@@ -668,52 +628,6 @@
                 saving = false;
             }
         }
-        async function saveEdit() {
-            const doc = currentPopupDoc();
-            if (!doc || saving) return;
-            const hotel = document.getElementById('editHotel')?.value || '';
-            const itemName = document.getElementById('editItemName')?.value || '';
-            const signed = foldSigned(doc);
-            try {
-                saving = true;
-                const applied = editItem(docs, doc.id, {
-                    hotel, item: itemName, qty: editQty, time: new Date().toISOString(), acceptResign: signed,
-                });
-                if (applied.upserts.length) {
-                    await persist(applied.upserts);
-                    docs = applied.docs;
-                }
-                closeItem();
-                render();
-                toast(applied.upserts.length ? (signed ? '已修改，請重新簽名' : '已修改') : '沒有變更');
-            } catch (error) {
-                toast(error.message || '沒有修改');
-                if (/權限不足/.test(error.message || '')) showBanner(error.message);
-            } finally {
-                saving = false;
-            }
-        }
-        async function confirmDelete() {
-            const doc = currentPopupDoc();
-            if (!doc || saving) return;
-            try {
-                saving = true;
-                const time = new Date().toISOString();
-                const applied = deleteMode === 'entry'
-                    ? deleteEntry(docs, doc.entryId, { time })
-                    : deleteItem(docs, doc.id, { time });
-                await persist(applied.upserts);
-                docs = applied.docs;
-                closeItem();
-                render();
-                toast('已刪除');
-            } catch (error) {
-                toast(error.message || '沒有刪除');
-                if (/權限不足/.test(error.message || '')) showBanner(error.message);
-            } finally {
-                saving = false;
-            }
-        }
         function dictate() {
             const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!Rec) return toast('這台手機請用鍵盤上的麥克風');
@@ -746,51 +660,14 @@
                 const doc = currentPopupDoc();
                 if (!doc) return;
                 const dir = Number(button.dataset.dir);
-                if (button.dataset.which === 'edit') editQty = Math.min(999, Math.max(1, editQty + dir));
-                else if (button.dataset.which === 'ship') shipQty = Math.min(doc.qty, Math.max(1, shipQty + dir));
+                const pool = signPoolQty(docs, doc);
+                if (button.dataset.which === 'ship') shipQty = Math.min(pool, Math.max(1, shipQty + dir));
                 else reworkQty = Math.min(doc.qty, Math.max(1, reworkQty + dir));
                 const shipLabel = document.getElementById('shipQtyLabel');
                 const reworkLabel = document.getElementById('reworkQtyLabel');
-                const editLabel = document.getElementById('editQtyLabel');
                 if (shipLabel) shipLabel.textContent = String(shipQty);
                 if (reworkLabel) reworkLabel.textContent = String(reworkQty);
-                if (editLabel) editLabel.textContent = String(editQty);
                 paintReason();
-            } else if (action === 'start-edit') {
-                const doc = currentPopupDoc();
-                if (!doc || doc.status === '已送出') return;
-                editQty = doc.qty;
-                popupMode = foldSigned(doc) ? 'warn' : 'edit';
-                paintActions(doc);
-            } else if (action === 'continue-edit') {
-                const doc = currentPopupDoc();
-                if (!doc) return;
-                popupMode = 'edit';
-                paintActions(doc);
-            } else if (action === 'cancel-edit') {
-                if (popupId) openItem(popupId);
-            } else if (action === 'save-edit') saveEdit();
-            else if (action === 'ask-delete') {
-                const doc = currentPopupDoc();
-                if (!doc || doc.status === '已送出') return;
-                deleteMode = 'item';
-                openDeleteConfirm(
-                    `確定刪除 ${doc.item}*${doc.qty}？`,
-                    foldSigned(doc) ? '這筆已簽名。刪除後會從摺疊和辦公室畫面拿掉。' : '',
-                );
-            } else if (action === 'ask-delete-entry') {
-                const doc = currentPopupDoc();
-                if (!doc) return;
-                const mates = entryMates(docs, doc);
-                if (mates.length < 2) return;
-                deleteMode = 'entry';
-                openDeleteConfirm(
-                    `確定刪除這次輸入的 ${mates.length} 項？`,
-                    mates.map(row => `${row.item}*${row.qty}`).join('、'),
-                );
-            } else if (action === 'confirm-delete') confirmDelete();
-            else if (action === 'cancel-delete') {
-                document.getElementById('deleteConfirm').classList.add('hidden');
             } else if (action === 'close-name-alert') {
                 document.getElementById('nameAlert').classList.add('hidden');
             } else if (action === 'open-office') {
