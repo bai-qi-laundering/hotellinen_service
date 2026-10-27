@@ -14,7 +14,7 @@
         @media (min-width: 800px) { .day-card { flex-basis: 340px; } }
         .step-btn { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; font-weight: 900; background: #e2e8f0; }
     </style>
-    <link rel="stylesheet" href="special-theme-factory.css?v=20261027-factory">
+    <link rel="stylesheet" href="special-theme-factory.css?v=20261027-name-alert">
 </head>
 <body class="pb-10">
     <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold opacity-0 pointer-events-none z-[80] transition-opacity"></div>
@@ -51,7 +51,7 @@
         </main>
 
         <main id="officePane" class="px-3 hidden" data-testid="office-pane">
-            <p class="text-sm text-slate-500 font-bold mt-3 mb-2">已簽名、尚未送出的特處。出貨品名要和這間飯店的盤點品項一模一樣，打字時會帶出品名。</p>
+            <p class="text-sm text-slate-500 font-bold mt-3 mb-2">已簽名、尚未送出的特處。出貨品名要和這間飯店的盤點品項一模一樣。</p>
             <div id="sheetList"></div>
         </main>
     </div>
@@ -78,6 +78,15 @@
                 <button type="button" data-action="close-office" class="py-3 rounded-xl bg-slate-200 font-black">取消</button>
                 <button type="button" data-action="confirm-office" data-testid="office-confirm" class="py-3 rounded-xl bg-blue-700 text-white font-black">確認送出</button>
             </div>
+        </div>
+    </div>
+
+    <div id="nameAlert" class="hidden fixed inset-0 z-[70] flex items-end justify-center p-3" role="alertdialog" aria-modal="true" aria-labelledby="nameAlertTitle">
+        <div class="w-full max-w-md p-4">
+            <h2 id="nameAlertTitle" class="text-2xl font-black mb-2">品名和盤點不一致</h2>
+            <p class="font-bold mb-3">出貨品名必須和這間飯店的盤點品項一模一樣，才能匯入出貨單。</p>
+            <ul id="nameAlertList"></ul>
+            <button type="button" data-action="close-name-alert" data-testid="name-alert-close" class="w-full py-4 font-black text-lg">知道了</button>
         </div>
     </div>
 
@@ -298,15 +307,21 @@
             return hotelNames(hotel).includes(String(name || '').trim());
         }
         function paintOfficeInput(input) {
-            const row = input.closest('[data-office-row]');
-            if (!row) return;
             const bad = catalogReady && !nameMatches(input.dataset.hotel, input.value);
             input.classList.toggle('border-red-500', bad);
             input.classList.toggle('bg-red-50', bad);
             input.classList.toggle('border-blue-300', !bad);
             input.classList.toggle('bg-blue-50/40', !bad);
-            row.querySelector('[data-office-error]')?.classList.toggle('hidden', !bad);
-            row.querySelector('[data-office-suggest]')?.classList.toggle('hidden', !bad);
+        }
+        function showNameAlert(lines) {
+            const names = [];
+            for (const line of lines) {
+                const name = String(line.officeName || '').trim();
+                const label = name || '（空白）';
+                if (!names.includes(label)) names.push(label);
+            }
+            document.getElementById('nameAlertList').innerHTML = names.map(name => `<li>${esc(name)}</li>`).join('');
+            document.getElementById('nameAlert').classList.remove('hidden');
         }
         function renderSheets() {
             if (document.activeElement?.dataset?.officeFor) return;
@@ -317,23 +332,17 @@
                 return;
             }
             host.innerHTML = sheets.map((sheet, index) => {
-                const names = hotelNames(sheet.hotel);
-                const listId = `inv-items-${index}`;
-                const options = names.map(name => `<option value="${esc(name)}"></option>`).join('');
-                const suggestions = names.map(name => `<button type="button" data-action="use-item" data-id-for="" data-name="${esc(name)}" class="block w-full text-left px-2 py-1 rounded-lg font-bold text-blue-800 active:bg-blue-100">${esc(name)}</button>`).join('');
                 const rows = sheet.items.map(item => {
                     const name = esc(item.officeName || item.item);
                     const bad = !sheet.sent && catalogReady && !nameMatches(sheet.hotel, item.officeName || item.item);
                     const field = sheet.sent
                         ? `<div class="text-xs font-bold text-slate-400">出貨品名</div><div class="text-lg font-black">${name}</div>`
-                        : `<label class="block text-xs font-bold text-slate-400">出貨品名</label><input data-office-for="${esc(item.id)}" data-hotel="${esc(sheet.hotel)}" data-testid="office-name" value="${name}" list="${listId}" class="w-full border-b-2 text-lg font-black outline-none py-1 px-1 rounded-sm ${bad ? 'border-red-500 bg-red-50' : 'border-blue-300 bg-blue-50/40'}">`;
+                        : `<label class="block text-xs font-bold text-slate-400">出貨品名</label><input data-office-for="${esc(item.id)}" data-hotel="${esc(sheet.hotel)}" data-testid="office-name" value="${name}" autocomplete="off" class="w-full border-b-2 text-lg font-black outline-none py-1 px-1 rounded-sm ${bad ? 'border-red-500 bg-red-50' : 'border-blue-300 bg-blue-50/40'}">`;
                     const thumb = item.foldSignature
                         ? `<img src="${esc(item.foldSignature)}" alt="摺疊簽名" class="h-12 max-w-[88px] border rounded bg-white object-contain">`
                         : '<span class="text-xs text-slate-400">無簽名</span>';
-                    const help = sheet.sent ? '' : `<p data-office-error data-testid="name-mismatch" class="${bad ? '' : 'hidden'} text-sm font-black text-red-600 mt-1">品名和盤點不一致</p><div data-office-suggest class="${bad ? '' : 'hidden'} max-h-36 overflow-y-auto mt-1 rounded-xl border border-red-200 bg-red-50 p-1">${suggestions.replaceAll('data-id-for=""', `data-id-for="${esc(item.id)}"`)}</div>`;
                     return `<div class="py-3 border-b border-slate-100" data-office-row="${esc(item.id)}">
                         <div class="flex items-center gap-3">${field}<span class="text-2xl font-black text-slate-700">${item.qty}</span></div>
-                        ${help}
                         <div class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500">${thumb}<span>摺疊 ${esc(formatTaipeiStamp(item.foldSignedAt))}</span></div>
                     </div>`;
                 }).join('');
@@ -342,7 +351,6 @@
                     : `<button type="button" data-action="open-office" data-sheet="${index}" data-testid="office-send" class="w-full mt-3 py-4 rounded-xl bg-blue-700 text-white font-black text-lg">匯入出貨單</button>`;
                 return `<article class="bg-white rounded-2xl shadow border border-slate-200 overflow-hidden mb-4" data-sheet-index="${index}">
                     <header class="bg-blue-800 text-white p-4"><h2 class="text-3xl font-black">${esc(sheet.hotel)}</h2><p class="text-blue-100 text-sm font-bold mt-1">${esc(shipDateLabel(sheet.shipDate, sheet.shipRule))}</p></header>
-                    <datalist id="${listId}">${options}</datalist>
                     <div class="px-4 pb-4">${rows}${footer}</div>
                 </article>`;
             }).join('');
@@ -553,6 +561,14 @@
                 if (!catalogReady) return toast('盤點品項還沒載入，請稍後再試');
                 const lines = sheetLines(officeIds);
                 const hotel = lines[0]?.hotel || '';
+                const bad = lines.filter(item => !nameMatches(hotel, item.officeName));
+                if (bad.length) {
+                    document.getElementById('officePopup').classList.add('hidden');
+                    officePad = null;
+                    document.querySelectorAll('[data-office-for]').forEach(paintOfficeInput);
+                    showNameAlert(bad);
+                    return;
+                }
                 const signature = await storeSignature(officePad.dataUrl(), officeIds[0] || 'sheet', 'office');
                 const time = new Date().toISOString();
                 const records = buildInventoryWrites(lines, catalog.get(hotel), {
@@ -571,7 +587,7 @@
                     document.getElementById('officePopup').classList.add('hidden');
                     officePad = null;
                     document.querySelectorAll('[data-office-for]').forEach(paintOfficeInput);
-                    toast('品名和盤點不一致');
+                    showNameAlert(sheetLines(error.ids));
                     return;
                 }
                 toast(error.message || '沒有送出');
@@ -619,12 +635,8 @@
                 if (shipLabel) shipLabel.textContent = String(shipQty);
                 if (reworkLabel) reworkLabel.textContent = String(reworkQty);
                 paintReason();
-            } else if (action === 'use-item') {
-                const input = document.querySelector(`[data-office-for="${CSS.escape(button.dataset.idFor)}"]`);
-                if (!input) return;
-                input.value = button.dataset.name || '';
-                paintOfficeInput(input);
-                saveOfficeName(input);
+            } else if (action === 'close-name-alert') {
+                document.getElementById('nameAlert').classList.add('hidden');
             } else if (action === 'open-office') {
                 flushOfficeNames().then(() => {
                     if (!catalogReady) return toast('盤點品項還沒載入，請稍後再試');
@@ -632,7 +644,7 @@
                     const lines = sheet?.items || [];
                     const bad = lines.filter(item => !nameMatches(sheet.hotel, item.officeName));
                     document.querySelectorAll('[data-office-for]').forEach(paintOfficeInput);
-                    if (bad.length) return toast('品名和盤點不一致');
+                    if (bad.length) return showNameAlert(bad);
                     openOffice(Number(button.dataset.sheet));
                 }).catch(error => toast(error.message || '品名沒有存好'));
             } else if (action === 'close-office') {
