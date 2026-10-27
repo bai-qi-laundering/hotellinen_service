@@ -30,7 +30,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 #outletTabs button[aria-selected="true"]{background:#2563eb;color:white}
 input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}
 
-/* 模式切換與結帳對帳專屬樣式 */
+/* 模式切換與對帳查詢樣式 */
 .mode-switch{display:flex;gap:10px;margin:16px 0}
 .mode-switch button{flex:1;margin:0;min-height:58px;font-size:20px;padding:12px 10px;background:#e2e8f0;color:#334155;border-radius:12px}
 .mode-switch button[aria-selected="true"]{background:#1d4ed8;color:white;box-shadow:0 4px 10px rgba(29,78,216,.25)}
@@ -43,17 +43,20 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 .recon-actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
 .recon-actions button{flex:1;margin:0;min-height:56px;font-size:19px;padding:12px 14px}
 .btn-export{background:#059669}
-.btn-print{background:#475559}
+.btn-print{background:#475569}
 .recon-summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}
 .recon-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;text-align:center}
 .recon-card .num{font-size:28px;font-weight:800;color:#1d4ed8;line-height:1.2;margin-top:4px}
 .recon-card .lbl{font-size:16px;color:#475569;font-weight:600}
+.dup-alert{background:#fffbeb;border:2px solid #f59e0b;color:#92400e;border-radius:12px;padding:14px 16px;margin:14px 0;font-size:18px;font-weight:700}
+.dup-alert ul{margin:8px 0 0;padding-left:22px}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #cbd5e1;border-radius:12px;margin-top:14px;background:white}
 table.recon-table{width:100%;border-collapse:collapse;font-size:18px;min-width:480px}
 table.recon-table th,table.recon-table td{padding:12px 10px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0;text-align:right;white-space:nowrap}
 table.recon-table th:first-child,table.recon-table td:first-child{text-align:left;position:sticky;left:0;background:white;z-index:1;font-weight:700;border-right:2px solid #cbd5e1}
 table.recon-table thead th{background:#f1f5f9;color:#1e293b;font-weight:800;text-align:center}
 table.recon-table thead th:first-child{text-align:left;background:#f1f5f9;z-index:2}
+table.recon-table thead th.dup-col{background:#fef3c7;color:#92400e}
 table.recon-table tbody tr:nth-child(even) td{background:#f8fafc}
 table.recon-table tbody tr:nth-child(even) td:first-child{background:#f8fafc}
 table.recon-table tfoot th,table.recon-table tfoot td{background:#eff6ff;font-weight:800;color:#1e3a8a;border-top:2px solid #93c5fd}
@@ -63,18 +66,17 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
 .badge-nosend{display:inline-block;font-size:13px;padding:2px 6px;border-radius:6px;background:#f1f5f9;color:#64748b;font-weight:600}
 .daily-list{margin-top:20px;display:flex;flex-direction:column;gap:12px}
 .daily-item{border:1px solid #cbd5e1;border-radius:12px;padding:14px 16px;background:#f8fafc}
+.daily-item.is-dup{border:2px solid #f59e0b;background:#fffbeb}
 .daily-item-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid #e2e8f0;padding-bottom:10px;margin-bottom:10px}
 .daily-item-date{font-size:21px;font-weight:800;color:#1e3a8a}
 .daily-item-meta{font-size:15px;color:#475569}
 .daily-item-actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn-mini{width:auto;min-height:40px;padding:6px 12px;font-size:16px;margin:0;border-radius:8px;font-weight:700}
 .btn-edit{background:#2563eb;color:white}
-.btn-del{background:#dc2626;color:white}
+.btn-clear{background:#d97706;color:white}
 .daily-chips{display:flex;flex-wrap:wrap;gap:8px}
 .daily-chip{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:6px 12px;font-size:18px;font-weight:700;color:#1f2937}
 .daily-chip span{color:#2563eb;margin-left:4px;font-size:20px}
-.entry-SubActions{display:flex;gap:10px;margin-top:8px}
-.entry-SubActions button{margin:0;background:#dc2626;font-size:19px;min-height:56px}
 .admin-banner{background:#fef2f2;border:2px solid #ef4444;color:#991b1b;padding:10px 14px;border-radius:10px;font-size:17px;font-weight:700;margin-bottom:12px}
 
 @media(max-width:480px){
@@ -91,14 +93,13 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
  table.recon-table th,table.recon-table td{padding:6px 8px}
 }
 </style></head>
-<body><main id="mainContainer"><h1 id="title" title="連點 5 下可切換管理員強制修正模式">送洗對點單</h1><div id="adminBanner" class="admin-banner" hidden>🔓 管理員強制修正模式已啟用：可修改或刪除已點收鎖定之單據</div><p id="subtitle" class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a>
+<body><main id="mainContainer"><h1 id="title">送洗對點單</h1><div id="adminBanner" class="admin-banner" hidden>🔓 管理員模式已開啟：可強制清除已點收之跨日重複單據</div><p id="subtitle" class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a>
 
 <div class="mode-switch" role="tablist" aria-label="功能模式切換">
  <button id="tabEntry" type="button" role="tab" aria-selected="true">📝 填寫送洗對點單</button>
- <button id="tabReconcile" type="button" role="tab" aria-selected="false">📊 結帳對帳查詢</button>
+ <button id="tabReconcile" type="button" role="tab" aria-selected="false">📊 填寫紀錄對帳查詢</button>
 </div>
 
-<!-- 填單與對帳共用的部門與基礎設定區 -->
 <section id="topConfigSection">
  <label>部門<select id="department" disabled></select></label>
  <div id="entryDateBox">
@@ -115,7 +116,7 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
    <button type="button" id="btnLastMonth">上個月份</button>
    <button type="button" id="btnLast7Days">最近 7 天</button>
   </div>
-  <button type="button" id="btnRunReconcile" style="margin-top:16px;background:#1d4ed8">🔍 拉出填寫紀錄對帳</button>
+  <button type="button" id="btnRunReconcile" style="margin-top:16px;background:#1d4ed8">🔍 拉出飯店填寫紀錄</button>
  </div>
 </section>
 
@@ -135,17 +136,14 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
  </section>
  <p id="message" role="status"></p>
  <button id="submit" disabled>送出送洗對點單</button>
- <div id="deleteRecordBox" class="entry-SubActions" hidden>
-  <button id="btnDeleteCurrent" type="button">🗑️ 作廢並刪除此日填單紀錄（重複 KEY 單時使用）</button>
- </div>
 </form>
 
-<!-- 新增：結帳對帳結果區塊 -->
+<!-- 飯店查看原始填寫紀錄與跨日重複檢查區塊 -->
 <section id="reconcileSection" hidden>
- <h2 id="reconTitle" style="margin:0 0 8px;font-size:24px;color:#1e3a8a">結帳對帳明細</h2>
- <p id="reconStatus" class="muted" style="margin-top:0">請選擇飯店送洗日期區間後點選「拉出填寫紀錄對帳」。</p>
+ <h2 id="reconTitle" style="margin:0 0 8px;font-size:24px;color:#1e3a8a">飯店原始填寫紀錄明細</h2>
+ <p id="reconStatus" class="muted" style="margin-top:0">請選擇飯店送洗日期區間後點選「拉出飯店填寫紀錄」。</p>
  <div id="reconActions" class="recon-actions" hidden>
-  <button type="button" id="btnExportCsv" class="btn-export">📥 匯出對帳單 (Excel CSV)</button>
+  <button type="button" id="btnExportCsv" class="btn-export">📥 匯出填寫紀錄 (Excel CSV)</button>
   <button type="button" id="btnPrint" class="btn-print">🖨️ 列印 / 存成 PDF</button>
  </div>
  <div id="reconResult"></div>
@@ -164,25 +162,16 @@ const batchDrafts=new Map();let shownBatchId=null,activeBatchId='';
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
 $('sourceDate').value=today; // The receipt date is an outbound date, never an inbound default.
 
-// 預設對帳區間：本月 1 號 ～ 今天
 const [tYear,tMonth]=today.split('-');
 $('reconStartDate').value=`${tYear}-${tMonth}-01`;
 $('reconEndDate').value=today;
 
-// 連點標題 5 下可切換管理員強制修正模式
+// 連點標題 5 下可切換管理員模式（用於處理已鎖定卻跨日重複 KEY 的錯單）
 let titleClicks=0,titleTimer=null;
-function syncAdminBanner(){$('adminBanner').hidden=!adminMode;}
-syncAdminBanner();
+$('adminBanner').hidden=!adminMode;
 $('title').onclick=()=>{
- titleClicks++;
- clearTimeout(titleTimer);
- titleTimer=setTimeout(()=>{titleClicks=0;},1500);
- if(titleClicks>=5){
-  titleClicks=0;
-  adminMode=!adminMode;
-  syncAdminBanner();
-  if(currentMode==='reconcile')loadReconcile();else load();
- }
+ titleClicks++;clearTimeout(titleTimer);titleTimer=setTimeout(()=>{titleClicks=0;},1500);
+ if(titleClicks>=5){titleClicks=0;adminMode=!adminMode;$('adminBanner').hidden=!adminMode;if(currentMode==='reconcile')loadReconcile();else load();}
 };
 
 const back=new URL('logistics.html',location.href); if(hotel) back.searchParams.set('hotel',hotel); if(params.get('date')) back.searchParams.set('date',params.get('date')); $('back').href=back;
@@ -239,7 +228,6 @@ function addExtraItem(){
 $('addExtraItem').onclick=addExtraItem;
 $('extraItemName').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();addExtraItem();}};
 async function loadBatch(request,dept,sourceDate){
- $('deleteRecordBox').hidden=true;
  const groups=batchGroups(settings,sourceDate);
  const missing=groups.filter(group=>!batchDrafts.has(group.id));
  const loaded=await Promise.all(missing.map(async group=>{const snap=await getDocFromServer(doc(db,'sendwash_records',group.id)),record=snap.exists()?snap.data():null;const original=settings.filter(row=>row.department===group.department&&row.outlet===group.outlet),display=core.displayRows(original);const complete=supplementalRows(display,record);return {...group,rows:complete,current:record,values:complete.map(row=>record?(record.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};}));
@@ -247,7 +235,7 @@ async function loadBatch(request,dept,sourceDate){
  loaded.forEach(group=>batchDrafts.set(group.id,group));
  if(!groups.some(group=>group.id===activeBatchId))activeBatchId=(groups.find(group=>group.department===dept)||groups[0]).id;
  const selected=batchDrafts.get(activeBatchId),nav=$('outletTabs'),scroll=nav.scrollLeft;nav.replaceChildren();nav.hidden=false;
- groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(rawLocked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;if(currentMode==='reconcile'){activeOutlet=group.outlet;loadReconcile();}else{load();}};nav.append(button);});nav.scrollLeft=scroll;
+ groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(rawLocked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;if(currentMode==='reconcile'){activeOutlet=group.outlet;loadReconcile();}else{return load();}};nav.append(button);});nav.scrollLeft=scroll;
  rows=selected.rows;current=selected.current;shownBatchId=selected.id;
  const target=core.targetDate(hotel,selected.department,sourceDate,config.deliverySchedules);
  $('target').textContent=`共 ${groups.length} 個餐廳，切換填寫後一次送出。\n${selected.outlet} 預計送回：${target}`;
@@ -264,7 +252,6 @@ async function submitBatch(){
  const plans=groups.filter(group=>!locked(batchDrafts.get(group.id).current)).map(group=>{
   const draft=batchDrafts.get(group.id),targetDate=core.targetDate(hotel,group.department,sourceDate,latest.deliverySchedules);
   if(targetDate!==core.targetDate(hotel,group.department,sourceDate,config.deliverySchedules))throw new Error('收送日設定已更新，請重新整理後確認日期');
-  // Preserve historical unsplit quantities without offering the retired input.
   const retained=(draft.current?.items || []).filter(item=>core.retiredOutletItem({hotel,department:group.department,outlet:group.outlet,item:item.item}));
   return {...group,items:[...retained,...core.submissionItems(draft.rows,draft.values)],expected:draft.current?.revision || 0,targetDate};
  });
@@ -273,7 +260,7 @@ async function submitBatch(){
   const snapshots=[];for(const plan of plans)snapshots.push(await tx.get(doc(db,'sendwash_records',plan.id)));
   const receiptIds=[...new Set(plans.map(plan=>`${plan.targetDate}_${hotel}_${plan.department}`))],receipts=[];for(const id of receiptIds)receipts.push(await tx.get(doc(db,'logistics_records',id)));
   if(!adminMode&&receipts.some(snap=>snap.exists()&&(snap.data().driverSig||snap.data().clientSig)))throw new Error('餐廳總單已簽收，本次全部尚未送出');
-  const updates=plans.map((plan,i)=>{const old=snapshots[i].exists()?snapshots[i].data():{};if(!adminMode&&rawLocked(old))throw new Error(`${plan.outlet} 已開始點收，本次全部尚未送出，請重新載入確認`);if((old.revision || 0)!==plan.expected)throw new Error(`${plan.outlet} 已由其他人更新，本次全部尚未送出，請重新載入確認`);return {...old,hotel,department:plan.department,inventoryHotel:plan.rows[0].inventoryHotel,outlet:plan.outlet,sourceDate,targetDate:plan.targetDate,items:plan.items,notes:old.notes || {},noSendwash:plan.items.length===0,revision:plan.expected+1,submittedAt:new Date().toISOString()};});
+  const updates=plans.map((plan,i)=>{const old=snapshots[i].exists()?snapshots[i].data():{};if(!adminMode&&rawLocked(old))throw new Error(`${plan.outlet} 已開始點收，本次全部尚未送出，請重新載入確認`);if((old.revision || 0)!==plan.expected)throw new Error(`${plan.outlet} 已由其他人更新，本次全部尚未送出，請重新載入確認`);return {hotel,department:plan.department,inventoryHotel:plan.rows[0].inventoryHotel,outlet:plan.outlet,sourceDate,targetDate:plan.targetDate,items:plan.items,notes:old.notes || {},noSendwash:plan.items.length===0,revision:plan.expected+1,submittedAt:new Date().toISOString()};});
   plans.forEach((plan,i)=>tx.set(doc(db,'sendwash_records',plan.id),updates[i]));
  });
  shownBatchId=null;groups.forEach(group=>batchDrafts.delete(group.id));await load();$('message').textContent=`已一次送出 ${plans.length} 個餐廳！空白餐廳已登記本次無送洗，已點收的原單保留。`;
@@ -284,7 +271,7 @@ function renderOutlets(dept){
  outlets.forEach(outlet=>{const button=document.createElement('button');button.type='button';button.textContent=outlet || '原本品項';button.setAttribute('aria-selected',String(outlet===activeOutlet));button.onclick=()=>{if(busy)return;activeOutlet=outlet;if(currentMode==='reconcile')loadReconcile();else load();};nav.append(button);});nav.scrollLeft=scroll;
 }
 async function load(){
- rememberBatch();shownBatchId=null;$('deleteRecordBox').hidden=true;
+ rememberBatch();shownBatchId=null;
  const request=++sequence; disable(true); $('items').textContent='正在確認雲端單據…'; $('message').textContent='';
  try{
   const dept=$('department').value,sourceDate=$('sourceDate').value;
@@ -302,28 +289,20 @@ async function load(){
   }
   draft.current=current;rows=draft.rows;shownBatchId=id;renderInputs(draft);
   disable(false);
-  if(rawLocked(current)&&!adminMode){
-   $('submit').disabled=true;
-   $('message').textContent='場內已開始逐項點收並簽名，這張單已鎖定。（如需強制修正請連點上方標題 5 下啟用管理員模式）';
-  }else if(current){
-   $('deleteRecordBox').hidden=false;
-   $('message').textContent=current.noSendwash
-    ? '已登記本次無送洗。如之後有送洗，可填入數量再送出；若為誤填可點下方作廢刪除。'
-    : '本次已填寫。修改數字再次送出會直接更新同一張單（不會重複加總）；若為選錯日期多 KEY 的單，可點下方按鈕作廢刪除。';
-  }
+  if(rawLocked(current)&&!adminMode){$('submit').disabled=true;$('message').textContent='場內已開始逐項點收並簽名，這張單已鎖定。';}
+  else if(current){$('message').textContent=current.noSendwash ? '已登記本次無送洗。如之後有送洗，可填入數量再送出。' : '本次已填寫。再次送出會更新同一張單；若為誤填另一天的重複單，可將數量清空送出改為無送洗。';}
  }catch(e){showError(e);$('items').textContent='無法載入；請確認設定後重試。';$('department').disabled=false;$('sourceDate').disabled=false;}
 }
 
 /* =========================================================
-   新增：作廢刪除單筆對點單（解決重複 KEY 單或選錯日期）
+   一鍵將多 KEY 的某天改為「無送洗」（清空該日數量，消除跨日重複）
    ========================================================= */
-async function deleteRecordByDate(sourceDate,outlet=''){
+async function markNoSendwash(sourceDate,outlet=''){
  if(busy)return;
  const dept=$('department').value;
  const id=core.submissionId(hotel,dept,sourceDate,outlet);
- const confirmMsg=`確定要作廢並刪除「${hotel}（${dept}${outlet?`-${outlet}`:''}）送洗日 ${sourceDate}」的填單紀錄嗎？\n\n刪除後此筆資料將從結帳對帳單中移除。`;
- if(!confirm(confirmMsg))return;
- busy=true;disable(true);
+ if(!confirm(`確定要將「${sourceDate}」的紀錄改為【當日無送洗（清空數量）】嗎？\n\n適用於同一個數量不小心 KEY 了兩天時，把多填的那一天歸零。`))return;
+ busy=true;
  try{
   const ref=doc(db,'sendwash_records',id);
   await runTransaction(db,async tx=>{
@@ -331,31 +310,21 @@ async function deleteRecordByDate(sourceDate,outlet=''){
    if(!snap.exists())return;
    const old=snap.data();
    if(!adminMode && rawLocked(old)){
-    throw new Error('此單據場內已點收簽名鎖定！請先連點網頁最上方標題 5 下啟用「管理員強制修正模式」後再刪除。');
+    throw new Error('此日單據場內已點收鎖定！如需強制歸零，請連點網頁最上方標題 5 下開啟管理員模式。');
    }
-   tx.delete(ref);
+   tx.set(ref,{...old,items:[],noSendwash:true,revision:(old.revision||0)+1,submittedAt:new Date().toISOString()});
   });
   batchDrafts.delete(id);
-  if(currentMode==='reconcile'){
-   busy=false;
-   await loadReconcile();
-  }else{
-   busy=false;
-   await load();
-   $('message').textContent=`🗑️ 已作廢並刪除 ${sourceDate} 的填單紀錄！`;
-  }
- }catch(e){
-  if(currentMode==='reconcile')alert(e.message || String(e));
-  else showError(e);
- }finally{
   busy=false;
-  if(currentMode==='entry')disable(false);
+  await loadReconcile();
+ }catch(e){
+  busy=false;
+  alert(e.message || String(e));
  }
 }
-$('btnDeleteCurrent').onclick=()=>deleteRecordByDate($('sourceDate').value,activeOutlet);
 
 /* =========================================================
-   新增：結帳對帳查詢邏輯（依飯店送洗日期 sourceDate 區間）
+   對帳查詢與「同數量 KEY 兩天」自動抓蟲邏輯
    ========================================================= */
 function buildDateRange(startStr,endStr){
  const start=new Date(startStr+'T12:00:00');
@@ -381,6 +350,12 @@ function formatSubmitTime(iso){
  }catch{return '';}
 }
 
+// 產生單日填寫品項與數量的指紋，用來比對是否「同一個數量 KEY 了兩天」
+function itemsFingerprint(rec){
+ const valid=(rec?.items || []).filter(x=>Number(x.quantity)>0).map(x=>`${core.normalize(x.item)}:${Number(x.quantity)}`).sort();
+ return valid.length ? valid.join('|') : '';
+}
+
 async function loadReconcile(){
  if(busy)return;
  const dept=$('department').value;
@@ -392,7 +367,7 @@ async function loadReconcile(){
  try{
   const dateList=buildDateRange(startStr,endStr);
   busy=true;$('btnRunReconcile').disabled=true;$('department').disabled=true;
-  $('reconStatus').textContent=`正在從雲端拉取 ${startStr} ～ ${endStr}（共 ${dateList.length} 天）的填寫紀錄…`;
+  $('reconStatus').textContent=`正在讀取 ${startStr} ～ ${endStr} 的飯店填寫紀錄…`;
 
   const baseRows=core.displayRows(settings.filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===outlet));
   const snaps=await Promise.all(dateList.map(d=>getDocFromServer(doc(db,'sendwash_records',core.submissionId(hotel,dept,d,outlet)))));
@@ -415,12 +390,25 @@ async function loadReconcile(){
   const allItems=[...itemMap.values()];
 
   const outletTitle=outlet ? `（${outlet}）` : '';
-  $('reconTitle').textContent=`${hotel}｜${dept}${outletTitle} 結帳對帳單`;
+  $('reconTitle').textContent=`${hotel}｜${dept}${outletTitle} 飯店原始填寫紀錄`;
 
   if(!records.length){
-   $('reconStatus').textContent=`${startStr} ～ ${endStr} 期間內尚無任何飯店填寫紀錄。`;
+   $('reconStatus').textContent=`${startStr} ～ ${endStr} 期間內尚無飯店填寫紀錄。`;
    lastReconData=null;
    return;
+  }
+
+  // 偵測「連續或相鄰有填單的兩天，品項與數量 100% 完全相同」的疑似重複 KEY 單
+  const duplicatePairs=[];
+  const dupDateSet=new Set();
+  const activeRecords=records.filter(r=>itemsFingerprint(r)!=='');
+  for(let i=1;i<activeRecords.length;i++){
+   const prev=activeRecords[i-1],curr=activeRecords[i];
+   if(itemsFingerprint(prev)===itemsFingerprint(curr)){
+    duplicatePairs.push([prev.sourceDate,curr.sourceDate]);
+    dupDateSet.add(prev.sourceDate);
+    dupDateSet.add(curr.sourceDate);
+   }
   }
 
   const filledDates=records.map(r=>r.sourceDate);
@@ -442,11 +430,20 @@ async function loadReconcile(){
   records.forEach(r=>{if(!r.noSendwash && (r.items || []).length>0)activeRecordCount++;});
 
   lastReconData={hotel,dept,outlet,startStr,endStr,filledDates,recordByDate,itemStats,grandTotalQty};
-  $('reconStatus').textContent=`送洗日期區間：${startStr} ～ ${endStr}（共找到 ${records.length} 筆填單紀錄，點選下方各日按鈕即可直接修改或作廢重複單據）`;
+  $('reconStatus').textContent=`飯店送洗日期區間：${startStr} ～ ${endStr}（共 ${records.length} 筆填單紀錄）`;
   $('reconActions').hidden=false;
 
   const container=$('reconResult');
   container.replaceChildren();
+
+  // 若偵測到「同一個數量 KEY 了兩天」，顯示醒目抓蟲提醒
+  if(duplicatePairs.length){
+   const alertBox=document.createElement('div');
+   alertBox.className='dup-alert';
+   const itemsHtml=duplicatePairs.map(([d1,d2])=>`<li><strong>${d1}</strong> 與 <strong>${d2}</strong> 填寫的品項與數量完全一模一樣！請確認是否同批數量誤 KEY 了兩天。</li>`).join('');
+   alertBox.innerHTML=`⚠️ 系統自動偵測到「疑似同批數量 KEY 了兩天」：<ul>${itemsHtml}</ul><div style="font-size:16px;font-weight:600;margin-top:8px">👉 如確認其中一天為誤填，可於下方每日明細點選「🔄 改為無送洗（消除重複）」直接將該天歸零。</div>`;
+   container.append(alertBox);
+  }
 
   // 1. 頂部統計摘要小卡
   const cards=document.createElement('div');
@@ -454,11 +451,11 @@ async function loadReconcile(){
   cards.innerHTML=`
    <div class="recon-card"><div class="lbl">已填單天數</div><div class="num">${records.length} 天</div></div>
    <div class="recon-card"><div class="lbl">有送洗天數</div><div class="num">${activeRecordCount} 天</div></div>
-   <div class="recon-card"><div class="lbl">區間總送洗件數</div><div class="num">${grandTotalQty.toLocaleString()}</div></div>
+   <div class="recon-card"><div class="lbl">飯店填寫總件數</div><div class="num">${grandTotalQty.toLocaleString()}</div></div>
   `;
   container.append(cards);
 
-  // 2. 品項 × 送洗日期 對帳總表
+  // 2. 品項 × 送洗日期 飯店填寫總表
   const wrap=document.createElement('div');
   wrap.className='table-wrap';
   const tbl=document.createElement('table');
@@ -475,14 +472,10 @@ async function loadReconcile(){
   hRow.append(thSum);
   filledDates.forEach(d=>{
    const th=document.createElement('th');
-   th.textContent=d.slice(5).replace('-','/');
-   th.title=`點此跳轉修改 ${d} 對點單`;
-   th.style.cursor='pointer';
-   th.style.textDecoration='underline';
-   th.onclick=()=>{
-    $('sourceDate').value=d;
-    switchMode('entry');
-   };
+   const isDup=dupDateSet.has(d);
+   if(isDup)th.className='dup-col';
+   th.textContent=(isDup?'⚠️ ':'')+d.slice(5).replace('-','/');
+   th.title=`飯店送洗日期：${d}`+(isDup?'（與相鄰日期數量完全相同）':'');
    hRow.append(th);
   });
   thead.append(hRow);
@@ -519,7 +512,7 @@ async function loadReconcile(){
   const tfoot=document.createElement('tfoot');
   const fRow=document.createElement('tr');
   const tfLabel=document.createElement('th');
-  tfLabel.textContent='單日件數小計';
+  tfLabel.textContent='單日填寫小計';
   fRow.append(tfLabel);
   const tfGrand=document.createElement('td');
   tfGrand.className='col-total';
@@ -541,29 +534,29 @@ async function loadReconcile(){
   wrap.append(tbl);
   container.append(wrap);
 
-  // 3. 逐日填寫紀錄卡片明細 ＋ 直接修改／作廢刪除按鈕
+  // 3. 逐日填寫紀錄明細卡片（附帶一鍵跳轉修改與改為無送洗按鈕）
   const listTitle=document.createElement('h3');
   listTitle.style.cssText='margin:24px 0 10px;font-size:21px;color:#1e3a8a';
-  listTitle.textContent='📅 每日填寫原始紀錄明細（可修改或刪除重複錯單）';
+  listTitle.textContent='📅 每日填寫原始紀錄明細';
   container.append(listTitle);
 
   const dailyList=document.createElement('div');
   dailyList.className='daily-list';
   records.forEach(rec=>{
+   const isDup=dupDateSet.has(rec.sourceDate);
    const box=document.createElement('div');
-   box.className='daily-item';
+   box.className='daily-item'+(isDup?' is-dup':'');
    const head=document.createElement('div');
    head.className='daily-item-header';
 
    const leftInfo=document.createElement('div');
    const dTitle=document.createElement('div');
    dTitle.className='daily-item-date';
-   const isRecLocked=rawLocked(rec);
-   dTitle.textContent=`送洗日：${rec.sourceDate}`+(isRecLocked?' （✓ 場內已點收）':'');
+   dTitle.textContent=(isDup?'⚠️ ':'')+`送洗日：${rec.sourceDate}`+(isDup?'（疑似跨日重複填單）':'');
    const dMeta=document.createElement('div');
    dMeta.className='daily-item-meta';
    const subTime=formatSubmitTime(rec.submittedAt);
-   dMeta.textContent=`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 最後填寫：${subTime}`:'');
+   dMeta.textContent=`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 飯店填寫時間：${subTime}`:'');
    leftInfo.append(dTitle,dMeta);
 
    const actBox=document.createElement('div');
@@ -572,19 +565,23 @@ async function loadReconcile(){
    const btnEdit=document.createElement('button');
    btnEdit.type='button';
    btnEdit.className='btn-mini btn-edit';
-   btnEdit.textContent=isRecLocked && !adminMode ? '👁️ 查看單據' : '✏️ 修改數量';
+   btnEdit.textContent=rawLocked(rec)&&!adminMode ? '👁️ 查看該日單據' : '✏️ 修改該日數量';
    btnEdit.onclick=()=>{
     $('sourceDate').value=rec.sourceDate;
     switchMode('entry');
    };
+   actBox.append(btnEdit);
 
-   const btnDel=document.createElement('button');
-   btnDel.type='button';
-   btnDel.className='btn-mini btn-del';
-   btnDel.textContent='🗑️ 作廢刪單';
-   btnDel.onclick=()=>deleteRecordByDate(rec.sourceDate,outlet);
+   // 若該天有填數量（且未鎖定或管理員模式），提供「一鍵改為無送洗」按鈕以消除跨日重複 KEY 單
+   if(!rec.noSendwash && (rec.items || []).length>0 && (!rawLocked(rec) || adminMode)){
+    const btnClear=document.createElement('button');
+    btnClear.type='button';
+    btnClear.className='btn-mini btn-clear';
+    btnClear.textContent='🔄 改為無送洗（消除重複）';
+    btnClear.onclick=()=>markNoSendwash(rec.sourceDate,outlet);
+    actBox.append(btnClear);
+   }
 
-   actBox.append(btnEdit,btnDel);
    head.append(leftInfo,actBox);
    box.append(head);
 
@@ -620,7 +617,7 @@ function exportReconcileCsv(){
  const {hotel,dept,outlet,startStr,endStr,filledDates,recordByDate,itemStats,grandTotalQty}=lastReconData;
  const esc=v=>{const s=String(v ?? '');return /[",\r\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;};
  const lines=[];
- lines.push([esc(`${hotel} - ${dept}${outlet?` (${outlet})`:''} 送洗對點結帳明細`)].join(','));
+ lines.push([esc(`${hotel} - ${dept}${outlet?` (${outlet})`:''} 飯店原始填寫紀錄明細`)].join(','));
  lines.push([esc(`飯店送洗日期區間：${startStr} 至 ${endStr}`)].join(','));
  lines.push([]);
  lines.push(['品項','單位','區間總計',...filledDates].map(esc).join(','));
@@ -628,7 +625,7 @@ function exportReconcileCsv(){
   const row=[st.item,st.unit,st.total,...filledDates.map(d=>st.byDate[d] ?? '')];
   lines.push(row.map(esc).join(','));
  });
- const footerSum=['單日合計','',grandTotalQty,...filledDates.map(d=>{
+ const footerSum=['單日填寫小計','',grandTotalQty,...filledDates.map(d=>{
   const rec=recordByDate.get(d);
   return (rec?.items || []).reduce((acc,x)=>acc+Number(x.quantity || 0),0);
  })];
@@ -640,7 +637,7 @@ function exportReconcileCsv(){
  const url=URL.createObjectURL(blob);
  const a=document.createElement('a');
  a.href=url;
- a.download=`${hotel}_${dept}${outlet?`_${outlet}`:''}_對帳單_${startStr}_${endStr}.csv`;
+ a.download=`${hotel}_${dept}${outlet?`_${outlet}`:''}_飯店填寫紀錄_${startStr}_${endStr}.csv`;
  document.body.append(a);a.click();a.remove();
  URL.revokeObjectURL(url);
 }
@@ -658,7 +655,7 @@ function switchMode(mode){
  $('form').hidden=isRecon;
  $('reconcileSection').hidden=!isRecon;
  $('subtitle').textContent=isRecon
-  ? '依「飯店送洗日期」拉出飯店當時填寫的原始對點數量與總計，供結帳核對與錯單修正。'
+  ? '依「飯店送洗日期」查看飯店當時填寫的原始數量與總計（若同批數量誤 KEY 兩天，系統會自動標示提醒）。'
   : '只填本次有送洗的品項，其他可留白；整張空白也能送出。';
  if(isRecon){
   loadReconcile();
@@ -673,7 +670,6 @@ $('btnRunReconcile').onclick=loadReconcile;
 $('btnExportCsv').onclick=exportReconcileCsv;
 $('btnPrint').onclick=()=>window.print();
 
-// 快速日期區間按鈕
 $('btnThisMonth').onclick=()=>{
  $('reconStartDate').value=`${tYear}-${tMonth}-01`;
  $('reconEndDate').value=today;
@@ -723,7 +719,7 @@ try{
  if(!settings.length)throw new Error('此飯店尚未設定送洗對點品項');
  $('title').textContent=`${hotel}｜送洗對點單`;
  if(hotel.includes('鼎王')){
-  $('tabReconcile').textContent='📊 鼎王結帳對帳查詢';
+  $('tabReconcile').textContent='📊 鼎王填寫紀錄查詢';
   $('tabReconcile').classList.add('highlight-dingwang');
  }
  [...new Set(settings.map(r=>r.department))].forEach(d=>{const opt=document.createElement('option');opt.value=d;opt.textContent=d;$('department').append(opt);});
