@@ -166,6 +166,7 @@
                 shipDate: item.shipDate || '', shipRule: item.shipRule || '', officeName: item.officeName || item.item,
                 officeSignature: item.officeSignature || '', sentAt: item.sentAt || '', unknown: !!item.unknown,
                 entryId: item.entryId || '', splitOf: item.splitOf || '', deleted: !!item.deleted, deletedAt: item.deletedAt || '',
+                lineUserId: item.lineUserId || '', lineDisplayName: item.lineDisplayName || '', lineMessageId: item.lineMessageId || '',
                 edits: (item.edits || []).map(edit => ({
                     time: edit.time || '',
                     before: snap(edit.before),
