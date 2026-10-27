@@ -69,12 +69,14 @@ label[for=entryText] { color: var(--teal2) !important; font-size: 16px !importan
 input[data-office-for] { font-size: 24px !important; border: 3px solid var(--line) !important; border-radius: 12px !important; padding: 10px 12px !important; background: #fff !important; }
 input[data-office-for].border-red-500 { border-color: #dc2626 !important; background: #fef2f2 !important; }
 [data-office-row] .text-2xl { font-size: 36px !important; color: var(--teal2) !important; min-width: 48px; text-align: center; }
-[data-office-error] { font-size: 18px !important; background: #dc2626; color: #fff !important; padding: 4px 10px; border-radius: 8px; display: inline-block; }
-[data-office-error].hidden { display: none !important; }
-[data-office-suggest] { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: transparent !important; border: 0 !important; padding: 8px 0 0 !important; max-height: none !important; }
-[data-office-suggest].hidden { display: none !important; }
-[data-action=use-item] { font-size: 19px; padding: 12px !important; border: 2px solid var(--teal2); border-radius: 12px !important; background: #fff; color: var(--teal2) !important; text-align: center !important; }
 [data-office-row] img { height: 48px !important; border-radius: 8px; }
+#nameAlert { background: rgba(12,40,37,.78) !important; }
+#nameAlert > div { background: var(--paper) !important; border-radius: 24px !important; border: 3px solid var(--teal2); border-top: 6px solid var(--amber); box-shadow: 0 5px 0 var(--teal2); max-height: 94vh; overflow-y: auto; }
+#nameAlert h2 { color: var(--teal2) !important; font-size: 28px !important; font-weight: 900 !important; }
+#nameAlert p { color: var(--ink); font-size: 18px; line-height: 1.45; }
+#nameAlert ul { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+#nameAlert li { font-size: 22px; font-weight: 900; background: #fef2f2; border: 3px solid #dc2626; border-radius: 12px; padding: 12px 14px; color: #991b1b; }
+[data-action=close-name-alert] { background: var(--teal) !important; color: #fff !important; border: 0 !important; border-radius: 18px !important; font-size: 24px !important; min-height: 64px; box-shadow: 0 5px 0 #083b36; letter-spacing: .08em; }
 [data-office-row] > div.mt-2 { font-size: 15px !important; }
 [data-action=open-office] { background: var(--teal) !important; border-radius: 18px !important; font-size: 24px !important; padding: 20px 0 !important; box-shadow: 0 5px 0 #083b36; letter-spacing: .1em; }
 #sheetList .bg-green-50 { background: #dcfce7 !important; border: 3px solid #15803d !important; font-size: 18px; }
