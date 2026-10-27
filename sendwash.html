@@ -7,7 +7,7 @@ body{font-family:system-ui;background:#f3f4f6;color:#1f2937;margin:0;padding:20p
 main{max-width:640px;margin:auto;transition:max-width .2s}
 main.wide-mode{max-width:1024px}
 section{background:white;border-radius:16px;padding:20px;margin:20px 0}
-h1{font-size:30px;line-height:1.35;overflow-wrap:anywhere}
+h1{font-size:30px;line-height:1.35;overflow-wrap:anywhere;user-select:none}
 label{display:block;margin:20px 0;font-size:22px;font-weight:700;overflow-wrap:anywhere}
 input,select{font:inherit;font-size:22px;line-height:1.4;padding:14px;border:1px solid #94a3b8;border-radius:8px;width:100%;max-width:100%;min-width:0;min-height:60px;margin-top:10px;background:white;color:#1f2937}
 #items input{font-size:30px;font-weight:700;min-height:68px}
@@ -43,7 +43,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a.button:focus-vis
 .recon-actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
 .recon-actions button{flex:1;margin:0;min-height:56px;font-size:19px;padding:12px 14px}
 .btn-export{background:#059669}
-.btn-print{background:#475569}
+.btn-print{background:#475559}
 .recon-summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}
 .recon-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;text-align:center}
 .recon-card .num{font-size:28px;font-weight:800;color:#1d4ed8;line-height:1.2;margin-top:4px}
@@ -63,12 +63,19 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
 .badge-nosend{display:inline-block;font-size:13px;padding:2px 6px;border-radius:6px;background:#f1f5f9;color:#64748b;font-weight:600}
 .daily-list{margin-top:20px;display:flex;flex-direction:column;gap:12px}
 .daily-item{border:1px solid #cbd5e1;border-radius:12px;padding:14px 16px;background:#f8fafc}
-.daily-item-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:10px}
+.daily-item-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid #e2e8f0;padding-bottom:10px;margin-bottom:10px}
 .daily-item-date{font-size:21px;font-weight:800;color:#1e3a8a}
 .daily-item-meta{font-size:15px;color:#475569}
+.daily-item-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn-mini{width:auto;min-height:40px;padding:6px 12px;font-size:16px;margin:0;border-radius:8px;font-weight:700}
+.btn-edit{background:#2563eb;color:white}
+.btn-del{background:#dc2626;color:white}
 .daily-chips{display:flex;flex-wrap:wrap;gap:8px}
 .daily-chip{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:6px 12px;font-size:18px;font-weight:700;color:#1f2937}
 .daily-chip span{color:#2563eb;margin-left:4px;font-size:20px}
+.entry-SubActions{display:flex;gap:10px;margin-top:8px}
+.entry-SubActions button{margin:0;background:#dc2626;font-size:19px;min-height:56px}
+.admin-banner{background:#fef2f2;border:2px solid #ef4444;color:#991b1b;padding:10px 14px;border-radius:10px;font-size:17px;font-weight:700;margin-bottom:12px}
 
 @media(max-width:480px){
  body{padding:16px}section{padding:16px}h1{font-size:28px}
@@ -77,14 +84,14 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
 @media print{
  body{background:white;padding:0;font-size:14px}
  main,main.wide-mode{max-width:100%}
- #back,.mode-switch,#reconcileControls,.recon-actions{display:none !important}
+ #back,.mode-switch,#reconcileControls,.recon-actions,.daily-item-actions,.admin-banner{display:none !important}
  section{box-shadow:none;border:1px solid #cbd5e1;padding:12px;margin:10px 0}
  .table-wrap{overflow:visible;border:none}
  table.recon-table{font-size:13px;min-width:0}
  table.recon-table th,table.recon-table td{padding:6px 8px}
 }
 </style></head>
-<body><main id="mainContainer"><h1 id="title">送洗對點單</h1><p id="subtitle" class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a>
+<body><main id="mainContainer"><h1 id="title" title="連點 5 下可切換管理員強制修正模式">送洗對點單</h1><div id="adminBanner" class="admin-banner" hidden>🔓 管理員強制修正模式已啟用：可修改或刪除已點收鎖定之單據</div><p id="subtitle" class="muted">只填本次有送洗的品項，其他可留白；整張空白也能送出。</p><a id="back" class="button" style="background:#475569">返回簽收單</a>
 
 <div class="mode-switch" role="tablist" aria-label="功能模式切換">
  <button id="tabEntry" type="button" role="tab" aria-selected="true">📝 填寫送洗對點單</button>
@@ -128,6 +135,9 @@ table.recon-table tfoot th:first-child{background:#eff6ff}
  </section>
  <p id="message" role="status"></p>
  <button id="submit" disabled>送出送洗對點單</button>
+ <div id="deleteRecordBox" class="entry-SubActions" hidden>
+  <button id="btnDeleteCurrent" type="button">🗑️ 作廢並刪除此日填單紀錄（重複 KEY 單時使用）</button>
+ </div>
 </form>
 
 <!-- 新增：結帳對帳結果區塊 -->
@@ -149,6 +159,7 @@ import {getFirestore,doc,getDoc as getDocFromServer,runTransaction} from 'https:
 const db=getFirestore(initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',storageBucket:'hotel-inventory-3a1ad.firebasestorage.app',messagingSenderId:'363844184412',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}));
 const core=window.SendwashCore,$=id=>document.getElementById(id),params=new URLSearchParams(location.search),hotel=params.get('hotel');
 let config,settings,rows=[],current=null,busy=false,sequence=0,activeOutlet='',currentMode='entry',lastReconData=null;
+let adminMode=params.get('admin')==='1';
 const batchDrafts=new Map();let shownBatchId=null,activeBatchId='';
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
 $('sourceDate').value=today; // The receipt date is an outbound date, never an inbound default.
@@ -158,11 +169,28 @@ const [tYear,tMonth]=today.split('-');
 $('reconStartDate').value=`${tYear}-${tMonth}-01`;
 $('reconEndDate').value=today;
 
+// 連點標題 5 下可切換管理員強制修正模式
+let titleClicks=0,titleTimer=null;
+function syncAdminBanner(){$('adminBanner').hidden=!adminMode;}
+syncAdminBanner();
+$('title').onclick=()=>{
+ titleClicks++;
+ clearTimeout(titleTimer);
+ titleTimer=setTimeout(()=>{titleClicks=0;},1500);
+ if(titleClicks>=5){
+  titleClicks=0;
+  adminMode=!adminMode;
+  syncAdminBanner();
+  if(currentMode==='reconcile')loadReconcile();else load();
+ }
+};
+
 const back=new URL('logistics.html',location.href); if(hotel) back.searchParams.set('hotel',hotel); if(params.get('date')) back.searchParams.set('date',params.get('date')); $('back').href=back;
+const rawLocked=record=>Boolean(record?.acceptedAt || Object.keys(record?.receivedItems || {}).length);
+const locked=record=>!adminMode && rawLocked(record);
 function disable(value){$('department').disabled=value;$('sourceDate').disabled=value;$('submit').disabled=value;for(const id of ['extraItemName','addExtraItem'])$(id).disabled=value||locked(current)||!rows.length;}
 function showError(error){$('message').textContent=error.message || String(error);}
 function outletsFor(dept){return [...new Set(settings.filter(r=>r.department===dept).map(r=>r.outlet || ''))];}
-const locked=record=>Boolean(record?.acceptedAt || Object.keys(record?.receivedItems || {}).length);
 const batchRows=list=>list.filter(r=>core.normalize(r.hotel)==='洲際'&&r.outlet&&core.department(r.department)!=='制服');
 const batchEnabled=dept=>batchRows(settings).some(r=>r.department===dept);
 function batchGroups(list,sourceDate){
@@ -211,6 +239,7 @@ function addExtraItem(){
 $('addExtraItem').onclick=addExtraItem;
 $('extraItemName').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();addExtraItem();}};
 async function loadBatch(request,dept,sourceDate){
+ $('deleteRecordBox').hidden=true;
  const groups=batchGroups(settings,sourceDate);
  const missing=groups.filter(group=>!batchDrafts.has(group.id));
  const loaded=await Promise.all(missing.map(async group=>{const snap=await getDocFromServer(doc(db,'sendwash_records',group.id)),record=snap.exists()?snap.data():null;const original=settings.filter(row=>row.department===group.department&&row.outlet===group.outlet),display=core.displayRows(original);const complete=supplementalRows(display,record);return {...group,rows:complete,current:record,values:complete.map(row=>record?(record.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};}));
@@ -218,7 +247,7 @@ async function loadBatch(request,dept,sourceDate){
  loaded.forEach(group=>batchDrafts.set(group.id,group));
  if(!groups.some(group=>group.id===activeBatchId))activeBatchId=(groups.find(group=>group.department===dept)||groups[0]).id;
  const selected=batchDrafts.get(activeBatchId),nav=$('outletTabs'),scroll=nav.scrollLeft;nav.replaceChildren();nav.hidden=false;
- groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(locked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;if(currentMode==='reconcile'){activeOutlet=group.outlet;loadReconcile();}else{load();}};nav.append(button);});nav.scrollLeft=scroll;
+ groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(rawLocked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;if(currentMode==='reconcile'){activeOutlet=group.outlet;loadReconcile();}else{load();}};nav.append(button);});nav.scrollLeft=scroll;
  rows=selected.rows;current=selected.current;shownBatchId=selected.id;
  const target=core.targetDate(hotel,selected.department,sourceDate,config.deliverySchedules);
  $('target').textContent=`共 ${groups.length} 個餐廳，切換填寫後一次送出。\n${selected.outlet} 預計送回：${target}`;
@@ -243,8 +272,8 @@ async function submitBatch(){
  await runTransaction(db,async tx=>{
   const snapshots=[];for(const plan of plans)snapshots.push(await tx.get(doc(db,'sendwash_records',plan.id)));
   const receiptIds=[...new Set(plans.map(plan=>`${plan.targetDate}_${hotel}_${plan.department}`))],receipts=[];for(const id of receiptIds)receipts.push(await tx.get(doc(db,'logistics_records',id)));
-  if(receipts.some(snap=>snap.exists()&&(snap.data().driverSig||snap.data().clientSig)))throw new Error('餐廳總單已簽收，本次全部尚未送出');
-  const updates=plans.map((plan,i)=>{const old=snapshots[i].exists()?snapshots[i].data():{};if(locked(old))throw new Error(`${plan.outlet} 已開始點收，本次全部尚未送出，請重新載入確認`);if((old.revision || 0)!==plan.expected)throw new Error(`${plan.outlet} 已由其他人更新，本次全部尚未送出，請重新載入確認`);return {hotel,department:plan.department,inventoryHotel:plan.rows[0].inventoryHotel,outlet:plan.outlet,sourceDate,targetDate:plan.targetDate,items:plan.items,notes:old.notes || {},noSendwash:plan.items.length===0,revision:plan.expected+1,submittedAt:new Date().toISOString()};});
+  if(!adminMode&&receipts.some(snap=>snap.exists()&&(snap.data().driverSig||snap.data().clientSig)))throw new Error('餐廳總單已簽收，本次全部尚未送出');
+  const updates=plans.map((plan,i)=>{const old=snapshots[i].exists()?snapshots[i].data():{};if(!adminMode&&rawLocked(old))throw new Error(`${plan.outlet} 已開始點收，本次全部尚未送出，請重新載入確認`);if((old.revision || 0)!==plan.expected)throw new Error(`${plan.outlet} 已由其他人更新，本次全部尚未送出，請重新載入確認`);return {...old,hotel,department:plan.department,inventoryHotel:plan.rows[0].inventoryHotel,outlet:plan.outlet,sourceDate,targetDate:plan.targetDate,items:plan.items,notes:old.notes || {},noSendwash:plan.items.length===0,revision:plan.expected+1,submittedAt:new Date().toISOString()};});
   plans.forEach((plan,i)=>tx.set(doc(db,'sendwash_records',plan.id),updates[i]));
  });
  shownBatchId=null;groups.forEach(group=>batchDrafts.delete(group.id));await load();$('message').textContent=`已一次送出 ${plans.length} 個餐廳！空白餐廳已登記本次無送洗，已點收的原單保留。`;
@@ -255,7 +284,7 @@ function renderOutlets(dept){
  outlets.forEach(outlet=>{const button=document.createElement('button');button.type='button';button.textContent=outlet || '原本品項';button.setAttribute('aria-selected',String(outlet===activeOutlet));button.onclick=()=>{if(busy)return;activeOutlet=outlet;if(currentMode==='reconcile')loadReconcile();else load();};nav.append(button);});nav.scrollLeft=scroll;
 }
 async function load(){
- rememberBatch();shownBatchId=null;
+ rememberBatch();shownBatchId=null;$('deleteRecordBox').hidden=true;
  const request=++sequence; disable(true); $('items').textContent='正在確認雲端單據…'; $('message').textContent='';
  try{
   const dept=$('department').value,sourceDate=$('sourceDate').value;
@@ -273,16 +302,63 @@ async function load(){
   }
   draft.current=current;rows=draft.rows;shownBatchId=id;renderInputs(draft);
   disable(false);
-  if(current?.acceptedAt || Object.keys(current?.receivedItems || {}).length){$('submit').disabled=true;$('message').textContent='場內已開始逐項點收並簽名，這張單已鎖定。';}
-  else if(current){$('message').textContent=current.noSendwash ? '已登記本次無送洗。如之後有送洗，可填入數量再送出。' : '本次已填寫。再次送出會更新同一張單，不會重複加總。';}
+  if(rawLocked(current)&&!adminMode){
+   $('submit').disabled=true;
+   $('message').textContent='場內已開始逐項點收並簽名，這張單已鎖定。（如需強制修正請連點上方標題 5 下啟用管理員模式）';
+  }else if(current){
+   $('deleteRecordBox').hidden=false;
+   $('message').textContent=current.noSendwash
+    ? '已登記本次無送洗。如之後有送洗，可填入數量再送出；若為誤填可點下方作廢刪除。'
+    : '本次已填寫。修改數字再次送出會直接更新同一張單（不會重複加總）；若為選錯日期多 KEY 的單，可點下方按鈕作廢刪除。';
+  }
  }catch(e){showError(e);$('items').textContent='無法載入；請確認設定後重試。';$('department').disabled=false;$('sourceDate').disabled=false;}
 }
+
+/* =========================================================
+   新增：作廢刪除單筆對點單（解決重複 KEY 單或選錯日期）
+   ========================================================= */
+async function deleteRecordByDate(sourceDate,outlet=''){
+ if(busy)return;
+ const dept=$('department').value;
+ const id=core.submissionId(hotel,dept,sourceDate,outlet);
+ const confirmMsg=`確定要作廢並刪除「${hotel}（${dept}${outlet?`-${outlet}`:''}）送洗日 ${sourceDate}」的填單紀錄嗎？\n\n刪除後此筆資料將從結帳對帳單中移除。`;
+ if(!confirm(confirmMsg))return;
+ busy=true;disable(true);
+ try{
+  const ref=doc(db,'sendwash_records',id);
+  await runTransaction(db,async tx=>{
+   const snap=await tx.get(ref);
+   if(!snap.exists())return;
+   const old=snap.data();
+   if(!adminMode && rawLocked(old)){
+    throw new Error('此單據場內已點收簽名鎖定！請先連點網頁最上方標題 5 下啟用「管理員強制修正模式」後再刪除。');
+   }
+   tx.delete(ref);
+  });
+  batchDrafts.delete(id);
+  if(currentMode==='reconcile'){
+   busy=false;
+   await loadReconcile();
+  }else{
+   busy=false;
+   await load();
+   $('message').textContent=`🗑️ 已作廢並刪除 ${sourceDate} 的填單紀錄！`;
+  }
+ }catch(e){
+  if(currentMode==='reconcile')alert(e.message || String(e));
+  else showError(e);
+ }finally{
+  busy=false;
+  if(currentMode==='entry')disable(false);
+ }
+}
+$('btnDeleteCurrent').onclick=()=>deleteRecordByDate($('sourceDate').value,activeOutlet);
 
 /* =========================================================
    新增：結帳對帳查詢邏輯（依飯店送洗日期 sourceDate 區間）
    ========================================================= */
 function buildDateRange(startStr,endStr){
- const start=core.date ? new Date(startStr+'T12:00:00') : new Date(startStr+'T12:00:00');
+ const start=new Date(startStr+'T12:00:00');
  const end=new Date(endStr+'T12:00:00');
  if(isNaN(start)||isNaN(end))throw new Error('請選擇完整的開始與結束日期');
  if(start>end)throw new Error('開始日期不能晚於結束日期');
@@ -318,7 +394,6 @@ async function loadReconcile(){
   busy=true;$('btnRunReconcile').disabled=true;$('department').disabled=true;
   $('reconStatus').textContent=`正在從雲端拉取 ${startStr} ～ ${endStr}（共 ${dateList.length} 天）的填寫紀錄…`;
 
-  // 依據 submissionId 規則平行讀取該區間所有單據（不需複合索引）
   const baseRows=core.displayRows(settings.filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===outlet));
   const snaps=await Promise.all(dateList.map(d=>getDocFromServer(doc(db,'sendwash_records',core.submissionId(hotel,dept,d,outlet)))));
   
@@ -330,7 +405,6 @@ async function loadReconcile(){
    }
   });
 
-  // 整理所有出現過的品項（保留原本設定順序 + 期間內臨時新增品項）
   const itemMap=new Map();
   baseRows.forEach(r=>itemMap.set(r.item,{item:r.item,unit:r.unit || '件'}));
   records.forEach(rec=>{
@@ -349,7 +423,6 @@ async function loadReconcile(){
    return;
   }
 
-  // 計算每個品項在各送洗日的填寫數量與總計
   const filledDates=records.map(r=>r.sourceDate);
   const recordByDate=new Map(records.map(r=>[r.sourceDate,r]));
   let grandTotalQty=0,activeRecordCount=0;
@@ -369,7 +442,7 @@ async function loadReconcile(){
   records.forEach(r=>{if(!r.noSendwash && (r.items || []).length>0)activeRecordCount++;});
 
   lastReconData={hotel,dept,outlet,startStr,endStr,filledDates,recordByDate,itemStats,grandTotalQty};
-  $('reconStatus').textContent=`送洗日期區間：${startStr} ～ ${endStr}（共找到 ${records.length} 筆填單紀錄）`;
+  $('reconStatus').textContent=`送洗日期區間：${startStr} ～ ${endStr}（共找到 ${records.length} 筆填單紀錄，點選下方各日按鈕即可直接修改或作廢重複單據）`;
   $('reconActions').hidden=false;
 
   const container=$('reconResult');
@@ -403,7 +476,13 @@ async function loadReconcile(){
   filledDates.forEach(d=>{
    const th=document.createElement('th');
    th.textContent=d.slice(5).replace('-','/');
-   th.title=`飯店送洗日期：${d}`;
+   th.title=`點此跳轉修改 ${d} 對點單`;
+   th.style.cursor='pointer';
+   th.style.textDecoration='underline';
+   th.onclick=()=>{
+    $('sourceDate').value=d;
+    switchMode('entry');
+   };
    hRow.append(th);
   });
   thead.append(hRow);
@@ -437,7 +516,6 @@ async function loadReconcile(){
   });
   tbl.append(tbody);
 
-  // 表尾：單日合計與填寫狀態
   const tfoot=document.createElement('tfoot');
   const fRow=document.createElement('tr');
   const tfLabel=document.createElement('th');
@@ -463,10 +541,10 @@ async function loadReconcile(){
   wrap.append(tbl);
   container.append(wrap);
 
-  // 3. 逐日填寫紀錄卡片明細（清楚顯示每次填單內容與送出時間）
+  // 3. 逐日填寫紀錄卡片明細 ＋ 直接修改／作廢刪除按鈕
   const listTitle=document.createElement('h3');
   listTitle.style.cssText='margin:24px 0 10px;font-size:21px;color:#1e3a8a';
-  listTitle.textContent='📅 每日填寫原始紀錄明細';
+  listTitle.textContent='📅 每日填寫原始紀錄明細（可修改或刪除重複錯單）';
   container.append(listTitle);
 
   const dailyList=document.createElement('div');
@@ -476,14 +554,38 @@ async function loadReconcile(){
    box.className='daily-item';
    const head=document.createElement('div');
    head.className='daily-item-header';
+
+   const leftInfo=document.createElement('div');
    const dTitle=document.createElement('div');
    dTitle.className='daily-item-date';
-   dTitle.textContent=`送洗日：${rec.sourceDate}`;
+   const isRecLocked=rawLocked(rec);
+   dTitle.textContent=`送洗日：${rec.sourceDate}`+(isRecLocked?' （✓ 場內已點收）':'');
    const dMeta=document.createElement('div');
    dMeta.className='daily-item-meta';
    const subTime=formatSubmitTime(rec.submittedAt);
-   dMeta.textContent=`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 飯店填寫時間：${subTime}`:'');
-   head.append(dTitle,dMeta);
+   dMeta.textContent=`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 最後填寫：${subTime}`:'');
+   leftInfo.append(dTitle,dMeta);
+
+   const actBox=document.createElement('div');
+   actBox.className='daily-item-actions';
+
+   const btnEdit=document.createElement('button');
+   btnEdit.type='button';
+   btnEdit.className='btn-mini btn-edit';
+   btnEdit.textContent=isRecLocked && !adminMode ? '👁️ 查看單據' : '✏️ 修改數量';
+   btnEdit.onclick=()=>{
+    $('sourceDate').value=rec.sourceDate;
+    switchMode('entry');
+   };
+
+   const btnDel=document.createElement('button');
+   btnDel.type='button';
+   btnDel.className='btn-mini btn-del';
+   btnDel.textContent='🗑️ 作廢刪單';
+   btnDel.onclick=()=>deleteRecordByDate(rec.sourceDate,outlet);
+
+   actBox.append(btnEdit,btnDel);
+   head.append(leftInfo,actBox);
    box.append(head);
 
    const chips=document.createElement('div');
@@ -556,7 +658,7 @@ function switchMode(mode){
  $('form').hidden=isRecon;
  $('reconcileSection').hidden=!isRecon;
  $('subtitle').textContent=isRecon
-  ? '依「飯店送洗日期」拉出飯店當時填寫的原始對點數量與總計，供結帳核對。'
+  ? '依「飯店送洗日期」拉出飯店當時填寫的原始對點數量與總計，供結帳核對與錯單修正。'
   : '只填本次有送洗的品項，其他可留白；整張空白也能送出。';
  if(isRecon){
   loadReconcile();
@@ -611,7 +713,7 @@ $('form').onsubmit=async e=>{
   const id=core.submissionId(hotel,dept,sourceDate,outlet);
   const ref=doc(db,'sendwash_records',id);
   const expected=current?.revision || 0;
-  await runTransaction(db,async tx=>{const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;const old=snap.exists()?snap.data():{};if(signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');if(old.acceptedAt || Object.keys(old.receivedItems || {}).length)throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
+  await runTransaction(db,async tx=>{const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;const old=snap.exists()?snap.data():{};if(!adminMode&&signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');if(!adminMode&&(old.acceptedAt || Object.keys(old.receivedItems || {}).length))throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{...old,hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
   shownBatchId=null;batchDrafts.delete(id);await load(); $('message').textContent=items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。';
  }catch(e){showError(e);disable(false);rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=locked(current);});}finally{busy=false;}
 };
@@ -620,7 +722,6 @@ try{
  const snap=await getDocFromServer(doc(db,'inventory_config','master_template'));if(!snap.exists())throw new Error('找不到品項設定');config=snap.data();settings=core.settings(config.sendwashSettings || [],config.items).filter(r=>r.hotel===hotel);
  if(!settings.length)throw new Error('此飯店尚未設定送洗對點品項');
  $('title').textContent=`${hotel}｜送洗對點單`;
- // 若為鼎王，強化對帳按鈕視覺提示
  if(hotel.includes('鼎王')){
   $('tabReconcile').textContent='📊 鼎王結帳對帳查詢';
   $('tabReconcile').classList.add('highlight-dingwang');
