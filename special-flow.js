@@ -1,5 +1,6 @@
 // Pure state changes for one special_items line. The page persists the upserts.
 
+import { displayItemName } from './special-parser.js';
 import { formatMd, formatTaipeiStamp } from './special-time.js';
 
 export const FOLD_STATUS = '待摺疊';
@@ -8,7 +9,15 @@ export const SIGNED_STATUS = '已簽名';
 export const SENT_STATUS = '已送出';
 
 function clone(doc) {
-    return { ...doc, history: (doc.history || []).map(event => ({ ...event })) };
+    return {
+        ...doc,
+        history: (doc.history || []).map(event => ({ ...event })),
+        edits: (doc.edits || []).map(edit => ({
+            ...edit,
+            before: edit.before ? { ...edit.before } : edit.before,
+            after: edit.after ? { ...edit.after } : edit.after,
+        })),
+    };
 }
 
 function replace(docs, nextDoc) {
@@ -16,12 +25,16 @@ function replace(docs, nextDoc) {
 }
 
 function requireOpen(doc) {
-    if (!doc) throw new Error('找不到這筆品項');
+    if (!doc || doc.deleted) throw new Error('找不到這筆品項');
     if (doc.status !== FOLD_STATUS && doc.status !== REWORK_STATUS) throw new Error('這筆已經簽名或送出');
 }
 
 export function newSpecialId() {
     return `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function newEntryId() {
+    return `en_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function reworkBadge(doc) {
@@ -44,15 +57,17 @@ export function reworkHistoryText(doc) {
         .join('\n');
 }
 
-export function addParsedEntry(docs, entry, { time, source = 'manual', idFactory }) {
+export function addParsedEntry(docs, entry, { time, source = 'manual', idFactory, entryId } = {}) {
     if (!entry?.ok) throw new Error(entry?.message || '無法寫入');
     if (!time) throw new Error('缺少寫入時間');
     if (typeof idFactory !== 'function') throw new Error('缺少單號');
+    const sharedEntryId = entryId || newEntryId();
     let next = docs.map(clone);
     const upserts = [];
     for (const line of entry.lines) {
         const open = next.filter(doc =>
-            doc.hotel === entry.hotel
+            !doc.deleted
+            && doc.hotel === entry.hotel
             && doc.receivedDate === entry.receivedDate
             && doc.item === line.item
             && (doc.status === FOLD_STATUS || doc.status === REWORK_STATUS));
@@ -85,6 +100,10 @@ export function addParsedEntry(docs, entry, { time, source = 'manual', idFactory
             officeSignature: '',
             sentAt: '',
             unknown: !!line.unknown,
+            entryId: sharedEntryId,
+            edits: [],
+            deleted: false,
+            deletedAt: '',
         };
         next = [...next, created];
         upserts.push(created);
@@ -177,11 +196,93 @@ export function reworkItem(docs, id, { reworkQty, reason, signature, time, idFac
     return { docs: [...replace(docs.map(clone), stay), dirty], upserts: [stay, dirty] };
 }
 
+function liveDoc(docs, id) {
+    const current = docs.find(doc => doc.id === id);
+    if (!current || current.deleted) throw new Error('找不到這筆品項');
+    return current;
+}
+
+export function editItem(docs, id, { hotel, item, qty, time, acceptResign } = {}) {
+    const current = liveDoc(docs, id);
+    if (current.status === SENT_STATUS) throw new Error('已送出，無法修改');
+    if (!time) throw new Error('缺少時間');
+    const nextHotel = String(hotel ?? '').trim();
+    if (!nextHotel) throw new Error('請填飯店');
+    const nextItem = displayItemName(item);
+    const nextQty = Number(qty);
+    if (!Number.isInteger(nextQty) || nextQty < 1) throw new Error('數量不正確');
+    if (nextHotel === current.hotel && nextItem === current.item && nextQty === current.qty) {
+        return { docs, upserts: [] };
+    }
+    const signed = current.status === SIGNED_STATUS || !!current.foldSignature;
+    if (signed && !acceptResign) {
+        const error = new Error('這筆已簽名。修改後要重新簽名');
+        error.needsResign = true;
+        throw error;
+    }
+    const next = clone(current);
+    const before = { hotel: current.hotel, item: current.item, qty: current.qty };
+    const after = { hotel: nextHotel, item: nextItem, qty: nextQty };
+    next.hotel = nextHotel;
+    next.item = nextItem;
+    next.qty = nextQty;
+    if (nextItem !== current.item) next.unknown = false;
+    next.edits.push({ time, before, after, clearedSignature: signed });
+    next.history.push({ type: 'edited', time, qty: nextQty, round: next.round });
+    if (signed) {
+        next.status = FOLD_STATUS;
+        next.foldSignature = '';
+        next.foldSignedAt = '';
+        next.shipDate = '';
+        next.shipRule = '';
+        next.officeSignature = '';
+        next.sentAt = '';
+        next.officeName = nextItem;
+    } else if (!next.officeName || next.officeName === current.item || nextItem !== current.item) {
+        next.officeName = nextItem;
+    }
+    return { docs: replace(docs.map(clone), next), upserts: [next] };
+}
+
+export function deleteItem(docs, id, { time } = {}) {
+    const current = liveDoc(docs, id);
+    if (current.status === SENT_STATUS) throw new Error('已送出，無法修改');
+    if (!time) throw new Error('缺少時間');
+    const next = clone(current);
+    next.deleted = true;
+    next.deletedAt = time;
+    next.history.push({ type: 'deleted', time, qty: next.qty, round: next.round });
+    return { docs: replace(docs.map(clone), next), upserts: [next] };
+}
+
+export function entryMates(docs, doc) {
+    if (!doc?.entryId || doc.deleted) return [];
+    const mates = (docs || []).filter(row => row.entryId === doc.entryId && !row.deleted);
+    if (mates.some(row => row.status === SENT_STATUS)) return [];
+    return mates;
+}
+
+export function deleteEntry(docs, entryId, { time } = {}) {
+    if (!entryId) throw new Error('這筆不是同一次輸入');
+    if (!time) throw new Error('缺少時間');
+    const mates = (docs || []).filter(row => row.entryId === entryId && !row.deleted);
+    if (!mates.length) throw new Error('找不到這筆品項');
+    if (mates.some(row => row.status === SENT_STATUS)) throw new Error('這次輸入有已經送出的品項');
+    const upserts = mates.map(doc => {
+        const next = clone(doc);
+        next.deleted = true;
+        next.deletedAt = time;
+        next.history.push({ type: 'deleted', time, qty: next.qty, round: next.round });
+        return next;
+    });
+    const byId = new Map(upserts.map(doc => [doc.id, doc]));
+    return { docs: docs.map(doc => byId.get(doc.id) || clone(doc)), upserts };
+}
+
 export function updateOfficeName(docs, id, name) {
     const clean = String(name ?? '').trim();
     if (!clean) throw new Error('出貨品名不可空白');
-    const current = docs.find(doc => doc.id === id);
-    if (!current) throw new Error('找不到這筆品項');
+    const current = liveDoc(docs, id);
     if (current.status !== SIGNED_STATUS) throw new Error('已送出的品名不能再改');
     if (current.officeName === clean) return { docs, upserts: [] };
     const nextDoc = clone(current);
@@ -195,7 +296,7 @@ export function sendSheet(docs, ids, { signature, time }) {
     const wanted = [...new Set(ids || [])];
     if (!wanted.length) throw new Error('沒有可送出的品項');
     const targets = wanted.map(id => docs.find(doc => doc.id === id));
-    if (targets.some(doc => !doc)) throw new Error('找不到要送出的品項');
+    if (targets.some(doc => !doc || doc.deleted)) throw new Error('找不到要送出的品項');
     if (targets.some(doc => doc.status !== SIGNED_STATUS)) throw new Error('只有已簽名、尚未送出的品項可以匯入出貨單');
     if (targets.some(doc => !String(doc.officeName || '').trim())) throw new Error('請填寫出貨品名');
     const upserts = targets.map(doc => {
@@ -212,7 +313,7 @@ export function sendSheet(docs, ids, { signature, time }) {
 
 export function foldCards(docs, query = '') {
     const needle = String(query || '').trim().toLowerCase();
-    const open = (docs || []).filter(doc => doc.status !== SENT_STATUS);
+    const open = (docs || []).filter(doc => !doc.deleted && doc.status !== SENT_STATUS);
     const dates = [...new Set(open.map(doc => doc.receivedDate))].sort((a, b) => b.localeCompare(a));
     const cards = [];
     for (const date of dates) {
@@ -239,7 +340,7 @@ export function foldCards(docs, query = '') {
 export function officeSheets(docs) {
     const groups = new Map();
     for (const row of docs || []) {
-        if (row.status !== SIGNED_STATUS && row.status !== SENT_STATUS) continue;
+        if (row.deleted || (row.status !== SIGNED_STATUS && row.status !== SENT_STATUS)) continue;
         const sent = row.status === SENT_STATUS;
         const key = JSON.stringify([row.hotel, row.shipDate || '', row.shipRule || '', sent ? row.sentAt || '' : 'open']);
         if (!groups.has(key)) {

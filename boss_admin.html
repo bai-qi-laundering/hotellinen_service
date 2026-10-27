@@ -2611,7 +2611,8 @@
             if (!startEl || !body) return;
             const start = startEl.value;
             const end = document.getElementById('spEndDate').value;
-            const inRange = specialRows.filter(row => (!start || (row.receivedDate || '') >= start) && (!end || (row.receivedDate || '') <= end));
+            const live = specialRows.filter(row => !row.deleted);
+            const inRange = live.filter(row => (!start || (row.receivedDate || '') >= start) && (!end || (row.receivedDate || '') <= end));
             fillSpecialSelect(document.getElementById('fltSpHotel'), new Set(inRange.map(row => row.hotel)), '飯店 ▾');
             const hotel = document.getElementById('fltSpHotel').value;
             const hotelRows = inRange.filter(row => !hotel || row.hotel === hotel);
