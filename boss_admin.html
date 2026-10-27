@@ -47,7 +47,8 @@
         .excel-tab { padding: 10px 24px; background-color: #e9ecef; color: #495057; border: 1px solid #ced4da; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; text-decoration: none; cursor: pointer; transition: background 0.2s; white-space: nowrap; outline: none; }
         .excel-tab.active-blue { background-color: white; color: #3b5bdb; border-top: 3px solid #3b5bdb; font-weight: 900; }
         .excel-tab.active-green { background-color: white; color: #059669; border-top: 3px solid #059669; font-weight: 900; }
-        .excel-tab:hover:not(.active-blue):not(.active-green) { background-color: #f8f9fa; }
+        .excel-tab.active-amber { background-color: white; color: #d97706; border-top: 3px solid #d97706; font-weight: 900; }
+        .excel-tab:hover:not(.active-blue):not(.active-green):not(.active-amber) { background-color: #f8f9fa; }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
@@ -309,10 +310,54 @@
         </div>
     </div>
 
+    <!-- 🧺 特處（唯讀。不改盤點／物流分頁的行為） -->
+    <div id="sectionSpecial" class="max-w-[1400px] mx-auto hidden animate-[fadeIn_0.3s_ease-out]" style="display:none">
+        <div class="flex justify-between items-end mb-6 border-b pb-4 gap-4 flex-wrap">
+            <div>
+                <h1 class="text-3xl font-black text-gray-900 tracking-tight">特處</h1>
+                <p class="text-sm text-gray-500 font-bold mt-1">唯讀。摺疊與辦公室作業在 <a href="special.html" class="text-blue-700 underline">特處頁</a>。</p>
+            </div>
+            <button onclick="loadSpecialData()" id="spLoadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-sm">重新整理</button>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+            <div class="p-4 border-b border-gray-100 flex items-center gap-4 flex-wrap bg-white">
+                <span class="text-gray-500 font-bold text-sm">收件日</span>
+                <div class="flex items-center gap-2 border-2 border-blue-400 text-blue-600 rounded-full px-4 py-1.5 font-bold text-sm bg-blue-50/30">
+                    <input type="date" id="spStartDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                    <span>-</span>
+                    <input type="date" id="spEndDate" class="bg-transparent outline-none w-[110px] cursor-pointer">
+                </div>
+                <span class="text-gray-500 font-medium text-sm">共 <span id="spRecordCount" class="font-bold text-blue-600">0</span> 筆</span>
+            </div>
+            <div class="flex-1 overflow-auto bg-white relative">
+                <table class="modern-table table-blue min-w-[1400px]">
+                    <thead>
+                        <tr>
+                            <th>收件日</th>
+                            <th><select id="fltSpHotel" class="header-select w-full" onchange="applySpecialFilters()"><option value="">飯店 ▾</option></select></th>
+                            <th><select id="fltSpItem" class="header-select w-full" onchange="applySpecialFilters()"><option value="">品項 ▾</option></select></th>
+                            <th class="text-center">數量</th>
+                            <th>寫入時間</th>
+                            <th>摺疊簽名＋時間</th>
+                            <th>重工紀錄</th>
+                            <th>出貨單日期</th>
+                            <th>辦公室送出簽名＋時間</th>
+                            <th>狀態</th>
+                        </tr>
+                    </thead>
+                    <tbody id="spTableBody">
+                        <tr class="main-row"><td colspan="10" class="py-20 text-center"><span class="text-gray-500 font-medium">開啟此頁籤後載入特處資料</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- 底部 Excel 主頁籤 -->
     <div class="excel-bottom-bar">
         <button id="tabInventory" onclick="switchMainTab('inventory')" class="excel-tab active-blue">👑 盤點明細後台</button>
         <button id="tabLogistics" onclick="switchMainTab('logistics')" class="excel-tab">📦 物流查帳後台</button>
+        <button id="tabSpecial" onclick="switchMainTab('special')" class="excel-tab">🧺 特處</button>
         <a href="finance.html?v=20261019-same-names" class="excel-tab">💰 財務對帳單</a>
     </div>
 
@@ -321,6 +366,8 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261019-same-names';
+        import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
+        import { reworkHistoryText } from './special-flow.js?v=20261027-special';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -455,6 +502,13 @@
         document.getElementById('invHistoryDate').value = getLocalDateString(today);
         document.getElementById('logStartDate').value = getLocalDateString(firstDay);
         document.getElementById('logEndDate').value = getLocalDateString(today);
+        const spStartDate = document.getElementById('spStartDate');
+        if (spStartDate) {
+            spStartDate.value = getLocalDateString(firstDay);
+            document.getElementById('spEndDate').value = getLocalDateString(today);
+            spStartDate.addEventListener('change', applySpecialFilters);
+            document.getElementById('spEndDate').addEventListener('change', applySpecialFilters);
+        }
 
         function showToast(msg = "資料已自動儲存更新！") {
             document.getElementById('toastMsg').innerText = msg;
@@ -464,16 +518,30 @@
         }
 
         window.switchMainTab = function(tab) {
+            const specialSection = document.getElementById('sectionSpecial');
+            const specialTab = document.getElementById('tabSpecial');
             if (tab === 'inventory') {
                 document.getElementById('sectionInventory').style.display = 'block';
                 document.getElementById('sectionLogistics').style.display = 'none';
+                if (specialSection) specialSection.style.display = 'none';
                 document.getElementById('tabInventory').className = 'excel-tab active-blue';
                 document.getElementById('tabLogistics').className = 'excel-tab';
+                if (specialTab) specialTab.className = 'excel-tab';
+            } else if (tab === 'special') {
+                document.getElementById('sectionInventory').style.display = 'none';
+                document.getElementById('sectionLogistics').style.display = 'none';
+                if (specialSection) specialSection.style.display = 'block';
+                document.getElementById('tabInventory').className = 'excel-tab';
+                document.getElementById('tabLogistics').className = 'excel-tab';
+                if (specialTab) specialTab.className = 'excel-tab active-amber';
+                if (window.loadSpecialData) window.loadSpecialData();
             } else {
                 document.getElementById('sectionInventory').style.display = 'none';
                 document.getElementById('sectionLogistics').style.display = 'block';
+                if (specialSection) specialSection.style.display = 'none';
                 document.getElementById('tabInventory').className = 'excel-tab';
                 document.getElementById('tabLogistics').className = 'excel-tab active-green';
+                if (specialTab) specialTab.className = 'excel-tab';
             }
         };
 
@@ -2519,6 +2587,102 @@
                 document.getElementById('globalSigImg').dataset.currentSrc = "";
             }
         });
+
+        let specialRows = [];
+        function specialEsc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+        function specialStamp(value) {
+            if (!value) return '';
+            try { return formatTaipeiStamp(value); }
+            catch { return String(value); }
+        }
+        function fillSpecialSelect(select, values, placeholder) {
+            const current = select.value;
+            const options = [`<option value="">${placeholder}</option>`].concat(
+                [...values].filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant')).map(value => `<option value="${specialEsc(value)}">${specialEsc(value)}</option>`)
+            );
+            select.innerHTML = options.join('');
+            if ([...select.options].some(option => option.value === current)) select.value = current;
+        }
+        function applySpecialFilters() {
+            const startEl = document.getElementById('spStartDate');
+            const body = document.getElementById('spTableBody');
+            if (!startEl || !body) return;
+            const start = startEl.value;
+            const end = document.getElementById('spEndDate').value;
+            const inRange = specialRows.filter(row => (!start || (row.receivedDate || '') >= start) && (!end || (row.receivedDate || '') <= end));
+            fillSpecialSelect(document.getElementById('fltSpHotel'), new Set(inRange.map(row => row.hotel)), '飯店 ▾');
+            const hotel = document.getElementById('fltSpHotel').value;
+            const hotelRows = inRange.filter(row => !hotel || row.hotel === hotel);
+            fillSpecialSelect(document.getElementById('fltSpItem'), new Set(hotelRows.map(row => row.item)), '品項 ▾');
+            const item = document.getElementById('fltSpItem').value;
+            const shown = hotelRows.filter(row => !item || row.item === item)
+                .slice()
+                .sort((a, b) => String(b.receivedDate || '').localeCompare(String(a.receivedDate || '')) || String(a.hotel || '').localeCompare(String(b.hotel || ''), 'zh-Hant'));
+            const count = document.getElementById('spRecordCount');
+            if (count) count.textContent = String(shown.length);
+            if (!shown.length) {
+                body.innerHTML = '<tr class="main-row"><td colspan="10" class="py-16 text-center text-gray-500 font-medium">這個區間沒有特處資料</td></tr>';
+                return;
+            }
+            window.specialSigs = [];
+            body.innerHTML = shown.map(row => {
+                let fold = '<span class="text-xs text-gray-400 font-bold">未簽名</span>';
+                if (row.foldSignature) {
+                    const index = window.specialSigs.push(row.foldSignature) - 1;
+                    fold = `<div class="sig-container"><img src="${specialEsc(row.foldSignature)}" alt="摺疊簽名" class="sig-img" onclick="showSpecialSig(event, window.specialSigs[${index}])"></div><div class="text-xs text-gray-500 font-bold mt-1">${specialEsc(specialStamp(row.foldSignedAt))}</div>`;
+                }
+                let office = '<span class="text-xs text-gray-400 font-bold">未送出</span>';
+                if (row.officeSignature) {
+                    const index = window.specialSigs.push(row.officeSignature) - 1;
+                    office = `<div class="sig-container"><img src="${specialEsc(row.officeSignature)}" alt="辦公室簽名" class="sig-img" onclick="showSpecialSig(event, window.specialSigs[${index}])"></div><div class="text-xs text-gray-500 font-bold mt-1">${specialEsc(specialStamp(row.sentAt))}</div>`;
+                }
+                const rework = specialEsc(reworkHistoryText(row)).replaceAll('\n', '<br>');
+                const ship = row.shipDate ? `${specialEsc(formatMd(row.shipDate))}<div class="text-xs text-gray-500 font-bold mt-1">${specialEsc(row.shipRule || '')}</div>` : '';
+                const officeName = row.officeName && row.officeName !== row.item ? `<div class="text-xs text-gray-500">出貨名 ${specialEsc(row.officeName)}</div>` : '';
+                const round = row.status === '重工中' && row.round ? `・第${row.round}輪` : '';
+                return `<tr class="main-row"><td>${specialEsc(row.receivedDate || '')}</td><td class="font-bold">${specialEsc(row.hotel || '')}</td><td>${specialEsc(row.item || '')}${officeName}</td><td class="text-center font-black">${specialEsc(row.qty ?? '')}</td><td>${specialEsc(specialStamp(row.createdAt))}</td><td>${fold}</td><td class="text-xs leading-5">${rework || '<span class="text-gray-400">無</span>'}</td><td>${ship}</td><td>${office}</td><td class="font-bold">${specialEsc((row.status || '') + round)}</td></tr>`;
+            }).join('');
+        }
+        window.applySpecialFilters = applySpecialFilters;
+        window.showSpecialSig = function(event, src) {
+            if (event) event.stopPropagation();
+            const box = document.getElementById('globalSigPreview');
+            const img = document.getElementById('globalSigImg');
+            if (!src || !box || !img) return;
+            img.src = src;
+            img.dataset.currentSrc = 'special';
+            box.classList.remove('hidden');
+            let x = (event?.clientX || 0) + 15;
+            let y = (event?.clientY || 0) + 15;
+            if (y + 180 > window.innerHeight) y = window.innerHeight - 190;
+            if (x + 260 > window.innerWidth) x = window.innerWidth - 270;
+            box.style.left = x + 'px';
+            box.style.top = y + 'px';
+        };
+        window.loadSpecialData = async function() {
+            const body = document.getElementById('spTableBody');
+            const button = document.getElementById('spLoadBtn');
+            if (!body) return;
+            if (button) button.disabled = true;
+            body.innerHTML = '<tr class="main-row"><td colspan="10" class="py-20 text-center text-gray-500 font-medium">載入中...</td></tr>';
+            try {
+                if (new URLSearchParams(location.search).get('specialMock') === '1') {
+                    specialRows = JSON.parse(localStorage.getItem('baiqi_special_items_mock_v1') || '[]');
+                } else {
+                    const snap = await getDocs(collection(db, 'special_items'));
+                    specialRows = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
+                }
+                applySpecialFilters();
+            } catch (error) {
+                console.error(error);
+                const denied = (error && error.code) === 'permission-denied' || /permission-denied|insufficient permissions|PERMISSION_DENIED/i.test(String(error && error.message || ''));
+                body.innerHTML = `<tr class="main-row"><td colspan="10" class="py-16 text-center text-red-600 font-bold">${specialEsc(denied ? '沒有讀取權限。請在 Firebase 規則允許 special_items 讀取。' : '載入失敗：' + (error.message || error))}</td></tr>`;
+            } finally {
+                if (button) button.disabled = false;
+            }
+        };
 
         switchMainTab('inventory');
     </script>
