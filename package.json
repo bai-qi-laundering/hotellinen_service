@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test special-parser.test.js special-shipdate.test.js special-flow.test.js special-time.test.js"
+  }
+}

@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>百麒特處 - 摺疊與出貨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #f1f5f9; touch-action: manipulation; }
+        .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 12px; touch-action: none; }
+        .day-scroller { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 18px; }
+        .day-card { flex: 0 0 86%; scroll-snap-align: start; }
+        @media (min-width: 800px) { .day-card { flex-basis: 340px; } }
+        .step-btn { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; font-weight: 900; background: #e2e8f0; }
+    </style>
+</head>
+<body class="pb-10">
+    <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold opacity-0 pointer-events-none z-[80] transition-opacity"></div>
+    <div id="banner" class="hidden bg-red-600 text-white px-4 py-3 text-sm font-bold leading-relaxed"></div>
+
+    <div class="max-w-[480px] mx-auto">
+        <header class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur px-3 pt-3 pb-2">
+            <div class="flex items-end justify-between">
+                <h1 class="text-3xl font-black text-slate-900">特處</h1>
+                <p id="configStatus" class="text-xs text-slate-500 font-bold mb-1"></p>
+            </div>
+            <div class="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" id="tabFold" data-action="switch-fold" class="py-3 rounded-xl font-black bg-blue-700 text-white">摺疊</button>
+                <button type="button" id="tabOffice" data-action="switch-office" class="py-3 rounded-xl font-black bg-white text-slate-600 border">辦公室</button>
+            </div>
+            <p id="mockBanner" class="hidden mt-2 text-xs font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-lg px-3 py-2">練習模式：資料只在這台手機，不會寫進正式資料庫。</p>
+        </header>
+
+        <main id="foldPane" class="px-3">
+            <section class="bg-white rounded-2xl shadow p-3 mt-2">
+                <label for="entryText" class="block text-sm font-black text-slate-600 mb-1">臨時輸入（代替 LINE，記在今天）</label>
+                <textarea id="entryText" data-testid="entry-text" rows="3" class="w-full border-2 border-slate-200 rounded-xl p-3 text-lg font-bold outline-none focus:border-blue-500" placeholder="例如：好六一條床單一條被套三條足巾"></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" data-action="dictate" class="px-4 py-3 rounded-xl bg-slate-100 font-black">🎤 語音</button>
+                    <button type="button" data-action="submit-entry" data-testid="entry-submit" class="flex-1 py-3 rounded-xl bg-green-600 text-white font-black text-lg">送出</button>
+                </div>
+                <p id="entryResult" data-testid="entry-result" class="mt-2 font-bold min-h-[1.5rem]" aria-live="polite"></p>
+            </section>
+            <label class="block mt-4 mb-2">
+                <span class="sr-only">搜尋飯店或品項</span>
+                <input id="foldSearch" data-testid="fold-search" type="search" placeholder="搜尋飯店 / 品項" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-bold">
+            </label>
+            <div id="cardScroller" data-testid="card-scroller" class="day-scroller"></div>
+        </main>
+
+        <main id="officePane" class="px-3 hidden" data-testid="office-pane">
+            <p class="text-sm text-slate-500 font-bold mt-3 mb-2">已簽名、尚未送出的特處。沒有部門、沒有品項下拉。</p>
+            <div id="sheetList"></div>
+        </main>
+    </div>
+
+    <div id="itemPopup" class="hidden fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl max-h-[94vh] overflow-y-auto p-4" role="dialog" aria-modal="true">
+            <h2 id="popupTitle" class="text-2xl font-black text-slate-900"></h2>
+            <p id="popupDate" class="text-slate-500 font-bold"></p>
+            <p id="popupBadge" class="text-red-600 font-black mt-1"></p>
+            <div id="popupActions"></div>
+            <h3 class="mt-4 mb-1 font-black text-slate-700">這一筆的紀錄</h3>
+            <div id="popupHistory" class="text-sm text-slate-600 space-y-1 mb-3"></div>
+            <button type="button" data-action="close-popup" class="w-full py-3 rounded-xl bg-slate-200 font-black">取消</button>
+        </div>
+    </div>
+
+    <div id="officePopup" class="hidden fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3">
+        <div class="bg-white w-full max-w-md rounded-3xl p-4" role="dialog" aria-modal="true">
+            <h2 class="text-xl font-black mb-2">辦公室簽名</h2>
+            <p class="text-sm text-slate-500 font-bold mb-2">簽完才會把這張出貨單標成已送出。目前不會寫進盤點單。</p>
+            <canvas id="officeCanvas" class="sign-canvas" data-testid="office-pad"></canvas>
+            <button type="button" data-action="clear-office" class="mt-2 text-sm font-black text-red-600">清除</button>
+            <div class="grid grid-cols-2 gap-2 mt-3">
+                <button type="button" data-action="close-office" class="py-3 rounded-xl bg-slate-200 font-black">取消</button>
+                <button type="button" data-action="confirm-office" data-testid="office-confirm" class="py-3 rounded-xl bg-blue-700 text-white font-black">確認送出</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { FALLBACK_HOTELS, FALLBACK_ITEMS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
+        import { parseSpecialEntry } from './special-parser.js?v=20261027-special';
+        import { computeShipDate, shipDateLabel } from './special-shipdate.js?v=20261027-special';
+        import { addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, newSpecialId } from './special-flow.js?v=20261027-special';
+        import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-special';
+
+        const useMock = new URLSearchParams(location.search).get('mock') === '1';
+        const RULE_HINT = '無法寫入特處資料（Firebase 權限不足）。請老闆在 Firestore 規則允許 special_items 讀寫。這筆沒有儲存。';
+        let db = null;
+        let storage = null;
+        let docs = [];
+        let hotels = FALLBACK_HOTELS.slice();
+        let catalogItems = FALLBACK_ITEMS.slice();
+        let schedules = [];
+        let mode = 'fold';
+        let saving = false;
+        let popupId = null;
+        let shipQty = 1;
+        let reworkQty = 1;
+        let reason = '';
+        let officeIds = [];
+        let foldPad = null;
+        let officePad = null;
+
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        function toast(text) {
+            const el = document.getElementById('toast');
+            el.textContent = text;
+            el.classList.remove('opacity-0');
+            setTimeout(() => el.classList.add('opacity-0'), 2600);
+        }
+        function showBanner(text) {
+            const el = document.getElementById('banner');
+            el.textContent = text;
+            el.classList.remove('hidden');
+        }
+        function permissionDenied(error) {
+            const code = error?.code || '';
+            const message = String(error?.message || error || '');
+            return code === 'permission-denied' || /permission-denied|insufficient permissions|PERMISSION_DENIED/i.test(message);
+        }
+        function readMock() {
+            try { return JSON.parse(localStorage.getItem(SPECIAL_MOCK_KEY) || '[]'); }
+            catch { return []; }
+        }
+        function writeMock(next) {
+            localStorage.setItem(SPECIAL_MOCK_KEY, JSON.stringify(next));
+        }
+        function firestoreShape(item) {
+            const history = (item.history || []).map(event => {
+                const row = { type: event.type, time: event.time, round: event.round || 1 };
+                if (event.reason) row.reason = event.reason;
+                if (event.qty != null) row.qty = event.qty;
+                if (event.signature) row.signature = event.signature;
+                return row;
+            });
+            return {
+                hotel: item.hotel, receivedDate: item.receivedDate, item: item.item, qty: item.qty,
+                source: item.source || 'manual', createdAt: item.createdAt || '', round: item.round || 1,
+                status: item.status, history, foldSignature: item.foldSignature || '', foldSignedAt: item.foldSignedAt || '',
+                shipDate: item.shipDate || '', shipRule: item.shipRule || '', officeName: item.officeName || item.item,
+                officeSignature: item.officeSignature || '', sentAt: item.sentAt || '', unknown: !!item.unknown,
+            };
+        }
+        async function persist(upserts) {
+            if (useMock) {
+                const map = new Map(readMock().map(item => [item.id, item]));
+                upserts.forEach(item => map.set(item.id, item));
+                const next = [...map.values()];
+                writeMock(next);
+                docs = next;
+                return;
+            }
+            if (!db) throw new Error('尚未連上資料庫');
+            try {
+                const { doc, setDoc } = window.__specialFs;
+                await Promise.all(upserts.map(item => setDoc(doc(db, 'special_items', item.id), firestoreShape(item))));
+            } catch (error) {
+                if (permissionDenied(error)) throw new Error(RULE_HINT);
+                throw error;
+            }
+        }
+        async function storeSignature(dataUrl, id, kind) {
+            if (!dataUrl) return '';
+            if (useMock || !storage) return dataUrl;
+            try {
+                const { ref, uploadString, getDownloadURL } = window.__specialSt;
+                const file = ref(storage, `special_signatures/${taipeiToday()}/${id}_${kind}_${Date.now()}.jpg`);
+                await uploadString(file, dataUrl, 'data_url');
+                return await getDownloadURL(file);
+            } catch (error) {
+                console.warn(error);
+                toast('雲端圖片空間無法上傳，簽名已改存在單據裡');
+                return dataUrl;
+            }
+        }
+
+        function setupPad(canvas) {
+            const ctx = canvas.getContext('2d');
+            const paint = () => {
+                const width = Math.max(280, Math.floor(canvas.clientWidth || 300));
+                canvas.width = width;
+                canvas.height = 160;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.lineWidth = 3.5;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.strokeStyle = '#111827';
+            };
+            paint();
+            let drawing = false;
+            const point = event => {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                return { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
+            };
+            canvas.onpointerdown = event => {
+                event.preventDefault();
+                drawing = true;
+                canvas.setPointerCapture?.(event.pointerId);
+                const p = point(event);
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+            };
+            canvas.onpointermove = event => {
+                if (!drawing) return;
+                event.preventDefault();
+                const p = point(event);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+            };
+            const stop = () => { drawing = false; ctx.beginPath(); };
+            canvas.onpointerup = stop;
+            canvas.onpointercancel = stop;
+            return {
+                clear: paint,
+                hasInk() {
+                    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) return true;
+                    }
+                    return false;
+                },
+                dataUrl: () => canvas.toDataURL('image/jpeg', 0.5),
+            };
+        }
+
+        function renderTabs() {
+            document.getElementById('foldPane').classList.toggle('hidden', mode !== 'fold');
+            document.getElementById('officePane').classList.toggle('hidden', mode !== 'office');
+            document.getElementById('tabFold').className = `py-3 rounded-xl font-black ${mode === 'fold' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 border'}`;
+            document.getElementById('tabOffice').className = `py-3 rounded-xl font-black ${mode === 'office' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 border'}`;
+        }
+        function renderCards() {
+            const cards = foldCards(docs, document.getElementById('foldSearch').value);
+            const host = document.getElementById('cardScroller');
+            if (!cards.length) {
+                host.innerHTML = '<p class="text-gray-500 font-bold py-10 text-center w-full">目前沒有待處理的特處</p>';
+                return;
+            }
+            host.innerHTML = cards.map(card => {
+                const groups = card.hotels.map(group => {
+                    const lines = group.lines.map(line => {
+                        const done = line.status === '已簽名' || line.status === '已送出';
+                        const badge = reworkBadge(line);
+                        const mark = signedMark(line);
+                        const unknown = line.unknown ? '（新品項？）' : '';
+                        return `<button type="button" data-action="open-item" data-id="${esc(line.id)}" class="w-full text-left py-2 flex gap-3 items-start active:bg-slate-50 rounded-xl">
+                            <span class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border-2 ${done ? 'border-green-600 bg-green-50 text-green-700' : 'border-slate-400'} text-lg">${done ? '✓' : ''}</span>
+                            <span class="min-w-0">
+                                <span class="block text-lg font-black text-slate-900">${esc(line.item)}*${line.qty}${esc(unknown)}${mark ? ` <span class="text-green-700">${esc(mark)}</span>` : ''}</span>
+                                ${badge ? `<span class="block text-sm font-black text-red-600">${esc(badge)}</span>` : ''}
+                            </span>
+                        </button>`;
+                    }).join('');
+                    return `<h3 class="text-xl font-black text-slate-800 mt-3">${esc(group.hotel)}</h3>${lines}`;
+                }).join('');
+                return `<article class="day-card bg-white rounded-2xl shadow border border-slate-200 p-4">
+                    <h2 class="text-3xl font-black text-blue-950">${esc(card.label)}</h2>${groups}
+                </article>`;
+            }).join('');
+        }
+        function renderSheets() {
+            if (document.activeElement?.dataset?.officeFor) return;
+            const sheets = officeSheets(docs);
+            const host = document.getElementById('sheetList');
+            if (!sheets.length) {
+                host.innerHTML = '<p class="text-center text-slate-500 font-bold py-16">還沒有簽好的特處</p>';
+                return;
+            }
+            host.innerHTML = sheets.map((sheet, index) => {
+                const rows = sheet.items.map(item => {
+                    const name = esc(item.officeName || item.item);
+                    const field = sheet.sent
+                        ? `<div class="text-xs font-bold text-slate-400">出貨品名</div><div class="text-lg font-black">${name}</div>`
+                        : `<label class="block text-xs font-bold text-slate-400">出貨品名</label><input data-office-for="${esc(item.id)}" value="${name}" class="w-full bg-blue-50/40 border-b-2 border-blue-300 text-lg font-black outline-none py-1 px-1 rounded-sm">`;
+                    const thumb = item.foldSignature
+                        ? `<img src="${esc(item.foldSignature)}" alt="摺疊簽名" class="h-12 max-w-[88px] border rounded bg-white object-contain">`
+                        : '<span class="text-xs text-slate-400">無簽名</span>';
+                    return `<div class="py-3 border-b border-slate-100">
+                        <div class="flex items-center gap-3">${field}<span class="text-2xl font-black text-slate-700">${item.qty}</span></div>
+                        <div class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500">${thumb}<span>摺疊 ${esc(formatTaipeiStamp(item.foldSignedAt))}</span></div>
+                    </div>`;
+                }).join('');
+                const footer = sheet.sent
+                    ? `<div class="mt-3 rounded-xl bg-green-50 border border-green-200 p-3 text-green-800 font-black">已送出 ${esc(formatTaipeiStamp(sheet.sentAt))}${sheet.officeSignature ? `<img src="${esc(sheet.officeSignature)}" alt="辦公室簽名" class="mt-2 h-16 bg-white border rounded">` : ''}</div>`
+                    : `<button type="button" data-action="open-office" data-sheet="${index}" data-testid="office-send" class="w-full mt-3 py-4 rounded-xl bg-blue-700 text-white font-black text-lg">匯入出貨單</button>`;
+                return `<article class="bg-white rounded-2xl shadow border border-slate-200 overflow-hidden mb-4" data-sheet-index="${index}">
+                    <header class="bg-blue-800 text-white p-4"><h2 class="text-3xl font-black">${esc(sheet.hotel)}</h2><p class="text-blue-100 text-sm font-bold mt-1">${esc(shipDateLabel(sheet.shipDate, sheet.shipRule))}</p></header>
+                    <div class="px-4 pb-4">${rows}${footer}</div>
+                </article>`;
+            }).join('');
+            host.querySelectorAll('[data-office-for]').forEach(input => {
+                input.addEventListener('change', () => saveOfficeName(input));
+            });
+        }
+        function render() {
+            renderTabs();
+            if (mode === 'fold') renderCards();
+            else renderSheets();
+        }
+        function currentPopupDoc() {
+            return docs.find(item => item.id === popupId) || null;
+        }
+        function reasonChips() {
+            return REWORK_REASONS.map(chip => {
+                const on = reason === chip;
+                return `<button type="button" data-action="pick-reason" data-reason="${esc(chip)}" class="px-3 py-2 rounded-full font-black border ${on ? 'bg-red-600 text-white border-red-600' : 'bg-red-50 text-red-700 border-red-200'}">${esc(chip)}</button>`;
+            }).join('');
+        }
+        function historyHtml(doc) {
+            const label = { created: '寫入', rework: '退回重工', signed: '簽名可出貨', split: '拆分', sent: '辦公室送出' };
+            const rounds = [];
+            for (const event of doc.history || []) {
+                const round = event.round || 1;
+                let group = rounds.find(item => item.round === round);
+                if (!group) {
+                    group = { round, events: [] };
+                    rounds.push(group);
+                }
+                group.events.push(event);
+            }
+            if (!rounds.length) return '<p>尚無紀錄</p>';
+            return rounds.map(group => {
+                const lines = group.events.map(event => {
+                    const bits = [`第${group.round}輪 ${label[event.type] || event.type}`];
+                    if (event.qty) bits.push(`${event.qty}件`);
+                    if (event.reason) bits.push(event.reason);
+                    if (event.time) bits.push(formatTaipeiStamp(event.time));
+                    return esc(bits.join('・'));
+                }).join('<br>');
+                return `<p>${lines}</p>`;
+            }).join('');
+        }
+        function openItem(id) {
+            const doc = docs.find(item => item.id === id);
+            if (!doc) return;
+            popupId = id;
+            shipQty = doc.qty;
+            reworkQty = doc.qty;
+            reason = '';
+            const locked = doc.status === '已簽名' || doc.status === '已送出';
+            document.getElementById('popupTitle').textContent = `${doc.hotel}・${doc.item}*${doc.qty}`;
+            document.getElementById('popupDate').textContent = `收件日 ${taipeiParts(`${doc.receivedDate}T00:00:00+08:00`).md}`;
+            document.getElementById('popupBadge').textContent = reworkBadge(doc);
+            document.getElementById('popupHistory').innerHTML = historyHtml(doc);
+            const actions = document.getElementById('popupActions');
+            if (locked) {
+                actions.innerHTML = doc.foldSignature ? `<img src="${esc(doc.foldSignature)}" alt="摺疊簽名" class="mt-3 h-20 border rounded bg-white">` : '';
+            } else {
+                const shipStep = doc.qty > 1 ? `<div class="flex items-center gap-3 mt-3"><span class="font-black">可出貨</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="-1">－</button><b id="shipQtyLabel" class="text-2xl w-8 text-center">${shipQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="1">＋</button></div><p id="partialHint" class="hidden text-sm font-bold text-amber-700 mt-1">沒有全部出貨的部分會退回重工，請選原因</p>` : '';
+                const reworkStep = doc.qty > 1 ? `<div class="flex items-center gap-3 mt-2"><span class="font-black">退回</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="-1">－</button><b id="reworkQtyLabel" class="text-2xl w-8 text-center">${reworkQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="1">＋</button></div>` : '';
+                actions.innerHTML = `${shipStep}
+                    <div class="flex justify-between items-center mt-3"><span class="font-black">摺疊簽名</span><button type="button" data-action="clear-fold" class="text-sm font-black text-red-600">清除</button></div>
+                    <canvas id="foldCanvas" class="sign-canvas" data-testid="sign-pad"></canvas>
+                    <button type="button" data-action="confirm-sign" data-testid="sign-confirm" class="w-full mt-3 py-4 rounded-xl bg-green-600 text-white font-black text-lg">簽名完成，可以出貨</button>
+                    <div class="mt-4 pt-3 border-t"><p class="font-black text-red-700 mb-2">退回原因</p><div class="flex flex-wrap gap-2">${reasonChips()}</div>${reworkStep}
+                    <button type="button" data-action="confirm-rework" data-testid="rework-confirm" class="w-full mt-3 py-4 rounded-xl bg-red-600 text-white font-black">發現髒污，退回重工</button></div>`;
+                requestAnimationFrame(() => { foldPad = setupPad(document.getElementById('foldCanvas')); });
+            }
+            document.getElementById('itemPopup').classList.remove('hidden');
+        }
+        function closeItem() {
+            popupId = null;
+            foldPad = null;
+            document.getElementById('itemPopup').classList.add('hidden');
+        }
+        function paintReason() {
+            document.querySelectorAll('[data-reason]').forEach(button => {
+                const on = button.dataset.reason === reason;
+                button.className = `px-3 py-2 rounded-full font-black border ${on ? 'bg-red-600 text-white border-red-600' : 'bg-red-50 text-red-700 border-red-200'}`;
+            });
+            const doc = currentPopupDoc();
+            const hint = document.getElementById('partialHint');
+            if (hint && doc) hint.classList.toggle('hidden', shipQty >= doc.qty);
+        }
+        function chosenReason() {
+            return reason;
+        }
+        async function saveOfficeName(input) {
+            try {
+                const result = updateOfficeName(docs, input.dataset.officeFor, input.value);
+                if (!result.upserts.length) return;
+                saving = true;
+                await persist(result.upserts);
+                docs = result.docs.length >= docs.length ? result.docs : docs.map(item => result.upserts.find(next => next.id === item.id) || item);
+            } catch (error) {
+                toast(error.message || '品名沒有存好');
+                if (permissionDenied(error) || /權限不足/.test(error.message || '')) showBanner(error.message);
+            } finally {
+                saving = false;
+            }
+        }
+        async function flushOfficeNames() {
+            const inputs = [...document.querySelectorAll('[data-office-for]')];
+            let current = docs;
+            const upserts = [];
+            for (const input of inputs) {
+                const result = updateOfficeName(current, input.dataset.officeFor, input.value);
+                current = result.docs;
+                upserts.push(...result.upserts);
+            }
+            if (upserts.length) await persist(upserts);
+            docs = current;
+        }
+        async function submitEntry() {
+            const text = document.getElementById('entryText').value;
+            const parsed = parseSpecialEntry(text, { hotels, items: catalogItems, receivedDate: taipeiToday() });
+            const result = document.getElementById('entryResult');
+            result.className = `mt-2 font-bold min-h-[1.5rem] ${parsed.ok ? 'text-green-700' : 'text-red-600'}`;
+            if (!parsed.ok) {
+                result.textContent = parsed.message;
+                return;
+            }
+            try {
+                saving = true;
+                const time = new Date().toISOString();
+                const applied = addParsedEntry(docs, parsed, { time, idFactory: newSpecialId });
+                await persist(applied.upserts);
+                docs = applied.docs;
+                result.textContent = parsed.message;
+                document.getElementById('entryText').value = '';
+                renderCards();
+            } catch (error) {
+                result.className = 'mt-2 font-bold min-h-[1.5rem] text-red-600';
+                result.textContent = error.message || '沒有寫入';
+                if (/權限不足/.test(error.message || '')) showBanner(error.message);
+            } finally {
+                saving = false;
+            }
+        }
+        async function confirmSign() {
+            const doc = currentPopupDoc();
+            if (!doc || saving) return;
+            if (!foldPad?.hasInk()) return toast('請先簽名');
+            if (shipQty < doc.qty && !chosenReason()) return toast('數量沒有全部出貨，請選擇退回原因');
+            try {
+                saving = true;
+                const time = new Date().toISOString();
+                const signedDate = taipeiParts(time).date;
+                const ship = computeShipDate(doc.hotel, signedDate, schedules);
+                const signature = await storeSignature(foldPad.dataUrl(), doc.id, 'fold');
+                const applied = signItem(docs, doc.id, {
+                    shipQty, signature, reason: chosenReason(), shipDate: ship.shipDate, shipRule: ship.shipRule, time, idFactory: newSpecialId,
+                });
+                await persist(applied.upserts);
+                docs = applied.docs;
+                closeItem();
+                render();
+                toast(shipQty < doc.qty ? '已拆成可出貨與重工' : '已簽名，可以出貨');
+            } catch (error) {
+                toast(error.message || '簽名沒有存好');
+                if (/權限不足/.test(error.message || '')) showBanner(error.message);
+            } finally {
+                saving = false;
+            }
+        }
+        async function confirmRework() {
+            const doc = currentPopupDoc();
+            if (!doc || saving) return;
+            if (!chosenReason()) return toast('請選擇退回原因');
+            try {
+                saving = true;
+                const time = new Date().toISOString();
+                const signature = foldPad?.hasInk() ? await storeSignature(foldPad.dataUrl(), doc.id, 'rework') : '';
+                const applied = reworkItem(docs, doc.id, { reworkQty, reason: chosenReason(), signature, time, idFactory: newSpecialId });
+                await persist(applied.upserts);
+                docs = applied.docs;
+                closeItem();
+                render();
+                toast('已退回重工');
+            } catch (error) {
+                toast(error.message || '重工沒有存好');
+                if (/權限不足/.test(error.message || '')) showBanner(error.message);
+            } finally {
+                saving = false;
+            }
+        }
+        function openOffice(index) {
+            const sheets = officeSheets(docs);
+            const sheet = sheets[index];
+            if (!sheet || sheet.sent) return;
+            officeIds = sheet.items.map(item => item.id);
+            document.getElementById('officePopup').classList.remove('hidden');
+            requestAnimationFrame(() => { officePad = setupPad(document.getElementById('officeCanvas')); });
+        }
+        async function confirmOffice() {
+            if (saving) return;
+            if (!officePad?.hasInk()) return toast('請先簽名');
+            try {
+                saving = true;
+                await flushOfficeNames();
+                const signature = await storeSignature(officePad.dataUrl(), officeIds[0] || 'sheet', 'office');
+                const applied = sendSheet(docs, officeIds, { signature, time: new Date().toISOString() });
+                await persist(applied.upserts);
+                docs = applied.docs;
+                document.getElementById('officePopup').classList.add('hidden');
+                officePad = null;
+                render();
+                toast('已送出');
+            } catch (error) {
+                toast(error.message || '沒有送出');
+                if (/權限不足/.test(error.message || '')) showBanner(error.message);
+            } finally {
+                saving = false;
+            }
+        }
+        function dictate() {
+            const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!Rec) return toast('這台手機請用鍵盤上的麥克風');
+            const rec = new Rec();
+            rec.lang = 'zh-TW';
+            rec.onresult = event => {
+                const said = event.results[0][0].transcript || '';
+                const box = document.getElementById('entryText');
+                box.value = `${box.value}${box.value ? ' ' : ''}${said}`;
+            };
+            rec.onerror = () => toast('語音沒有聽清楚，請再試一次或改打字');
+            rec.start();
+        }
+
+        document.body.addEventListener('click', event => {
+            const button = event.target.closest('[data-action]');
+            if (!button) return;
+            const action = button.dataset.action;
+            if (action === 'switch-fold') { mode = 'fold'; render(); }
+            else if (action === 'switch-office') { mode = 'office'; render(); }
+            else if (action === 'submit-entry') submitEntry();
+            else if (action === 'dictate') dictate();
+            else if (action === 'open-item') openItem(button.dataset.id);
+            else if (action === 'close-popup') closeItem();
+            else if (action === 'clear-fold') foldPad?.clear();
+            else if (action === 'confirm-sign') confirmSign();
+            else if (action === 'confirm-rework') confirmRework();
+            else if (action === 'pick-reason') { reason = button.dataset.reason; paintReason(); }
+            else if (action === 'step') {
+                const doc = currentPopupDoc();
+                if (!doc) return;
+                const dir = Number(button.dataset.dir);
+                if (button.dataset.which === 'ship') shipQty = Math.min(doc.qty, Math.max(1, shipQty + dir));
+                else reworkQty = Math.min(doc.qty, Math.max(1, reworkQty + dir));
+                const shipLabel = document.getElementById('shipQtyLabel');
+                const reworkLabel = document.getElementById('reworkQtyLabel');
+                if (shipLabel) shipLabel.textContent = String(shipQty);
+                if (reworkLabel) reworkLabel.textContent = String(reworkQty);
+                paintReason();
+            } else if (action === 'open-office') {
+                flushOfficeNames().then(() => openOffice(Number(button.dataset.sheet))).catch(error => toast(error.message || '品名沒有存好'));
+            } else if (action === 'close-office') {
+                document.getElementById('officePopup').classList.add('hidden');
+            } else if (action === 'clear-office') officePad?.clear();
+            else if (action === 'confirm-office') confirmOffice();
+        });
+        document.getElementById('foldSearch').addEventListener('input', renderCards);
+
+        async function loadConfig() {
+            if (!db) {
+                document.getElementById('configStatus').textContent = `離線清單 ${hotels.length} 間`;
+                return;
+            }
+            const { doc, getDoc } = window.__specialFs;
+            const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
+            if (!snap.exists()) throw new Error('沒有飯店清單');
+            const data = snap.data();
+            const template = Array.isArray(data.items) ? data.items : [];
+            const names = template.map(row => String(row.baseName || '').trim()).filter(Boolean);
+            const fromSchedules = (data.deliverySchedules || []).map(row => String(row.hotel || '').trim()).filter(Boolean);
+            const liveHotels = [...new Set([...names, ...fromSchedules])];
+            if (liveHotels.length) hotels = liveHotels;
+            const liveItems = template.map(row => String(row.item || '').trim()).filter(Boolean);
+            if (liveItems.length) catalogItems = liveItems;
+            schedules = Array.isArray(data.deliverySchedules) ? data.deliverySchedules : [];
+            document.getElementById('configStatus').textContent = `飯店 ${hotels.length} 間`;
+        }
+        async function boot() {
+            if (useMock) document.getElementById('mockBanner').classList.remove('hidden');
+            docs = useMock ? readMock() : [];
+            render();
+            try {
+                const appMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js');
+                const fsMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
+                const stMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js');
+                window.__specialFs = fsMod;
+                window.__specialSt = stMod;
+                const app = appMod.initializeApp({
+                    apiKey: 'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',
+                    authDomain: 'hotel-inventory-3a1ad.firebaseapp.com',
+                    projectId: 'hotel-inventory-3a1ad',
+                    storageBucket: 'hotel-inventory-3a1ad.firebasestorage.app',
+                    messagingSenderId: '363844184412',
+                    appId: '1:363844184412:web:66cdd6425d53bde75f3999',
+                });
+                db = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache(), experimentalForceLongPolling: true });
+                storage = stMod.getStorage(app);
+                await loadConfig();
+                if (!useMock) {
+                    fsMod.onSnapshot(fsMod.collection(db, 'special_items'), snap => {
+                        if (saving) return;
+                        docs = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
+                        render();
+                    }, error => {
+                        console.error(error);
+                        showBanner(permissionDenied(error) ? RULE_HINT : '特處資料讀取失敗，請稍後再試。');
+                    });
+                }
+            } catch (error) {
+                console.warn(error);
+                document.getElementById('configStatus').textContent = `離線清單 ${hotels.length} 間`;
+                if (!useMock) showBanner('連不上資料庫。可以先看畫面；正式寫入需要網路與 Firebase 權限。');
+            }
+            render();
+        }
+        boot();
+    </script>
+</body>
+</html>
