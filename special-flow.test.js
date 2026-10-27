@@ -4,6 +4,7 @@ import { parseSpecialEntry } from './special-parser.js';
 import { computeShipDate } from './special-shipdate.js';
 import {
     addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName,
+    editItem, deleteItem, deleteEntry, entryMates,
     foldCards, officeSheets, reworkBadge, signedMark,
 } from './special-flow.js';
 import { taipeiParts } from './special-time.js';
@@ -141,4 +142,115 @@ test('驛館 ship date is stored from the sign date, not the receive date', () =
     assert.equal(signed.docs[0].receivedDate, '2026-10-26');
     assert.equal(signed.docs[0].shipDate, '2026-10-29');
     assert.match(signed.docs[0].shipRule, /特處・二四六日/);
+});
+
+test('edit changes hotel, name, and qty, and keeps an edit log', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六一條床單'), { time: '2026-10-27T01:00:00.000Z', idFactory, entryId: 'en_edit' });
+    const id = created.docs[0].id;
+    const same = editItem(created.docs, id, { hotel: '好六', item: '特處床單', qty: 1, time: '2026-10-27T02:00:00.000Z' });
+    assert.equal(same.upserts.length, 0);
+    assert.throws(() => editItem(created.docs, id, { hotel: '  ', item: '足巾', qty: 2, time: '2026-10-27T02:00:00.000Z' }), /請填飯店/);
+    assert.throws(() => editItem(created.docs, id, { hotel: '文七', item: '足巾', qty: 0, time: '2026-10-27T02:00:00.000Z' }), /數量不正確/);
+    const edited = editItem(created.docs, id, { hotel: '文七', item: '足巾', qty: 4, time: '2026-10-27T02:00:00.000Z' });
+    const doc = edited.upserts[0];
+    assert.equal(doc.hotel, '文七');
+    assert.equal(doc.item, '特處足巾');
+    assert.equal(doc.qty, 4);
+    assert.equal(doc.officeName, '特處足巾');
+    assert.equal(doc.status, '待摺疊');
+    assert.deepEqual(doc.edits[0].before, { hotel: '好六', item: '特處床單', qty: 1 });
+    assert.deepEqual(doc.edits[0].after, { hotel: '文七', item: '特處足巾', qty: 4 });
+    assert.equal(doc.edits[0].clearedSignature, false);
+    assert.equal(doc.edits[0].time, '2026-10-27T02:00:00.000Z');
+    assert.equal(doc.history.at(-1).type, 'edited');
+    assert.equal(created.docs[0].item, '特處床單');
+});
+
+test('editing a signed line clears the signature only after acceptResign', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六被套二'), { time: '2026-10-27T01:00:00.000Z', idFactory });
+    const signed = signItem(created.docs, created.docs[0].id, {
+        shipQty: 2, signature: 'sig-fold', reason: '', shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單', time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    assert.throws(() => editItem(signed.docs, created.docs[0].id, {
+        hotel: '好六', item: '被套', qty: 3, time: '2026-10-27T07:00:00.000Z',
+    }), error => error.needsResign === true && /重新簽名/.test(error.message));
+    assert.equal(signed.docs.find(doc => doc.id === created.docs[0].id).status, '已簽名');
+    const edited = editItem(signed.docs, created.docs[0].id, {
+        hotel: '好六', item: '被套', qty: 3, time: '2026-10-27T07:00:00.000Z', acceptResign: true,
+    });
+    const doc = edited.docs.find(item => item.id === created.docs[0].id);
+    assert.equal(doc.status, '待摺疊');
+    assert.equal(doc.qty, 3);
+    assert.equal(doc.foldSignature, '');
+    assert.equal(doc.foldSignedAt, '');
+    assert.equal(doc.shipDate, '');
+    assert.equal(doc.shipRule, '');
+    assert.equal(doc.edits[0].clearedSignature, true);
+    assert.equal(officeSheets(edited.docs).length, 0);
+    assert.equal(foldCards(edited.docs)[0].hotels[0].lines[0].qty, 3);
+});
+
+test('a rework line stays in rework when only the quantity changes', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('文七足巾'), { time: '2026-10-27T01:00:00.000Z', idFactory });
+    const reworked = reworkItem(created.docs, created.docs[0].id, { reworkQty: 1, reason: '髒污', time: '2026-10-27T03:00:00.000Z', idFactory });
+    const edited = editItem(reworked.docs, created.docs[0].id, {
+        hotel: '文七', item: '足巾', qty: 2, time: '2026-10-27T04:00:00.000Z',
+    });
+    const doc = edited.upserts[0];
+    assert.equal(doc.status, '重工中');
+    assert.equal(doc.qty, 2);
+    assert.equal(doc.edits[0].clearedSignature, false);
+});
+
+test('sent lines cannot be edited or deleted, and a soft delete leaves the screens', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六一條床單一條被套'), { time: '2026-10-27T01:00:00.000Z', idFactory, entryId: 'en_batch' });
+    const sheet = created.docs.find(doc => doc.item === '特處床單');
+    const signed = signItem(created.docs, sheet.id, {
+        shipQty: 1, signature: 'sig', reason: '', shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單', time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    const sent = sendSheet(signed.docs, [sheet.id], { signature: 'office', time: '2026-10-27T07:00:00.000Z' });
+    assert.throws(() => editItem(sent.docs, sheet.id, { hotel: '好六', item: '床單', qty: 2, time: '2026-10-27T08:00:00.000Z', acceptResign: true }), /已送出，無法修改/);
+    assert.throws(() => deleteItem(sent.docs, sheet.id, { time: '2026-10-27T08:00:00.000Z' }), /已送出，無法修改/);
+    const cover = sent.docs.find(doc => doc.item === '特處被套');
+    const removed = deleteItem(sent.docs, cover.id, { time: '2026-10-27T08:00:00.000Z' });
+    const gone = removed.docs.find(doc => doc.id === cover.id);
+    assert.equal(gone.deleted, true);
+    assert.equal(gone.deletedAt, '2026-10-27T08:00:00.000Z');
+    assert.equal(gone.history.at(-1).type, 'deleted');
+    assert.equal(foldCards(removed.docs).flatMap(card => card.hotels.flatMap(hotel => hotel.lines)).some(line => line.id === cover.id), false);
+    assert.equal(officeSheets(removed.docs).some(group => group.items.some(item => item.id === cover.id)), false);
+    assert.equal(removed.docs.some(doc => doc.id === cover.id), true);
+    const again = addParsedEntry(removed.docs, entry('好六被套1'), { time: '2026-10-27T09:00:00.000Z', idFactory, entryId: 'en_next' });
+    const fresh = again.docs.filter(doc => doc.item === '特處被套' && !doc.deleted);
+    assert.equal(fresh.length, 1);
+    assert.equal(fresh[0].qty, 1);
+    assert.equal(fresh[0].entryId, 'en_next');
+});
+
+test('one message shares an entry id, and deleting it removes every unsent line', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六一條床單一條被套'), { time: '2026-10-27T01:00:00.000Z', idFactory, entryId: 'en_batch' });
+    assert.equal(created.docs.every(doc => doc.entryId === 'en_batch'), true);
+    assert.equal(entryMates(created.docs, created.docs[0]).length, 2);
+    const merged = addParsedEntry(created.docs, entry('好六床單1一條足巾'), { time: '2026-10-27T02:00:00.000Z', idFactory, entryId: 'en_later' });
+    const sheet = merged.docs.find(doc => doc.item === '特處床單');
+    const towel = merged.docs.find(doc => doc.item === '特處足巾');
+    assert.equal(sheet.qty, 2);
+    assert.equal(sheet.entryId, 'en_batch');
+    assert.equal(towel.entryId, 'en_later');
+    const removed = deleteEntry(created.docs, 'en_batch', { time: '2026-10-27T03:00:00.000Z' });
+    assert.equal(removed.upserts.length, 2);
+    assert.equal(foldCards(removed.docs).length, 0);
+    assert.equal(entryMates(removed.docs, removed.docs[0]).length, 0);
+    const blocked = addParsedEntry([], entry('文七一條床單一條枕套'), { time: '2026-10-27T01:00:00.000Z', idFactory, entryId: 'en_sent' });
+    const signed = signItem(blocked.docs, blocked.docs[0].id, {
+        shipQty: 1, signature: 'sig', reason: '', shipDate: '2026-10-27', shipRule: '沿用盤點規則・當日打單', time: '2026-10-27T06:05:00.000Z', idFactory,
+    });
+    const sent = sendSheet(signed.docs, [blocked.docs[0].id], { signature: 'office', time: '2026-10-27T07:00:00.000Z' });
+    assert.equal(entryMates(sent.docs, sent.docs[1]).length, 0);
+    assert.throws(() => deleteEntry(sent.docs, 'en_sent', { time: '2026-10-27T08:00:00.000Z' }), /已經送出/);
 });
