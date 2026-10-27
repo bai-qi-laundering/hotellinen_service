@@ -529,7 +529,6 @@
                     let hName = data.hotel || "";
                     
                     if (dDate >= startDate && dDate <= endDate) {
-                        // ★ 網頁端進行「關鍵字模糊比對」
                         if (hotelKey && !hName.includes(hotelKey)) return; 
 
                         data.docId = docSnap.id;
@@ -624,7 +623,6 @@
             }).join('');
         }
 
-        // 將單一盤點品項搬移日期時，同步搬移物流單中的相同品項。
         function resolveLogisticsHotelParts(category) {
             const exact = masterData.find(m => m.hotel === category);
             if (exact) {
@@ -689,7 +687,6 @@
             let newItems = newLogData ? [...(newLogData.items || [])] : [];
             const newItemIndex = newItems.findIndex(i => itemMatchesName(i, item));
             if (newItemIndex > -1) {
-                // 同日期已有相同品項時，以搬移過來的資料為主，但保留既有欄位。
                 newItems[newItemIndex] = { ...newItems[newItemIndex], ...movedItem };
             } else {
                 newItems.push(movedItem);
@@ -769,8 +766,85 @@
             }
         };
 
+        // ★ 獨立封裝：讀取區間內所有盤點紀錄並組成 invMap 與 invRawDataMap（供載入與誤刪撈回共用）
+        const isRestaurantDept = (hotel, dept) => String(hotel || '').replace(/\s/g, '') === '洲際' && ['餐廳', '餐飲', '餐飲部'].includes(String(dept || '').trim());
+
+        async function buildInventoryMapsForRange(startDate, endDate) {
+            await ensureMasterData();
+            const invSnapshots = await Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
+                getDocsFromServer(query(collection(db, 'inventory_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+
+            let invMap = {};
+            let invRawDataMap = {};
+            const outletInventory = new Map();
+
+            const processInv = (docSnap) => {
+                let d = docSnap.data();
+                let dDate = standardizeDate(d.date);
+                if (dDate < startDate || dDate > endDate) return;
+                let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
+                let cleanHotel = (d.hotel || "").replace(/\s+/g, '');
+                let cleanItem = (d.item || "").trim();
+                invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
+
+                let hotelName = (d.hotel || "").trim();
+                let hotelKeyword = hotelName;
+                let deptName = "房務";
+                let catParts = hotelName.split(' ');
+                if (catParts.length > 1) {
+                    deptName = catParts.pop().trim();
+                    hotelKeyword = catParts.join(' ').trim();
+                }
+                let targetCat = masterData.find(m => m.hotel === hotelName);
+                if (targetCat) {
+                    hotelKeyword = (targetCat.baseName || hotelKeyword).trim();
+                    deptName = (targetCat.deptName || deptName).trim();
+                }
+
+                let safeHotelKeyForMatch = hotelKeyword.replace(/\s+/g, '');
+                let safeDeptKeyForMatch = deptName.replace(/\s+/g, '');
+                let matchKey = `${dDate}_${safeHotelKeyForMatch}${safeDeptKeyForMatch}`;
+                if (isRestaurantDept(hotelKeyword, deptName)) {
+                    const identity = receiptInventoryIdentity(d, cleanItem, '洲際');
+                    outletInventory.set(docSnap.id, { matchKey, identity, qty, dDate, hotelKeyword, deptName, hotelName });
+                    return;
+                }
+
+                if (!invRawDataMap[matchKey]) {
+                    invRawDataMap[matchKey] = {
+                        date: dDate,
+                        hotelKeyword: hotelKeyword,
+                        deptName: deptName,
+                        hotelName: hotelName,
+                        items: []
+                    };
+                }
+                const invItems = invRawDataMap[matchKey].items;
+                const oldInv = invItems.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(cleanItem));
+                if (oldInv) { oldInv.qty = qty; } else invItems.push({ itemName: cleanItem, qty });
+            };
+
+            invSnapshots.forEach(snap => snap.forEach(processInv));
+
+            const detailKeys = new Set([...outletInventory.values()].filter(r => r.identity.outlet).map(r => `${r.matchKey}_${r.identity.itemName}`));
+            const totals = {}, outletKeys = new Set();
+            for (const row of outletInventory.values()) {
+                const key = `${row.matchKey}_${row.identity.itemName}`;
+                if (!row.identity.outlet && detailKeys.has(key)) continue;
+                addInventoryQuantity(totals, outletKeys, key, { originalQty: row.qty, ...row }, row.identity.outlet);
+            }
+            for (const row of Object.values(totals)) {
+                const itemName = row.identity.itemName, qty = String(row.originalQty);
+                invMap[`${row.dDate}_${row.hotelName.replace(/\s+/g, '')}_${itemName}`] = qty;
+                if (!invRawDataMap[row.matchKey]) invRawDataMap[row.matchKey] = { date: row.dDate, hotelKeyword: row.hotelKeyword, deptName: row.deptName, hotelName: row.hotelName, items: [] };
+                invRawDataMap[row.matchKey].items.push({ itemName, qty });
+            }
+
+            return { invMap, invRawDataMap };
+        }
+
         // ===============================================
-        // 📦 物流簽收後台載入 (完美同步未簽收單據至物流資料庫，讓結帳系統 100% 依物流查帳台為準)
+        // 📦 物流簽收後台載入
         // ===============================================
         window.loadLogData = async function() {
             const startDate = document.getElementById('logStartDate').value;
@@ -787,78 +861,12 @@
             try {
                 await ensureMasterData();
 
-                const readPeriod = name => Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
-                    getDocsFromServer(query(collection(db, name), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
-                const [logSnapshots, invSnapshots] = await Promise.all([readPeriod('logistics_records'), readPeriod('inventory_records')]);
-
-                let invMap = {}; 
-                let invRawDataMap = {}; 
-                const outletInventory = new Map();
-                const isRestaurant = (hotel,dept) => String(hotel || '').replace(/\s/g,'') === '洲際' && ['餐廳','餐飲','餐飲部'].includes(String(dept || '').trim());
-
-                const processInv = (docSnap) => {
-                    let d = docSnap.data();
-                    let dDate = standardizeDate(d.date);
-                    if (dDate < startDate || dDate > endDate) return;
-                    let qty = (d.doubleCount !== undefined && d.doubleCount !== null && d.doubleCount !== "") ? String(d.doubleCount) : (d.count || "0");
-                    let cleanHotel = (d.hotel || "").replace(/\s+/g, '');
-                    let cleanItem = (d.item || "").trim();
-                    invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
-
-                    let hotelName = (d.hotel || "").trim();
-                    let hotelKeyword = hotelName;
-                    let deptName = "房務";
-                    let catParts = hotelName.split(' ');
-                    if (catParts.length > 1) {
-                        deptName = catParts.pop().trim();
-                        hotelKeyword = catParts.join(' ').trim();
-                    }
-                    let targetCat = masterData.find(m => m.hotel === hotelName);
-                    if (targetCat) {
-                        hotelKeyword = (targetCat.baseName || hotelKeyword).trim();
-                        deptName = (targetCat.deptName || deptName).trim();
-                    }
-
-                    // 產生標準化的比對 Key (去除所有空格，並完全黏合)
-                    let safeHotelKeyForMatch = hotelKeyword.replace(/\s+/g, '');
-                    let safeDeptKeyForMatch = deptName.replace(/\s+/g, '');
-                    // ㊙️ 關鍵修改：將飯店與部門完全黏合比對，消除切割邏輯差異
-                    let matchKey = `${dDate}_${safeHotelKeyForMatch}${safeDeptKeyForMatch}`;
-                    if(isRestaurant(hotelKeyword,deptName)) {
-                        const identity=receiptInventoryIdentity(d,cleanItem,'洲際');
-                        outletInventory.set(docSnap.id,{matchKey,identity,qty,dDate,hotelKeyword,deptName,hotelName});
-                        return;
-                    }
-                    
-                    if (!invRawDataMap[matchKey]) {
-                        invRawDataMap[matchKey] = {
-                            date: dDate,
-                            hotelKeyword: hotelKeyword,
-                            deptName: deptName,
-                            hotelName: hotelName,
-                            items: []
-                        };
-                    }
-                    const invItems = invRawDataMap[matchKey].items;
-                    // 標準日期與非補零查詢可能同時取得同一筆盤點資料。
-                    const oldInv = invItems.find(i => normalizedLogItemName(i.itemName) === normalizedLogItemName(cleanItem));
-                    if (oldInv) { oldInv.qty = qty; } else invItems.push({itemName: cleanItem, qty});
-                };
-                invSnapshots.forEach(snap => snap.forEach(processInv));
-                // Plant outlet rows supply only an unsigned aggregate fallback, never extra billing rows.
-                const detailKeys=new Set([...outletInventory.values()].filter(r=>r.identity.outlet).map(r=>`${r.matchKey}_${r.identity.itemName}`));
-                const totals={},outletKeys=new Set();
-                for(const row of outletInventory.values()) {
-                    const key=`${row.matchKey}_${row.identity.itemName}`;
-                    if(!row.identity.outlet&&detailKeys.has(key))continue;
-                    addInventoryQuantity(totals,outletKeys,key,{originalQty:row.qty,...row},row.identity.outlet);
-                }
-                for(const row of Object.values(totals)) {
-                    const itemName=row.identity.itemName,qty=String(row.originalQty);
-                    invMap[`${row.dDate}_${row.hotelName.replace(/\s+/g,'')}_${itemName}`]=qty;
-                    if(!invRawDataMap[row.matchKey])invRawDataMap[row.matchKey]={date:row.dDate,hotelKeyword:row.hotelKeyword,deptName:row.deptName,hotelName:row.hotelName,items:[]};
-                    invRawDataMap[row.matchKey].items.push({itemName,qty});
-                }
+                const readLogPeriod = Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
+                    getDocsFromServer(query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
+                    readLogPeriod,
+                    buildInventoryMapsForRange(startDate, endDate)
+                ]);
 
                 latestInvRawDataMap = invRawDataMap;
                 deletedReceiptTombstones.clear();
@@ -879,15 +887,14 @@
                         let logHotelKey = (d.hotelKeyword || "").replace(/\s+/g, '');
                         let logDeptKey = (d.deptName || "房務").replace(/\s+/g, '');
                         
-                        // ㊙️ 關鍵修改：與上方呼應，完全黏合
                         let matchKey = `${dDate}_${logHotelKey}${logDeptKey}`;
-                        processedLogKeys.add(matchKey); // 記錄這個組合已經有真實單據了
-                        processedLogKeys.add(docSnap.id); // 雙重防呆
+                        processedLogKeys.add(matchKey);
+                        processedLogKeys.add(docSnap.id);
 
                         let hotelName = d.hotelKeyword || "";
                         if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-                        // ★ 若此單據被標記為「整張手動刪除 (manualDeletedReceipt)」，直接跳過不顯示，且因為已加入 processedLogKeys，第 2 階段也不會自動從盤點補回！
+                        // ★ 若此單據被標記為「整張手動刪除 (manualDeletedReceipt)」，直接記錄到誤刪救援池並跳過顯示
                         if (d.manualDeletedReceipt) {
                             deletedReceiptTombstones.set(docSnap.id, {
                                 docId: docSnap.id,
@@ -895,17 +902,17 @@
                                 date: dDate,
                                 hotelKeyword: d.hotelKeyword || "",
                                 deptName: d.deptName || "房務",
-                                hotelName
+                                hotelName,
+                                backupItems: Array.isArray(d.deletedBackupItems) ? d.deletedBackupItems : []
                             });
                             return;
                         }
 
-                        // 網頁端關鍵字模糊比對 (忽略空白，容錯率更高)
                         if (hotelKey && !hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) return;
 
                         let hasQtyModified = false;
                         let isSigned = !!(d.driverSig && d.clientSig);
-                        const restaurantTotals=isRestaurant(d.hotelKeyword,d.deptName);
+                        const restaurantTotals = isRestaurantDept(d.hotelKeyword, d.deptName);
                         const signatureReviewNeeded = !isSigned && !!(d.driverSig || d.clientSig) && !!d.timestamp;
 
                         let validItems = [];
@@ -937,9 +944,6 @@
                             });
                         });
 
-                        // ★ 自動修復：同日盤點有、既有物流單卻漏掉的品項，自動補進物流單。
-                        // 已存在品項保留物流端 actualQty；只補缺少的品項，避免覆蓋司機已修改的實收數量。
-                        // （若使用者在物流後台曾手動刪除過品項 manualItemDeleted，則不自動補回，直到使用者點「🔄 從盤點撈回誤刪品項」）
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
                         if (!restaurantTotals && !d.manualItemDeleted && invGroup && Array.isArray(invGroup.items)) {
@@ -961,7 +965,6 @@
                             });
                         }
                         if (!restaurantTotals && (missingToPersist.length || hasDuplicates)) {
-                            // 只對最新伺服器內容去重；交易確保不會覆蓋同時改過的數量或簽名。
                             logisticsRepairPromises.push(runTransaction(db, async tx => {
                                 const refDoc = doc(db, 'logistics_records', docSnap.id);
                                 const freshSnap = await tx.get(refDoc);
@@ -996,6 +999,7 @@
                                 deptName: d.deptName,
                                 hotel: hotelName,
                                 items: validItems,
+                                deletedBackupItems: Array.isArray(d.deletedBackupItems) ? d.deletedBackupItems : [],
                                 assignedDriver: d.assignedDriver || "",
                                 driverSig: d.driverSig || "",
                                 clientSig: d.clientSig || "",
@@ -1007,7 +1011,6 @@
                     }
                 });
 
-                // 等待既有物流單缺漏品項的自動修復寫回資料庫。
                 if (logisticsRepairPromises.length) await Promise.allSettled(logisticsRepairPromises);
 
                 // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據（並自動同步寫入物流資料庫，讓結帳系統 100% 依物流查帳台為準）
@@ -1043,6 +1046,7 @@
                                 deptName: data.deptName,
                                 hotel: data.hotelName,
                                 items: validItems,
+                                deletedBackupItems: [],
                                 assignedDriver: "",
                                 driverSig: "",
                                 clientSig: "",
@@ -1050,7 +1054,6 @@
                                 status: "yellow" 
                              });
 
-                             // ★ 關鍵：將物流查帳台畫面上顯示的黃燈單據正式存入 logistics_records，確保結帳系統與物流查帳台 100% 同步！
                              newReceiptPromises.push(setDoc(doc(db, 'logistics_records', standardId), {
                                 date: data.date,
                                 hotelKeyword: data.hotelKeyword,
@@ -1137,7 +1140,6 @@
             }
 
             tbody.innerHTML = data.map((r, index) => {
-                // 三色標籤與圓點 (純圓點樣式)
                 let statusBadge = '';
                 if (r.status === 'red') {
                     statusBadge = `<span class="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse shadow-sm" title="修改數量"></span>`;
@@ -1201,7 +1203,6 @@
                     </tr>
                 `}).join('');
 
-                // ★ 司機指派下拉選單
                 let driverSelectHtml = `
                     <select class="border border-gray-300 rounded px-2 py-1.5 font-bold text-sm outline-none transition-colors w-full cursor-pointer ${r.assignedDriver ? 'text-indigo-700 bg-indigo-50 border-indigo-300 shadow-sm' : 'text-gray-500 bg-gray-50 hover:bg-gray-100'}" onchange="updateDriver('${r.id}', this.value, event)" onclick="event.stopPropagation()">
                         <option value="">-- 未指派 --</option>
@@ -1221,7 +1222,6 @@
                             </div>
                         </td>
                         <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
-                        <!-- ★ 負責司機欄位 -->
                         <td class="text-center" onclick="event.stopPropagation()">
                             ${driverSelectHtml}
                         </td>
@@ -1290,7 +1290,6 @@
                 if (docSnap.exists()) {
                     await setDoc(docRef, { assignedDriver: driverName }, { merge: true });
                 } else {
-                    // 如果這是一張假單(尚未真正產生紀錄的)，我們要幫忙建立！
                     let logRecord = logRecords.find(item => item.id === docId);
                     if (logRecord) {
                         await setDoc(docRef, {
@@ -1316,7 +1315,6 @@
                 
                 showToast(`✅ 已更新負責司機：${driverName || '未指派'}`);
                 
-                // 更新本地端資料並刷新
                 let localRecord = logRecords.find(r => r.id === docId);
                 if(localRecord) localRecord.assignedDriver = driverName;
                 applyLogFilters();
@@ -1324,7 +1322,7 @@
             } catch (err) {
                 console.error(err);
                 await customAlert("指派司機失敗：" + err.message);
-                applyLogFilters(); // 失敗的話重繪復原畫面
+                applyLogFilters();
             }
         };
 
@@ -1358,7 +1356,7 @@
                 btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('batchDriverSelect').value); };
             });
 
-            if (driverName === null) return; // 使用者按了取消
+            if (driverName === null) return;
 
             showToast(`⏳ 正在批量指派司機...`);
 
@@ -1374,7 +1372,6 @@
                     if (docSnap.exists()) {
                         await setDoc(docRef, { assignedDriver: driverName }, { merge: true });
                     } else {
-                        // 建立假單紀錄
                         await setDoc(docRef, {
                             date: r.date,
                             hotelKeyword: r.hotelKeyword,
@@ -1394,7 +1391,7 @@
                             assignedDriver: driverName
                         });
                     }
-                    r.assignedDriver = driverName; // 更新本地狀態
+                    r.assignedDriver = driverName;
                 }
                 showToast("✅ 批量派車完成！");
                 applyLogFilters();
@@ -1543,9 +1540,6 @@
             }
         };
 
-        // 財務明細以列 ID 或原始品項辨識；顯示名稱相同仍保留不同來源。
-        // 舊資料若同一來源重複，實收修改優先；
-        // 若都有修改，保留最後一筆。空格、全形空白不造成兩種品項。
         const normalizedLogItemName = name => String(name || '').replace(/[\s\u3000]+/g, '').trim();
         function uniqueLogItems(items) {
             const map = new Map();
@@ -1582,7 +1576,7 @@
                     if (!snap.exists() && !local) throw new Error('找不到物流單據，請重新載入');
 
                     const receipt = snap.exists() ? snap.data() : local;
-                    const restaurantTotals = String(receipt.hotelKeyword || '').replace(/\s/g, '') === '洲際' && ['餐廳', '餐飲', '餐飲部'].includes(receipt.deptName);
+                    const restaurantTotals = isRestaurantDept(receipt.hotelKeyword, receipt.deptName);
                     const sourceItems = snap.exists() ? (receipt.items || []) : local.items.map(i => ({
                         itemName: i.itemName,
                         ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
@@ -1648,7 +1642,7 @@
             }
         };
 
-        // ★ 2. 直接刪除物流單內的單一「品項」（若刪到最後一筆，自動轉為整張刪除封條，重新載入不再跳出）
+        // ★ 2. 直接刪除物流單內的單一「品項」（自動將被刪品項存入 deletedBackupItems 快照，確保 100% 隨時能撈回明細）
         window.deleteLogItem = async function(docId, itemName, financeItemId = '', invItemName = '', e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
@@ -1662,71 +1656,65 @@
             try {
                 const docRef = doc(db, 'logistics_records', docId);
                 let becameEmptyReceipt = false;
+                let savedBackup = [];
 
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
-                    if (snap.exists()) {
-                        const data = snap.data();
-                        const sourceItems = Array.isArray(data.items) ? data.items : [];
-                        const filtered = sourceItems.filter(i => {
-                            if (financeItemId && i.financeItemId === financeItemId) return false;
-                            if (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) return false;
-                            if (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedLogItemName(invItemName)) return false;
-                            return true;
-                        });
-                        if (filtered.length > 0) {
-                            tx.update(docRef, { items: filtered, manualItemDeleted: true });
-                        } else {
-                            becameEmptyReceipt = true;
-                            tx.set(docRef, {
-                                date: localRecord.date,
-                                hotelKeyword: localRecord.hotelKeyword,
-                                deptName: localRecord.deptName || '房務',
-                                items: [],
-                                manualDeletedReceipt: true,
-                                deletedAt: getLocalTimeString(new Date())
-                            }, { merge: true });
-                        }
-                    } else {
-                        const filtered = localRecord.items.filter(i => {
-                            if (financeItemId && i.financeItemId === financeItemId) return false;
-                            if (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) return false;
-                            return true;
-                        }).map(i => ({
+                    const data = snap.exists() ? snap.data() : {};
+                    const priorBackup = Array.isArray(data.deletedBackupItems) ? [...data.deletedBackupItems] : [];
+                    const sourceItems = snap.exists() && Array.isArray(data.items)
+                        ? data.items
+                        : localRecord.items.map(i => ({
                             itemName: i.itemName,
                             ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
                             originalQty: String(i.bqQty),
                             actualQty: String(i.actualQty),
                             auntNote: '',
-                            driverNote: '後台刪除品項後同步建立'
+                            driverNote: ''
                         }));
-                        if (filtered.length > 0) {
-                            tx.set(docRef, {
-                                date: localRecord.date,
-                                hotelKeyword: localRecord.hotelKeyword,
-                                deptName: localRecord.deptName || '房務',
-                                items: filtered,
-                                manualItemDeleted: true,
-                                forcedSync: true,
-                                assignedDriver: localRecord.assignedDriver || '',
-                                timestamp: getLocalTimeString(new Date()),
-                                clientSig: '',
-                                driverSig: ''
-                            });
-                        } else {
-                            becameEmptyReceipt = true;
-                            tx.set(docRef, {
-                                date: localRecord.date,
-                                hotelKeyword: localRecord.hotelKeyword,
-                                deptName: localRecord.deptName || '房務',
-                                items: [],
-                                manualDeletedReceipt: true,
-                                deletedAt: getLocalTimeString(new Date())
-                            });
-                        }
+
+                    const removedItems = [];
+                    const filtered = sourceItems.filter(i => {
+                        const isMatch = (financeItemId && i.financeItemId === financeItemId) ||
+                            (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) ||
+                            (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedLogItemName(invItemName));
+                        if (isMatch) removedItems.push({ ...i });
+                        return !isMatch;
+                    });
+
+                    // 將被刪掉的品項存進備份池
+                    removedItems.forEach(rem => {
+                        const norm = normalizedLogItemName(rem.inventoryItemName || rem.itemName);
+                        const idx = priorBackup.findIndex(b => normalizedLogItemName(b.inventoryItemName || b.itemName) === norm);
+                        if (idx > -1) priorBackup[idx] = rem;
+                        else priorBackup.push(rem);
+                    });
+                    savedBackup = priorBackup;
+
+                    if (filtered.length > 0) {
+                        tx.set(docRef, {
+                            date: localRecord.date,
+                            hotelKeyword: localRecord.hotelKeyword,
+                            deptName: localRecord.deptName || '房務',
+                            items: filtered,
+                            deletedBackupItems: priorBackup,
+                            manualItemDeleted: true
+                        }, { merge: true });
+                    } else {
+                        becameEmptyReceipt = true;
+                        tx.set(docRef, {
+                            date: localRecord.date,
+                            hotelKeyword: localRecord.hotelKeyword,
+                            deptName: localRecord.deptName || '房務',
+                            items: [],
+                            deletedBackupItems: priorBackup,
+                            manualDeletedReceipt: true,
+                            deletedAt: getLocalTimeString(new Date())
+                        }, { merge: true });
                     }
                 });
 
+                localRecord.deletedBackupItems = savedBackup;
                 localRecord.items = localRecord.items.filter(i => {
                     if (financeItemId && i.financeItemId === financeItemId) return false;
                     if (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) return false;
@@ -1743,7 +1731,8 @@
                         date: localRecord.date,
                         hotelKeyword: localRecord.hotelKeyword || "",
                         deptName: localRecord.deptName || "房務",
-                        hotelName: localRecord.hotel
+                        hotelName: localRecord.hotel,
+                        backupItems: savedBackup
                     });
                     logRecords = logRecords.filter(r => r.id !== docId);
                     openLogDetailDocIds.delete(docId);
@@ -1763,45 +1752,77 @@
             }
         };
 
-        // ★ 3. 誤刪救援 A：從盤點資料庫一鍵撈回該單據被誤刪的「單一品項」
+        // ★ 3. 誤刪救援 A：從「單據快照備份＋盤點資料庫」雙重比對，一鍵撈回該單據被誤刪的單一品項
         window.restoreLogItemsFromInv = async function(docId, e) {
             if (e) e.stopPropagation();
             const localRecord = logRecords.find(r => r.id === docId);
             if (!localRecord) return;
 
-            const logHotelKey = (localRecord.hotelKeyword || "").replace(/\s+/g, '');
-            const logDeptKey = (localRecord.deptName || "房務").replace(/\s+/g, '');
-            const matchKey = `${localRecord.date}_${logHotelKey}${logDeptKey}`;
-            const invGroup = latestInvRawDataMap[matchKey];
-
-            if (!invGroup || !Array.isArray(invGroup.items) || invGroup.items.length === 0) {
-                await customAlert("💡 盤點資料庫中沒有找到這張單據的其他品項紀錄。");
-                return;
-            }
-
-            const existingNames = new Set(localRecord.items.map(i => normalizedLogItemName(i.inventoryItemName || i.itemName)));
-            const missingItems = invGroup.items.filter(invItem => {
-                const norm = normalizedLogItemName(invItem.itemName);
-                return norm && String(invItem.qty ?? '0') !== '0' && !existingNames.has(norm);
-            });
-
-            if (missingItems.length === 0) {
-                await customAlert("✅ 目前這張單據的品項已經是完整的，沒有被刪除的盤點品項需要撈回！");
-                return;
-            }
-
-            const namesPreview = missingItems.map(i => `${i.itemName} (${i.qty})`).join('、');
-            const ok = await customConfirm(`🔍 在盤點紀錄中找到以下 ${missingItems.length} 筆被移除的品項：\n【${namesPreview}】\n\n確定要將它們撈回這張物流單嗎？`);
-            if (!ok) return;
-
-            openLogDetailDocIds.add(docId);
+            showToast("⏳ 正在比對盤點與備份明細...");
 
             try {
+                // 即時讀取該日期的盤點資料與資料庫最新快照，確保 100% 不漏抓
+                const [{ invRawDataMap }, docSnap] = await Promise.all([
+                    buildInventoryMapsForRange(localRecord.date, localRecord.date),
+                    getDoc(doc(db, 'logistics_records', docId))
+                ]);
+
+                const logHotelKey = (localRecord.hotelKeyword || "").replace(/\s+/g, '');
+                const logDeptKey = (localRecord.deptName || "房務").replace(/\s+/g, '');
+                const matchKey = `${localRecord.date}_${logHotelKey}${logDeptKey}`;
+                const invGroup = invRawDataMap[matchKey] || latestInvRawDataMap[matchKey];
+                const dbBackup = docSnap.exists() && Array.isArray(docSnap.data().deletedBackupItems) ? docSnap.data().deletedBackupItems : [];
+
+                const existingNames = new Set(localRecord.items.flatMap(i => [
+                    normalizedLogItemName(i.itemName),
+                    normalizedLogItemName(i.inventoryItemName || '')
+                ]).filter(Boolean));
+
+                // 合併「快照備份」與「盤點資料庫」中被刪掉的品項
+                const candidateMap = new Map();
+                dbBackup.forEach(b => {
+                    const norm = normalizedLogItemName(b.inventoryItemName || b.itemName);
+                    const qty = String(b.actualQty ?? b.originalQty ?? b.bqQty ?? '0');
+                    if (norm && qty !== '0' && !existingNames.has(norm)) {
+                        candidateMap.set(norm, {
+                            itemName: b.itemName,
+                            ...(b.inventoryItemName ? { inventoryItemName: b.inventoryItemName } : {}),
+                            originalQty: String(b.originalQty ?? qty),
+                            actualQty: qty
+                        });
+                    }
+                });
+                if (invGroup && Array.isArray(invGroup.items)) {
+                    invGroup.items.forEach(invItem => {
+                        const norm = normalizedLogItemName(invItem.itemName);
+                        const qty = String(invItem.qty ?? '0');
+                        if (norm && qty !== '0' && !existingNames.has(norm) && !candidateMap.has(norm)) {
+                            candidateMap.set(norm, {
+                                itemName: invItem.itemName,
+                                originalQty: qty,
+                                actualQty: qty
+                            });
+                        }
+                    });
+                }
+
+                const missingItems = [...candidateMap.values()];
+                if (missingItems.length === 0) {
+                    await customAlert("✅ 目前這張單據的品項已經是完整的，沒有被刪除的品項需要撈回！");
+                    return;
+                }
+
+                const namesPreview = missingItems.map(i => `${i.itemName} (${i.actualQty})`).join('、');
+                const ok = await customConfirm(`🔍 找到以下 ${missingItems.length} 筆被刪除的品項：\n【${namesPreview}】\n\n確定要將它們撈回這張物流單嗎？`);
+                if (!ok) return;
+
+                openLogDetailDocIds.add(docId);
+
                 const docRef = doc(db, 'logistics_records', docId);
                 await runTransaction(db, async tx => {
                     const snap = await tx.get(docRef);
-                    const currentItems = snap.exists()
-                        ? (Array.isArray(snap.data().items) ? [...snap.data().items] : [])
+                    const currentItems = snap.exists() && Array.isArray(snap.data().items)
+                        ? [...snap.data().items]
                         : localRecord.items.map(i => ({
                             itemName: i.itemName,
                             ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
@@ -1813,122 +1834,203 @@
 
                     missingItems.forEach(m => {
                         currentItems.push({
-                            itemName: m.itemName,
-                            originalQty: String(m.qty),
-                            actualQty: String(m.qty),
+                            ...m,
                             auntNote: '',
-                            driverNote: '從盤點撈回誤刪品項'
+                            driverNote: '從盤點與備份撈回誤刪品項'
                         });
                     });
 
-                    if (snap.exists()) {
-                        tx.update(docRef, { items: currentItems, manualItemDeleted: false, manualDeletedReceipt: false });
-                    } else {
-                        tx.set(docRef, {
-                            date: localRecord.date,
-                            hotelKeyword: localRecord.hotelKeyword,
-                            deptName: localRecord.deptName || '房務',
-                            items: currentItems,
-                            manualItemDeleted: false,
-                            manualDeletedReceipt: false,
-                            forcedSync: true,
-                            assignedDriver: localRecord.assignedDriver || '',
-                            timestamp: getLocalTimeString(new Date()),
-                            clientSig: '',
-                            driverSig: ''
-                        });
-                    }
+                    tx.set(docRef, {
+                        date: localRecord.date,
+                        hotelKeyword: localRecord.hotelKeyword,
+                        deptName: localRecord.deptName || '房務',
+                        items: currentItems,
+                        deletedBackupItems: [],
+                        manualItemDeleted: false,
+                        manualDeletedReceipt: false,
+                        forcedSync: true
+                    }, { merge: true });
                 });
 
-                missingItems.forEach(m => {
-                    localRecord.items.push({
-                        itemName: m.itemName,
-                        bqQty: String(m.qty),
-                        actualQty: String(m.qty)
-                    });
-                });
-                localRecord.items.sort((a, b) => {
-                    let indexA = getItemSortIndex(localRecord.hotel, a.itemName);
-                    let indexB = getItemSortIndex(localRecord.hotel, b.itemName);
-                    if (indexA !== indexB) return indexA - indexB;
-                    return (a.itemName < b.itemName) ? -1 : 1;
-                });
-
-                populateLogDropdowns();
-                applyLogFilters();
-                showToast(`✅ 已成功從盤點撈回 ${missingItems.length} 筆品項！`);
+                await loadLogData();
+                showToast(`✅ 已成功撈回 ${missingItems.length} 筆品項！`);
             } catch (err) {
                 console.error('撈回品項失敗', err);
                 await customAlert('撈回失敗：' + err.message);
             }
         };
 
-        // ★ 4. 誤刪救援 B：從盤點資料庫撈回被「整張刪除」的物流單據
+        // ★ 4. 誤刪救援 B：一鍵撈回被「整張刪除」的單據（即時掃描封條備份＋盤點資料庫，保證明細 100% 完整出來！）
         window.restoreDeletedReceiptsFromInv = async function() {
-            const tombstones = [...deletedReceiptTombstones.values()];
-            if (tombstones.length === 0) {
-                await customAlert("💡 目前查詢區間內，沒有被手動整張刪除的物流單據！（若剛切換日期，請先點「載入物流單據」）");
+            const startDate = document.getElementById('logStartDate').value;
+            const endDate = document.getElementById('logEndDate').value;
+            if (!startDate || !endDate) {
+                await customAlert("請先選擇上方的單據日期區間！");
                 return;
             }
 
-            const targetId = await new Promise((resolve) => {
-                const modal = document.getElementById('customModal');
-                document.getElementById('modalTitle').innerHTML = '🔄 從盤點明細撈回誤刪單據';
-                const options = `<option value="ALL">🌟 全部撈回（共 ${tombstones.length} 張單據）</option>` +
-                    tombstones.map(t => `<option value="${escapeAttr(t.docId)}">${escapeAttr(t.date)} - ${escapeAttr(t.hotelName)}</option>`).join('');
-
-                document.getElementById('modalBody').innerHTML = `
-                    <div class="mb-3">在目前區間找到 ${tombstones.length} 張已刪除的單據，請選擇要從盤點明細撈回哪一張：</div>
-                    <select id="restoreReceiptSelect" class="w-full border border-orange-300 p-2 rounded focus:outline-none focus:border-orange-500 font-bold text-orange-900 bg-orange-50 cursor-pointer">
-                        ${options}
-                    </select>
-                `;
-                const btnCancel = document.getElementById('modalCancel');
-                const btnOk = document.getElementById('modalOk');
-                modal.classList.remove('hidden');
-                btnCancel.classList.remove('hidden');
-                btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(null); };
-                btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('restoreReceiptSelect').value); };
-            });
-
-            if (!targetId) return;
-
-            const toRestore = targetId === 'ALL' ? tombstones : tombstones.filter(t => t.docId === targetId);
-            showToast(`⏳ 正在從盤點明細撈回單據...`);
+            showToast("🔍 正在掃描區間內可撈回的單據與盤點明細...");
 
             try {
-                for (const t of toRestore) {
-                    const invGroup = latestInvRawDataMap[t.matchKey];
-                    const restoredItems = (invGroup && Array.isArray(invGroup.items))
-                        ? invGroup.items.filter(i => String(i.qty ?? '0') !== '0').map(i => ({
+                // 即時重新讀取區間內的物流單與盤點資料庫，確保不管有沒有先按載入都找得到！
+                const readLogPeriod = Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
+                    getDocsFromServer(query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const [logSnapshots, { invRawDataMap }] = await Promise.all([
+                    readLogPeriod,
+                    buildInventoryMapsForRange(startDate, endDate)
+                ]);
+
+                latestInvRawDataMap = invRawDataMap;
+
+                const existingLogDocs = new Map();
+                const activeMatchKeys = new Set();
+                const recoverableMap = new Map();
+
+                logSnapshots.forEach(snap => snap.forEach(d => {
+                    const data = d.data();
+                    const dDate = standardizeDate(data.date);
+                    if (dDate < startDate || dDate > endDate) return;
+                    existingLogDocs.set(d.id, data);
+
+                    const cleanH = String(data.hotelKeyword || '').replace(/\s+/g, '');
+                    const cleanD = String(data.deptName || '房務').replace(/\s+/g, '');
+                    const mKey = `${dDate}_${cleanH}${cleanD}`;
+                    const hotelName = data.deptName && data.deptName !== data.hotelKeyword ? `${data.hotelKeyword} ${data.deptName}` : (data.hotelKeyword || '');
+
+                    const hasActiveItems = !data.manualDeletedReceipt && Array.isArray(data.items) && data.items.some(i => Number(i.actualQty ?? i.originalQty ?? 0) > 0);
+                    if (hasActiveItems) {
+                        activeMatchKeys.add(mKey);
+                    } else {
+                        // 這張物流單被標記為整張刪除，或是裡面品項被清空了！
+                        const invGroup = invRawDataMap[mKey];
+                        const backupItems = Array.isArray(data.deletedBackupItems) && data.deletedBackupItems.length > 0
+                            ? data.deletedBackupItems
+                            : (invGroup && Array.isArray(invGroup.items) ? invGroup.items.map(i => ({
+                                itemName: i.itemName,
+                                originalQty: String(i.qty),
+                                actualQty: String(i.qty)
+                            })) : []);
+
+                        if (backupItems.length > 0 || data.manualDeletedReceipt) {
+                            recoverableMap.set(d.id, {
+                                docId: d.id,
+                                matchKey: mKey,
+                                date: dDate,
+                                hotelKeyword: data.hotelKeyword || invGroup?.hotelKeyword || '',
+                                deptName: data.deptName || invGroup?.deptName || '房務',
+                                hotelName: hotelName || invGroup?.hotelName || d.id,
+                                itemsToRestore: backupItems
+                            });
+                        }
+                    }
+                }));
+
+                // 同時檢查盤點資料庫（inventory_records）：若之前已被徹底 deleteDoc 砍掉而沒留封條，也直接從盤點抓出來！
+                for (const [mKey, group] of Object.entries(invRawDataMap)) {
+                    const standardId = `${group.date}_${group.hotelKeyword}_${group.deptName}`;
+                    if (!activeMatchKeys.has(mKey) && !recoverableMap.has(standardId)) {
+                        const validInvItems = (group.items || []).filter(i => String(i.qty ?? '0') !== '0').map(i => ({
                             itemName: i.itemName,
                             originalQty: String(i.qty),
-                            actualQty: String(i.qty),
-                            auntNote: '',
-                            driverNote: '從盤點撈回誤刪單據'
-                        }))
-                        : [];
-
-                    if (restoredItems.length > 0) {
-                        await setDoc(doc(db, 'logistics_records', t.docId), {
-                            date: t.date,
-                            hotelKeyword: t.hotelKeyword,
-                            deptName: t.deptName || '房務',
-                            items: restoredItems,
-                            manualDeletedReceipt: false,
-                            manualItemDeleted: false,
-                            forcedSync: true,
-                            timestamp: getLocalTimeString(new Date())
-                        }, { merge: true });
-                    } else {
-                        // 直接移除封條，讓系統恢復預設狀態
-                        await deleteDoc(doc(db, 'logistics_records', t.docId));
+                            actualQty: String(i.qty)
+                        }));
+                        if (validInvItems.length > 0) {
+                            recoverableMap.set(standardId, {
+                                docId: standardId,
+                                matchKey: mKey,
+                                date: group.date,
+                                hotelKeyword: group.hotelKeyword,
+                                deptName: group.deptName,
+                                hotelName: group.hotelName,
+                                itemsToRestore: validInvItems
+                            });
+                        }
                     }
-                    deletedReceiptTombstones.delete(t.docId);
                 }
 
-                showToast(`✅ 已成功撈回 ${toRestore.length} 張單據！`);
+                const candidates = [...recoverableMap.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hotelName.localeCompare(b.hotelName, 'zh-TW'));
+                if (candidates.length === 0) {
+                    await customAlert("💡 在目前日期區間內，所有盤點單據都已經顯示在列表上了，沒有找到被刪除或遺漏的單據！");
+                    return;
+                }
+
+                const targetId = await new Promise((resolve) => {
+                    const modal = document.getElementById('customModal');
+                    document.getElementById('modalTitle').innerHTML = '🔄 撈回誤刪單據（含完整明細）';
+                    const options = `<option value="ALL">🌟 全部撈回（共 ${candidates.length} 張單據）</option>` +
+                        candidates.map(t => `<option value="${escapeAttr(t.docId)}">${escapeAttr(t.date)} - ${escapeAttr(t.hotelName)}（共 ${t.itemsToRestore.length} 項明細）</option>`).join('');
+
+                    document.getElementById('modalBody').innerHTML = `
+                        <div class="mb-3">在區間內找到 ${candidates.length} 張被刪除的單據，請選擇要撈回哪一張：</div>
+                        <select id="restoreReceiptSelect" class="w-full border border-orange-300 p-2 rounded focus:outline-none focus:border-orange-500 font-bold text-orange-900 bg-orange-50 cursor-pointer">
+                            ${options}
+                        </select>
+                    `;
+                    const btnCancel = document.getElementById('modalCancel');
+                    const btnOk = document.getElementById('modalOk');
+                    modal.classList.remove('hidden');
+                    btnCancel.classList.remove('hidden');
+                    btnCancel.onclick = () => { modal.classList.add('hidden'); resolve(null); };
+                    btnOk.onclick = () => { modal.classList.add('hidden'); resolve(document.getElementById('restoreReceiptSelect').value); };
+                });
+
+                if (!targetId) return;
+
+                const toRestore = targetId === 'ALL' ? candidates : candidates.filter(t => t.docId === targetId);
+                showToast(`⏳ 正在將單據與明細完整撈回...`);
+
+                for (const t of toRestore) {
+                    // 結合備份明細與盤點明細，確保所有品項 100% 恢復
+                    const invGroup = invRawDataMap[t.matchKey];
+                    const mergedMap = new Map();
+                    (t.itemsToRestore || []).forEach(item => {
+                        const norm = normalizedLogItemName(item.inventoryItemName || item.itemName);
+                        const qty = String(item.actualQty ?? item.originalQty ?? item.bqQty ?? '0');
+                        if (norm && qty !== '0') {
+                            mergedMap.set(norm, {
+                                itemName: item.itemName,
+                                ...(item.inventoryItemName ? { inventoryItemName: item.inventoryItemName } : {}),
+                                originalQty: String(item.originalQty ?? qty),
+                                actualQty: qty,
+                                auntNote: item.auntNote || '',
+                                driverNote: '從誤刪備份撈回單據'
+                            });
+                        }
+                    });
+                    if (invGroup && Array.isArray(invGroup.items)) {
+                        invGroup.items.forEach(invItem => {
+                            const norm = normalizedLogItemName(invItem.itemName);
+                            const qty = String(invItem.qty ?? '0');
+                            if (norm && qty !== '0' && !mergedMap.has(norm)) {
+                                mergedMap.set(norm, {
+                                    itemName: invItem.itemName,
+                                    originalQty: qty,
+                                    actualQty: qty,
+                                    auntNote: '',
+                                    driverNote: '從盤點明細撈回單據'
+                                });
+                            }
+                        });
+                    }
+
+                    const finalRestoredItems = [...mergedMap.values()];
+                    await setDoc(doc(db, 'logistics_records', t.docId), {
+                        date: t.date,
+                        hotelKeyword: t.hotelKeyword,
+                        deptName: t.deptName || '房務',
+                        items: finalRestoredItems,
+                        deletedBackupItems: [],
+                        manualDeletedReceipt: false,
+                        manualItemDeleted: false,
+                        forcedSync: true
+                    }, { merge: true });
+
+                    deletedReceiptTombstones.delete(t.docId);
+                    openLogDetailDocIds.add(t.docId); // 撈回後自動展開明細讓您直接確認！
+                }
+
                 await loadLogData();
+                showToast(`✅ 已成功撈回 ${toRestore.length} 張單據與完整明細！`);
             } catch (err) {
                 console.error('撈回整張單據失敗', err);
                 await customAlert('撈回單據失敗：' + err.message);
@@ -1950,7 +2052,7 @@
                     const local = logRecords.find(r => r.id === docId);
                     if (!snap.exists() && !local) throw new Error('找不到物流單據，請重新載入');
                     const receipt=snap.exists()?snap.data():local;
-                    const restaurantTotals=String(receipt.hotelKeyword || '').replace(/\s/g,'')==='洲際'&&['餐廳','餐飲','餐飲部'].includes(receipt.deptName);
+                    const restaurantTotals = isRestaurantDept(receipt.hotelKeyword, receipt.deptName);
                     const sourceItems = snap.exists() ? receipt.items || [] : local.items.map(i => ({
                         itemName: i.itemName,
                         ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
@@ -1964,7 +2066,6 @@
                     const target = matches[0];
                     if (!target) throw new Error('找不到原品項，請重新載入');
                     target.actualQty = finalNewValue;
-                    // Update this source row only; finance may give distinct rows the same name.
                     if (snap.exists()) tx.update(docRef, {items});
                     else tx.set(docRef, {date: local.date, hotelKeyword: local.hotelKeyword,
                         deptName: local.deptName || '房務', items, forcedSync: true,
@@ -2050,7 +2151,6 @@
                             driverNote: "後台強制同步新增"
                         });
                     }
-                    // 若該單據原本被整張刪除，強制同步時一併解除 manualDeletedReceipt 封條！
                     tx.set(logDocRef, { items: logItems, forcedSync: true, manualDeletedReceipt: false }, { merge: true });
                 } else {
                     tx.set(logDocRef, {
@@ -2062,7 +2162,7 @@
                         timestamp: getLocalTimeString(new Date()),
                         forcedSync: true,
                         manualDeletedReceipt: false,
-                        assignedDriver: "", // 建立時為空
+                        assignedDriver: "",
                         items: [{
                             itemName: item,
                             originalQty: String(qtyToSync),
@@ -2085,11 +2185,12 @@
             }
         };
 
+        // ★ 整張單據刪除：刪除前先把所有品項完整備份到 deletedBackupItems，確保按撈回時 100% 有明細！
         window.deleteRecord = async function(collectionName, docId, e, category, item, dateStr) {
             if(e) e.stopPropagation();
             const isLogistics = collectionName === 'logistics_records';
             const confirmMsg = isLogistics
-                ? `⚠️ 確定要刪除此張物流單據嗎？\n\n刪除後重新載入將不再出現！\n（💡 盤點明細仍會保留，若誤刪可點上方「🔄 撈回誤刪單據」救回）`
+                ? `⚠️ 確定要刪除此張物流單據嗎？\n\n刪除後重新載入將不再出現！\n（💡 原單明細已安全備份，若誤刪可點上方「🔄 撈回誤刪單據」完整救回）`
                 : `⚠️ 警告：您確定要永久刪除這筆紀錄嗎？\n刪除後將無法復原！`;
             const confirmDelete = await customConfirm(confirmMsg);
             if (!confirmDelete) return;
@@ -2106,12 +2207,28 @@
                         hKey = parts[1] || '';
                         dName = parts.slice(2).join('_') || '房務';
                     }
-                    // 寫入已手動刪除封條，防止下次載入時自動從盤點補回整張單據！
-                    await setDoc(doc(db, 'logistics_records', docId), {
+
+                    const docRef = doc(db, 'logistics_records', docId);
+                    const snap = await getDoc(docRef);
+                    const existingItems = snap.exists() && Array.isArray(snap.data().items) && snap.data().items.length > 0
+                        ? snap.data().items
+                        : (localRecord?.items || []).map(i => ({
+                            itemName: i.itemName,
+                            ...(i.inventoryItemName ? { inventoryItemName: i.inventoryItemName } : {}),
+                            originalQty: String(i.bqQty),
+                            actualQty: String(i.actualQty),
+                            auntNote: '',
+                            driverNote: ''
+                        }));
+                    const priorBackup = snap.exists() && Array.isArray(snap.data().deletedBackupItems) ? snap.data().deletedBackupItems : [];
+                    const fullBackup = existingItems.length > 0 ? existingItems : priorBackup;
+
+                    await setDoc(docRef, {
                         date: dDate,
                         hotelKeyword: hKey,
                         deptName: dName,
                         items: [],
+                        deletedBackupItems: fullBackup,
                         manualDeletedReceipt: true,
                         deletedAt: getLocalTimeString(new Date())
                     }, { merge: true });
@@ -2124,14 +2241,15 @@
                         date: dDate,
                         hotelKeyword: hKey,
                         deptName: dName,
-                        hotelName: localRecord?.hotel || `${hKey} ${dName}`.trim()
+                        hotelName: localRecord?.hotel || `${hKey} ${dName}`.trim(),
+                        backupItems: fullBackup
                     });
 
                     logRecords = logRecords.filter(r => r.id !== docId);
                     openLogDetailDocIds.delete(docId);
                     populateLogDropdowns();
                     applyLogFilters();
-                    showToast("🗑️ 物流單據已刪除！（重新載入不會再跳出）");
+                    showToast("🗑️ 物流單據已刪除！（可隨時點「🔄 撈回誤刪單據」完整恢復）");
                 } else {
                     await deleteDoc(doc(db, collectionName, docId));
                     showToast("🗑️ 紀錄已成功刪除！");
@@ -2200,7 +2318,7 @@
             document.getElementById('manualDate').value = getLocalDateString(new Date());
             document.getElementById('manualHotel').value = "";
             document.getElementById('manualDept').value = "房務";
-            document.getElementById('manualDriver').value = ""; // 預設未指派
+            document.getElementById('manualDriver').value = "";
             document.getElementById('manualItemsContainer').innerHTML = "";
             addManualEntryRow();
             document.getElementById('manualEntryModal').classList.remove('hidden');
@@ -2226,7 +2344,7 @@
             const dateStr = document.getElementById('manualDate').value;
             const hotelKeyword = document.getElementById('manualHotel').value.trim();
             let deptName = document.getElementById('manualDept').value.trim() || "房務";
-            const assignedDriver = document.getElementById('manualDriver').value; // 抓取負責司機
+            const assignedDriver = document.getElementById('manualDriver').value;
 
             if (!dateStr || !hotelKeyword) {
                 await customAlert("⚠️ 日期與飯店關鍵字為必填！"); return;
@@ -2274,7 +2392,6 @@
                     });
                     
                     let updateData = { items: finalItems, forcedSync: true, manualDeletedReceipt: false };
-                    // 只要有指定司機就一併更新
                     if (assignedDriver) updateData.assignedDriver = assignedDriver;
                     await setDoc(logDocRef, updateData, { merge: true });
                 } else {
@@ -2319,7 +2436,7 @@
                         exportData.push({
                             "日期": r.date,
                             "飯店/部門": r.hotel,
-                            "負責司機": r.assignedDriver || "未指派", // ★ Excel也寫入司機
+                            "負責司機": r.assignedDriver || "未指派",
                             "品項": item.itemName,
                             "百麒數量": item.bqQty || 0,
                             "實收數量": item.actualQty || 0
