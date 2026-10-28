@@ -14,15 +14,7 @@ header.sticky .grid { gap: 8px !important; margin-top: 14px !important; }
 #tabFold.bg-blue-700, #tabOffice.bg-blue-700 { background: var(--cream) !important; color: var(--teal2) !important; }
 
 #foldPane, #officePane { padding: 0 12px !important; }
-#foldPane > section { background: var(--paper) !important; border: 3px solid var(--teal2); border-radius: 20px !important; box-shadow: 0 4px 0 var(--teal2) !important; padding: 14px !important; margin-top: 14px !important; }
-label[for=entryText] { color: var(--teal2) !important; font-size: 16px !important; font-weight: 900 !important; }
-#entryText { border: 2px solid var(--line) !important; border-radius: 14px !important; font-size: 22px !important; padding: 12px 14px !important; background: #fff; }
-#entryText:focus { border-color: var(--teal) !important; }
-#foldPane > section .flex.gap-2 { gap: 10px !important; }
-[data-action=dictate] { background: var(--amber) !important; color: var(--ink) !important; border-radius: 16px !important; font-size: 20px !important; padding: 0 18px !important; min-height: 64px; box-shadow: 0 4px 0 #d97706; }
-[data-action=submit-entry] { background: var(--teal) !important; border-radius: 16px !important; font-size: 24px !important; min-height: 64px; letter-spacing: .2em; box-shadow: 0 4px 0 #083b36; }
-#entryResult:empty { display: none; }
-#foldSearch { border: 2px solid var(--line) !important; border-radius: 14px !important; font-size: 18px !important; padding: 14px 16px !important; background: var(--paper) !important; }
+#foldSearch { border: 2px solid var(--line) !important; border-radius: 14px !important; font-size: 18px !important; padding: 14px 16px !important; background: var(--paper) !important; margin-top: 14px !important; }
 
 .day-scroller { gap: 14px !important; padding: 4px 2px 22px !important; }
 .day-card { flex-basis: 90% !important; padding: 0 !important; border: 3px solid var(--teal2) !important; border-radius: 22px !important; box-shadow: 0 5px 0 var(--teal2) !important; overflow: hidden; background: var(--paper) !important; }
@@ -100,5 +92,4 @@ input[data-office-for] { flex: 1 1 auto !important; min-width: 0 !important; wid
     .day-card > h2 { font-size: 34px !important; }
     [data-action=open-item] .min-w-0 > span:first-child { font-size: 22px !important; }
     #popupActions .step-btn { width: 56px; height: 56px; font-size: 30px; }
-    [data-action=dictate], [data-action=submit-entry] { min-height: 56px; font-size: 20px !important; }
 }

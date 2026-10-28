@@ -14,7 +14,7 @@
         @media (min-width: 800px) { .day-card { flex-basis: 340px; } }
         .step-btn { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; font-weight: 900; background: #e2e8f0; }
     </style>
-    <link rel="stylesheet" href="special-theme-factory.css?v=20261027-resign">
+    <link rel="stylesheet" href="special-theme-factory.css?v=20261028-noline">
 </head>
 <body class="pb-10">
     <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold opacity-0 pointer-events-none z-[80] transition-opacity"></div>
@@ -34,15 +34,6 @@
         </header>
 
         <main id="foldPane" class="px-3">
-            <section class="bg-white rounded-2xl shadow p-3 mt-2">
-                <label for="entryText" class="block text-sm font-black text-slate-600 mb-1">臨時輸入（代替 LINE，記在今天）</label>
-                <textarea id="entryText" data-testid="entry-text" rows="3" class="w-full border-2 border-slate-200 rounded-xl p-3 text-lg font-bold outline-none focus:border-blue-500" placeholder="例如：好六一條床單一條被套三條足巾"></textarea>
-                <div class="flex gap-2 mt-2">
-                    <button type="button" data-action="dictate" class="px-4 py-3 rounded-xl bg-slate-100 font-black">🎤 語音</button>
-                    <button type="button" data-action="submit-entry" data-testid="entry-submit" class="flex-1 py-3 rounded-xl bg-green-600 text-white font-black text-lg">送出</button>
-                </div>
-                <p id="entryResult" data-testid="entry-result" class="mt-2 font-bold min-h-[1.5rem]" aria-live="polite"></p>
-            </section>
             <label class="block mt-4 mb-2">
                 <span class="sr-only">搜尋飯店或品項</span>
                 <input id="foldSearch" data-testid="fold-search" type="search" placeholder="搜尋飯店 / 品項" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-bold">
@@ -91,10 +82,9 @@
     </div>
 
     <script type="module">
-        import { FALLBACK_HOTELS, FALLBACK_ITEMS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
-        import { parseSpecialEntry } from './special-parser.js?v=20261027-special';
+        import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { computeShipDate, shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261027-resign';
+        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261027-resign';
         import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261027-inventory';
         import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-inventory';
 
@@ -104,7 +94,6 @@
         let storage = null;
         let docs = [];
         let hotels = FALLBACK_HOTELS.slice();
-        let catalogItems = FALLBACK_ITEMS.slice();
         let schedules = [];
         let catalog = new Map();
         let catalogReady = false;
@@ -499,32 +488,6 @@
             if (upserts.length) await persist(upserts);
             docs = current;
         }
-        async function submitEntry() {
-            const text = document.getElementById('entryText').value;
-            const parsed = parseSpecialEntry(text, { hotels, items: catalogItems, receivedDate: taipeiToday() });
-            const result = document.getElementById('entryResult');
-            result.className = `mt-2 font-bold min-h-[1.5rem] ${parsed.ok ? 'text-green-700' : 'text-red-600'}`;
-            if (!parsed.ok) {
-                result.textContent = parsed.message;
-                return;
-            }
-            try {
-                saving = true;
-                const time = new Date().toISOString();
-                const applied = addParsedEntry(docs, parsed, { time, idFactory: newSpecialId });
-                await persist(applied.upserts);
-                docs = applied.docs;
-                result.textContent = parsed.message;
-                document.getElementById('entryText').value = '';
-                renderCards();
-            } catch (error) {
-                result.className = 'mt-2 font-bold min-h-[1.5rem] text-red-600';
-                result.textContent = error.message || '沒有寫入';
-                if (/權限不足/.test(error.message || '')) showBanner(error.message);
-            } finally {
-                saving = false;
-            }
-        }
         async function confirmSign() {
             const doc = currentPopupDoc();
             if (!doc || saving) return;
@@ -629,28 +592,12 @@
                 saving = false;
             }
         }
-        function dictate() {
-            const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!Rec) return toast('這台手機請用鍵盤上的麥克風');
-            const rec = new Rec();
-            rec.lang = 'zh-TW';
-            rec.onresult = event => {
-                const said = event.results[0][0].transcript || '';
-                const box = document.getElementById('entryText');
-                box.value = `${box.value}${box.value ? ' ' : ''}${said}`;
-            };
-            rec.onerror = () => toast('語音沒有聽清楚，請再試一次或改打字');
-            rec.start();
-        }
-
         document.body.addEventListener('click', event => {
             const button = event.target.closest('[data-action]');
             if (!button) return;
             const action = button.dataset.action;
             if (action === 'switch-fold') { mode = 'fold'; render(); }
             else if (action === 'switch-office') { mode = 'office'; render(); }
-            else if (action === 'submit-entry') submitEntry();
-            else if (action === 'dictate') dictate();
             else if (action === 'open-item') openItem(button.dataset.id);
             else if (action === 'close-popup') closeItem();
             else if (action === 'clear-fold') foldPad?.clear();
@@ -702,8 +649,6 @@
             const fromSchedules = (data.deliverySchedules || []).map(row => String(row.hotel || '').trim()).filter(Boolean);
             const liveHotels = [...new Set([...names, ...fromSchedules])];
             if (liveHotels.length) hotels = liveHotels;
-            const liveItems = template.map(row => String(row.item || '').trim()).filter(Boolean);
-            if (liveItems.length) catalogItems = liveItems;
             catalog = inventoryCatalog(template);
             catalogReady = true;
             schedules = Array.isArray(data.deliverySchedules) ? data.deliverySchedules : [];
