@@ -105,6 +105,15 @@ test('same item in one utterance adds up', () => {
     assert.deepEqual(result.lines.map(line => [line.item, line.qty]), [['特處床單', 3]]);
 });
 
+test('the folding page no longer has the temporary LINE input', () => {
+    const page = fs.readFileSync(new URL('./special.html', import.meta.url), 'utf8');
+    const css = fs.readFileSync(new URL('./special-theme-factory.css', import.meta.url), 'utf8');
+    for (const needle of ['臨時輸入', 'entryText', 'parseSpecialEntry', 'submit-entry', 'data-action="dictate"', 'addParsedEntry']) {
+        assert.equal(page.includes(needle), false, needle);
+        assert.equal(css.includes(needle), false, needle);
+    }
+});
+
 test('existing inventory pages are not wired to the parser', () => {
     for (const file of ['index.html', 'logistics.html', 'sendwash.html', 'finance.html']) {
         const text = fs.readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');

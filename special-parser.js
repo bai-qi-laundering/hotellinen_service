@@ -1,5 +1,5 @@
-// Free-text parser for 特處 linen. The folding page uses it now; a later LINE
-// webhook can import parseSpecialEntry without pulling in the page.
+// Free-text parser for 特處 linen. The LINE webhook uses parseSpecialEntry.
+// The folding page only shows items that webhook already wrote.
 
 import { formatMd, taipeiToday } from './special-time.js';
 
