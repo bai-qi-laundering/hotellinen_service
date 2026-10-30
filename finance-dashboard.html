@@ -5,7 +5,7 @@
 </style></head><body>
 <div class="header"><div><div class="brand">百麒｜財務管理系統</div><div class="sub">兩個功能，同一個網頁切換</div></div><nav class="tabs" role="tablist" aria-label="功能切換"><button class="tab" id="tab-finance" role="tab" aria-selected="true" aria-controls="panel-finance">結帳戰情系統</button><button class="tab" id="tab-dispatch" role="tab" aria-selected="false" aria-controls="panel-dispatch">對帳單送件中心</button></nav></div>
 <div class="notice">正式財務入口：結帳功能連接現有資料；送件中心目前僅為示範，尚不能實際寄送。</div>
-<main class="panels"><section class="panel active" id="panel-finance" role="tabpanel" aria-labelledby="tab-finance"><iframe title="結帳戰情系統" src="./finance.html?v=20261030-search-refresh-fix" loading="eager"></iframe></section><section class="panel" id="panel-dispatch" role="tabpanel" aria-labelledby="tab-dispatch"><iframe title="對帳單送件中心" src="./statement-dispatch.html" loading="lazy"></iframe></section></main>
+<main class="panels"><section class="panel active" id="panel-finance" role="tabpanel" aria-labelledby="tab-finance"><iframe title="結帳戰情系統" src="./finance.html?v=20261030-ios-search-input" loading="eager"></iframe></section><section class="panel" id="panel-dispatch" role="tabpanel" aria-labelledby="tab-dispatch"><iframe title="對帳單送件中心" src="./statement-dispatch.html" loading="lazy"></iframe></section></main>
 <script>
 const tabs=[['finance','panel-finance'],['dispatch','panel-dispatch']];
 function activate(which){for(const [id,panel] of tabs){const active=id===which;document.getElementById('tab-'+id).setAttribute('aria-selected',String(active));document.getElementById(panel).classList.toggle('active',active)}history.replaceState(null,'','#'+which)}
