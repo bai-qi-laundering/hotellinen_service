@@ -164,6 +164,18 @@ body { background: white; padding: 0; margin: 0; }
 }
 /* 財務獨立入口：強制隱藏舊版盤點／物流底部導覽，包含快取殘留情況 */
 .excel-bottom-bar { display:none !important; }
+
+/* 手機產單視窗：限制於可見高度，內容捲動，操作列固定在視窗內。 */
+#invoiceModal { box-sizing:border-box; padding:12px; padding-top:max(12px,env(safe-area-inset-top)); padding-bottom:max(12px,env(safe-area-inset-bottom)); overflow:hidden; }
+#invoiceModal > div { display:flex; flex-direction:column; min-height:0; max-height:100%; max-height:calc(100vh - 24px); max-height:calc(100dvh - 24px); }
+#invoiceModal > div > :first-child { flex-shrink:0; }
+#invoiceModalBody { flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
+#invoiceModalActions { flex-shrink:0; display:flex; justify-content:flex-end; gap:12px; padding:12px 24px; border-top:1px solid #e5e7eb; background:white; }
+#invoiceModalActions button { min-height:44px; }
+@media(max-width:600px) {
+  #invoiceModalBody { padding:16px; }
+  #invoiceModal input, #invoiceModal select { font-size:16px; }
+}
 </style>
 </head>
 <body>
@@ -442,7 +454,7 @@ body { background: white; padding: 0; margin: 0; }
 <span>📑 產出正式客戶對帳單</span>
 <button onclick="closeInvoiceModal()" class="hover:bg-amber-700 p-1 rounded">✖</button>
 </div>
-<div class="p-6">
+<div id="invoiceModalBody" class="p-6">
 <div class="mb-4">
 <label class="block text-gray-700 font-bold mb-2">1. 選擇出帳範圍 (可單選飯店，或將勾選的多間飯店合併在同一份檔案結算)</label>
 <select id="invoiceTargetCompany" onchange="onInvoiceTargetChange()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
@@ -475,12 +487,12 @@ body { background: white; padding: 0; margin: 0; }
 <div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
 </div>
 </div>
-<div class="flex justify-end gap-3 mt-6">
+</div>
+<div id="invoiceModalActions">
 <button onclick="closeInvoiceModal()" class="px-5 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">取消</button>
 <button onclick="generateOfficialInvoice()" class="px-5 py-2 bg-amber-600 text-white font-bold rounded-lg shadow hover:bg-amber-700 flex items-center gap-2 transition">
 產生對帳單
 </button>
-</div>
 </div>
 </div>
 </div>
