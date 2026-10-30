@@ -1513,6 +1513,7 @@ container.innerHTML = Array.from(hotels).sort().map(h => `
 <span class="text-sm font-bold text-gray-700">${h}</span>
 </label>
 `).join('');
+filterCheckboxes();
 
 } catch (e) {
 container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded">載入失敗: ${e.message}</div>`;
