@@ -1054,7 +1054,6 @@ window.closePreview = () => {
     document.getElementById('printControls').classList.replace('flex', 'hidden');
     document.getElementById('printArea').innerHTML = '';
     document.querySelector('.app-container').classList.remove('hidden');
-    document.querySelector('.excel-bottom-bar').classList.remove('hidden');
     document.body.style.background = '#f3f4f6';
 };
 window.exportToExcel = exportToExcel;
@@ -2442,7 +2441,6 @@ async function generateOfficialInvoice() {
     document.getElementById('printArea').innerHTML = renderStatementHtml(snapshot);
     window.closeInvoiceModal();
     document.querySelector('.app-container').classList.add('hidden');
-    document.querySelector('.excel-bottom-bar').classList.add('hidden');
     document.body.style.background = 'white';
     document.getElementById('printControls').classList.replace('hidden', 'flex');
     setDispatchStatus('正在送進對帳單送件中心…', false);
