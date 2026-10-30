@@ -218,7 +218,7 @@ body { background: white; padding: 0; margin: 0; }
         <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
             <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">3. 關鍵字過濾 (自訂選單)：</h3>
             <div class="flex flex-col gap-3 flex-1">
-                <input type="text" id="keywordFilter" onkeyup="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
+                <input type="text" id="keywordFilter" oninput="filterCheckboxes()" oncompositionend="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
                 <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
                     <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
                 </button>
@@ -1521,10 +1521,15 @@ container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded"
 }
 
 function filterCheckboxes() {
-const kw = document.getElementById('keywordFilter').value.toLowerCase();
-document.querySelectorAll('.cb-label').forEach(lbl => {
-lbl.style.display = lbl.querySelector('input').value.toLowerCase().includes(kw) ? 'flex' : 'none';
+const clean = value => String(value || '').normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLocaleLowerCase();
+const kw = clean(document.getElementById('keywordFilter').value);
+const container = document.getElementById('hotelCheckboxes');
+container.querySelectorAll('.cb-label').forEach(lbl => {
+const matches = !kw || clean(lbl.textContent).includes(kw);
+lbl.hidden = !matches;
+lbl.style.setProperty('display', matches ? 'flex' : 'none', 'important');
 });
+container.scrollTop = 0;
 }
 
 function selectAllVisible() {
