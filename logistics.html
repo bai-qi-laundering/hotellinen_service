@@ -51,6 +51,11 @@
             </div>
         </div>
 
+        <div id="autoStatementStatus" hidden class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-4 text-sm font-bold" role="status" aria-live="polite">
+            <span id="autoStatementMessage"></span>
+            <button id="retryAutoStatement" type="button" hidden class="mt-2 bg-white border border-amber-400 rounded-lg px-3 py-2">重試產生對帳單</button>
+        </div>
+
         <!-- 點交清單區 -->
         <div id="sendwashLinks"></div>
         <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
@@ -175,6 +180,40 @@
         window.submitVerify = submitVerify; window.handleQtyChange = handleQtyChange;
         window.toggleDropdown = toggleDropdown; window.selectOption = selectOption;
         window.addNewItem = addNewItem; window.fetchData = fetchData;
+
+
+        let autoStatementClientPromise = null;
+        function showAutoStatementStatus(message, kind) {
+            const box=document.getElementById('autoStatementStatus');
+            box.hidden=false;
+            box.style.color=kind==='error'?'#92400e':'#065f46';
+            document.getElementById('autoStatementMessage').textContent=message;
+            document.getElementById('retryAutoStatement').hidden=kind!=='error';
+        }
+        async function tryAutoStatement(hotel=currentHotel,date=currentDate,signatureConfirmed=false) {
+            if(!hotel)return;
+            try {
+                if(!autoStatementClientPromise) {
+                    autoStatementClientPromise=import('./signature-statement-client.js?v=20261030-sign-page-auto')
+                        .then(module=>module.createSignatureStatementClient(db,{
+                            doc,collection,query,where,runTransaction,
+                            getDoc:getDocFromServer,getDocs:getDocsFromServer
+                        },localStorage,{onStatus:(message,kind)=>{
+                            if(currentHotel===hotel)showAutoStatementStatus(message,kind);
+                        }}))
+                        .catch(error=>{autoStatementClientPromise=null;throw error;});
+                }
+                const client=await autoStatementClientPromise;
+                return await client.run(hotel,date);
+            } catch(error) {
+                console.error('自動對帳單尚未完成',error);
+                if(currentHotel===hotel)showAutoStatementStatus(
+                    (signatureConfirmed?'簽名已儲存；對帳單尚未產生。':'對帳單檢查尚未完成。')+'可按重試，或下次重新開啟此店簽單補做。原因：'+(error.message||error),'error');
+                return {failed:true};
+            }
+        }
+        document.getElementById('retryAutoStatement').onclick=()=>tryAutoStatement();
+        window.addEventListener('online',()=>{if(dataReady&&!signatureSaving)void tryAutoStatement();});
 
         async function uploadSignatureToStorage(base64Data, fileName) {
             if (!base64Data || base64Data.startsWith('http')) return base64Data;
@@ -558,6 +597,8 @@
                 try { outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings); }
                 catch(error) { outletDetailGroups=[];outletDetailError='部門明細暫時無法顯示，仍可在上方簽收總數。';console.warn('餐廳明細讀取失敗',error); }
                 renderOutletDetails();
+                // Reopening or changing the date also checks this hotel's missing closing statement.
+                void tryAutoStatement(currentHotel, fetchTargetDate);
             } catch (err) {
                 if (thisFetch === fetchSequence) dataReady = false;
                 console.error("Fetch Data Error:", err);
@@ -968,6 +1009,9 @@
                 document.getElementById('signModal').classList.add('hidden');
                 showToastMsg('✅ 已由雲端確認簽名儲存成功');
                 renderDepartments();
+                button.textContent='簽名已儲存，正在確認對帳單…';
+                // Its errors are handled separately: a failed statement must not be reported as a failed signature.
+                await tryAutoStatement(signingHotel, signingDate, true);
             } catch(err) {
                 console.error('簽名儲存失敗',err);
                 showToastMsg('❌ 簽名尚未確認儲存，請勿離開：'+err.message,true);
