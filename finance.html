@@ -469,6 +469,7 @@ body { background: white; padding: 0; margin: 0; }
 <div><label class="font-bold text-gray-500 text-xs">統編</label><input type="text" id="ciTaxId" class="w-full p-2 border rounded mt-1 bg-white text-gray-800 font-bold"></div>
 <div><label class="font-bold text-gray-500 text-xs">聯絡人</label><input type="text" id="ciContact" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
 <div><label class="font-bold text-gray-500 text-xs">電話</label><input type="text" id="ciPhone" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
+<div class="col-span-2"><label class="font-bold text-gray-500 text-xs">LINE 收件名稱（只記在送件中心，方便同事知道要傳給誰；系統不會自動傳 LINE）</label><input type="text" id="ciLineRecipient" class="w-full p-2 border rounded mt-1 bg-white text-gray-800 font-bold"></div>
 <div class="col-span-2"><label class="font-bold text-gray-500 text-xs">地址</label><input type="text" id="ciAddress" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
 <div><label class="font-bold text-gray-500 text-xs">付款條件</label><input type="text" id="ciTerms" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
 <div><label class="font-bold text-gray-500 text-xs">付款方式</label><input type="text" id="ciMethod" class="w-full p-2 border rounded mt-1 bg-white text-gray-700"></div>
@@ -488,6 +489,7 @@ body { background: white; padding: 0; margin: 0; }
 <div id="printArea" class="print-only"></div>
 
 <div id="printControls" class="fixed top-4 right-4 z-[3000] hidden no-print gap-3 bg-white p-3 rounded-xl shadow-2xl border-2 border-amber-400">
+<p id="dispatchStatus" class="text-sm font-bold text-emerald-800 max-w-xs m-0"></p>
 <button onclick="closePreview()" class="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">返回</button>
 <button onclick="exportToExcel()" class="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center gap-1"><span>📊</span> 下載對帳 Excel</button>
 <button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
@@ -501,6 +503,8 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261030-statement-dispatch';
+import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -515,6 +519,7 @@ const app = initializeApp(firebaseConfig);
 const db = initializeFirestore(app, {
 localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
+const statementRepo = createFirestoreRepository(db, { doc, runTransaction, collection, getDocsFromServer }, localStorage);
 
 // 全域共用變數
 let rawLogisticsData = []; 
@@ -525,6 +530,7 @@ let sheetClients = {};
 let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
+let currentStatementSnapshot = null;
 const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 
 // 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
@@ -2250,7 +2256,7 @@ function resolveClientProfile(comp) {
 function loadClientProfile(tryRemote=true) {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
     const comp = getEffectiveProfileCompanyKey();
-    const ids = ['ciName','ciTaxId','ciContact','ciPhone','ciAddress','ciTerms','ciMethod'];
+    const ids = ['ciName','ciTaxId','ciContact','ciPhone','ciAddress','ciTerms','ciMethod','ciLineRecipient'];
     if (!targetVal || !comp) {
         ids.forEach(id => document.getElementById(id).value = '');
         setInvoiceClientInfo('請先選擇飯店。');
@@ -2264,6 +2270,7 @@ function loadClientProfile(tryRemote=true) {
     document.getElementById('ciAddress').value = p?.address || '';
     document.getElementById('ciTerms').value = p?.terms || '月結 30 天';
     document.getElementById('ciMethod').value = p?.method || '銀行匯款 / 支票';
+    document.getElementById('ciLineRecipient').value = p?.contact || '';
     if (p?.name && p?.taxId) {
         const mergeHint = targetVal === MERGE_ALL_KEY ? '【合併出帳模式】' : '';
         setInvoiceClientInfo(`✅ ${mergeHint}已帶入「${comp}」試算表抬頭：${p.name}（統編：${p.taxId}）`);
@@ -2341,238 +2348,104 @@ function escapeReportHTML(value) {
 }
 function moneyReport(value) { return Number(value).toLocaleString('zh-TW', { maximumFractionDigits: 2 }); }
 
-function generateOfficialInvoice() {
+function collectStatementSnapshot(report = buildInvoiceReport()) {
+    if (!report.comp || !Object.keys(report.depts || {}).length) return null;
+    const targetVal = document.getElementById('invoiceTargetCompany').value;
+    const customerKey = targetVal === MERGE_ALL_KEY ? report.comp : targetVal;
+    const departments = Object.entries(report.depts)
+        .sort(([a],[b]) => a.localeCompare(b, 'zh-TW'))
+        .map(([name, dept]) => ({
+            name,
+            total: dept.total,
+            summary: Object.values(dept.summary)
+                .sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen)
+                .map(item => ({ item: item.item, qty: item.qty, price: item.price, amt: item.amt })),
+            records: dept.records.map(r => ({ date: r.date, item: r.item, qty: r.qty, price: r.price, amt: r.amt, docId: r.docId || '' })),
+        }));
+    return snapshotFromParts({
+        customerKey,
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value,
+        lineRecipient: document.getElementById('ciLineRecipient')?.value.trim() || '',
+        profile: {
+            name: document.getElementById('ciName').value.trim() || report.comp,
+            taxId: document.getElementById('ciTaxId').value.trim(),
+            contact: document.getElementById('ciContact').value.trim(),
+            phone: document.getElementById('ciPhone').value.trim(),
+            address: document.getElementById('ciAddress').value.trim(),
+            terms: document.getElementById('ciTerms').value.trim(),
+            method: document.getElementById('ciMethod').value.trim(),
+        },
+        departments,
+        totals: {
+            grandTotal: report.grandTotal,
+            rounded: report.rounded,
+            managementFee: report.managementFee,
+            rebate: report.rebate,
+            afterRebate: report.afterRebate,
+            tax: report.tax,
+        },
+    });
+}
+function notifyDispatchRefresh() {
+    try {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'baiqi-statement-published' }, location.origin);
+        }
+    } catch (err) { console.warn('送件中心刷新通知失敗', err); }
+}
+function setDispatchStatus(message, isError) {
+    const status = document.getElementById('dispatchStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.className = 'text-sm font-bold max-w-xs m-0 ' + (isError ? 'text-red-700' : 'text-emerald-800');
+}
+async function generateOfficialInvoice() {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
     if (!targetVal) { alert('請先選擇出帳對象！'); return; }
-
     const ciNameVal = document.getElementById('ciName').value.trim();
     if (!ciNameVal) {
         alert('請確認「發票抬頭」欄位已填寫！');
         return;
     }
-
     const report = buildInvoiceReport();
     if (!report.comp) { alert('請選擇請款對象！'); return; }
     if (!Object.keys(report.depts).length) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
-    const profile = {
-        name: ciNameVal || report.comp,
-        taxId: document.getElementById('ciTaxId').value.trim(),
-        contact: document.getElementById('ciContact').value.trim(),
-        phone: document.getElementById('ciPhone').value.trim(),
-        address: document.getElementById('ciAddress').value.trim(),
-        terms: document.getElementById('ciTerms').value.trim(),
-        method: document.getElementById('ciMethod').value.trim()
-    };
-    const e = escapeReportHTML;
-    const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
-    const deptEntries = Object.entries(report.depts).sort(([a],[b]) => a.localeCompare(b, 'zh-TW'));
-    let html = `<section class="report-page report-overview">
-        <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">客戶對帳單</div></header>
-        <div class="info-boxes">
-          <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tbody>
-          <tr><td>客戶名稱</td><td>${e(profile.name)}</td></tr><tr><td>統一編號</td><td>${e(profile.taxId)}</td></tr>
-          <tr><td>聯絡人</td><td>${e(profile.contact)}</td></tr><tr><td>聯絡電話</td><td>${e(profile.phone)}</td></tr>
-          <tr><td>出貨地址</td><td>${e(profile.address)}</td></tr></tbody></table></div>
-          <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tbody>
-          <tr><td>對帳期間</td><td>${e(period)}</td></tr><tr><td>幣別</td><td>新台幣 (NTD)</td></tr>
-          <tr><td>付款條件</td><td>${e(profile.terms)}</td></tr><tr><td>付款方式</td><td>${e(profile.method)}</td></tr>
-          </tbody></table></div></div>
-        <h2 class="report-section-title">各部門結算總表</h2>
-        <table class="data-table"><thead><tr><th>項次</th><th>部門名稱</th><th>未稅金額</th></tr></thead><tbody>`;
-    deptEntries.forEach(([name, dept], index) => {
-        html += `<tr><td>${index + 1}</td><td style="text-align:left">${e(name)}</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>`;
-    });
-    html += `</tbody></table>
-        <div class="report-totals">
-          <div><span>未稅金額</span><b>$${moneyReport(report.rounded)}</b></div>
-          ${report.managementFee.amount > 0 ? `<div><span>布巾洗滌管理費（${e(report.managementFee.percent)}）</span><b>＋$${moneyReport(report.managementFee.amount)}</b></div>` : ''}
-          ${report.rebate.amount > 0 ? `<div><span>客戶回饋（${e(report.rebate.percent)}）</span><b>−$${moneyReport(report.rebate.amount)}</b></div>` : ''}
-          ${(report.managementFee.amount > 0 || report.rebate.amount > 0) ? `<div><span>調整後未稅金額</span><b>$${moneyReport(report.afterRebate)}</b></div>` : ''}
-          <div><span>營業稅（5%）</span><b>$${moneyReport(report.tax)}</b></div>
-          <div class="report-grand"><span>含稅總金額</span><b>$${moneyReport(report.afterRebate + report.tax)}</b></div>
-        </div></section>`;
-
-    deptEntries.forEach(([name, dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
-        const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
-        const density = items.length > 35 ? ' very-dense' : items.length > 23 ? ' dense' : '';
-        html += `<section class="report-page report-department">
-            <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">部門對帳明細</div></header>
-            <div class="report-dept-meta"><b>部門：${e(name)}</b><span>對帳期間：${e(period)}</span></div>
-            <div class="report-monthly-block${density}">
-              <h2 class="report-section-title">01 月總量總結</h2>
-              <table class="data-table monthly-table"><thead><tr><th>品項名稱</th><th>總數量</th><th>單價</th><th>未稅金額</th></tr></thead><tbody>`;
-        items.forEach(item => {
-            html += `<tr><td style="text-align:left">${e(item.item)}</td><td>${moneyReport(item.qty)}</td><td>${moneyReport(item.price)}</td><td style="text-align:right">${moneyReport(item.amt)}</td></tr>`;
-        });
-        html += `<tr class="total-row"><td>部門合計</td><td>${moneyReport(totalQty)}</td><td></td><td style="text-align:right">${moneyReport(dept.total)}</td></tr>
-              </tbody></table></div>
-            <div class="report-detail-block">
-              <h2 class="report-section-title">02 交易明細</h2>
-              <table class="detail-table"><thead><tr><th>日期</th><th>品項名稱</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>`;
-        const shipmentCounts = shipmentCountsByDate(dept.records);
-        let previousDate = '';
-        dept.records.forEach(r => {
-            const dateLabel = shipmentCounts.get(r.date) > 1 || r.date !== previousDate ? r.date : '';
-            previousDate = r.date;
-            html += `<tr><td>${e(dateLabel)}</td><td style="text-align:left">${e(r.item)}</td><td>${moneyReport(r.qty)}</td><td>${moneyReport(r.price)}</td><td style="text-align:right">${moneyReport(r.amt)}</td></tr>`;
-        });
-        html += `<tr class="total-row"><td colspan="4" style="text-align:right">部門小計</td><td style="text-align:right">${moneyReport(dept.total)}</td></tr></tbody></table></div></section>`;
-    });
-    document.getElementById('printArea').innerHTML = html;
-    closeInvoiceModal();
+    let snapshot;
+    try { snapshot = collectStatementSnapshot(report); }
+    catch (err) { alert(err.message || String(err)); return; }
+    if (!snapshot) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
+    currentStatementSnapshot = snapshot;
+    document.getElementById('printArea').innerHTML = renderStatementHtml(snapshot);
+    window.closeInvoiceModal();
     document.querySelector('.app-container').classList.add('hidden');
     document.querySelector('.excel-bottom-bar').classList.add('hidden');
     document.body.style.background = 'white';
     document.getElementById('printControls').classList.replace('hidden', 'flex');
+    setDispatchStatus('正在送進對帳單送件中心…', false);
+    try {
+        const result = await statementRepo.publish(snapshot);
+        setDispatchStatus(result.action === 'unchanged'
+            ? '送件中心已有同一份帳單，沒有重複新增。'
+            : '已送進對帳單送件中心。請切到「對帳單送件中心」核對後再寄出。', false);
+        notifyDispatchRefresh();
+    } catch (err) {
+        console.error(err);
+        setDispatchStatus(err.queued
+            ? '雲端暫時沒寫入，已先留在這台電腦。打開送件中心會再補送。'
+            : '對帳單已產生，但沒有送進送件中心。', true);
+        alert(err.queued
+            ? '對帳單已經產生。雲端送件中心暫時沒寫入，已先留在這台電腦，打開送件中心會再補送。'
+            : '對帳單已經產生，但沒有送進送件中心：' + (err.message || err));
+        notifyDispatchRefresh();
+    }
 }
 
 function exportToExcel() {
-    const report = buildInvoiceReport();
-    if (!report.comp || !Object.keys(report.depts).length) { alert('請先產生對帳單！'); return; }
-    const period = `${document.getElementById('startDate').value} ~ ${document.getElementById('endDate').value}`;
-    const entries = Object.entries(report.depts).sort(([a],[b]) => a.localeCompare(b, 'zh-TW'));
-    const wb = XLSX.utils.book_new();
-    const navy = '173C36', gold = 'B69B68', pale = 'F5F0E5', white = 'FFFFFF', ink = '293D38';
-    const style = (fill, bold=false, color=ink, size=11, align='left') => ({
-        font:{name:'Noto Serif TC',sz:size,bold:true,color:{rgb:color}},
-        fill:{fgColor:{rgb:fill}},
-        alignment:{horizontal:align,vertical:'center',wrapText:true},
-        border:{top:{style:'thin',color:{rgb:'D9DFD8'}},bottom:{style:'thin',color:{rgb:'D9DFD8'}},left:{style:'thin',color:{rgb:'E8E1D4'}},right:{style:'thin',color:{rgb:'E8E1D4'}}}
-    });
-    const titleStyle = style(navy,true,white,22);
-    const sectionStyle = style(pale,true,navy,17);
-    const headStyle = style(navy,true,white,15,'center');
-    const totalStyle = style(pale,true,navy,16);
-    const numberFormat = '#,##0.##';
-    const formatData = (ws, rows, numericCols, headers, totals, sections) => {
-        rows.forEach((row, ri) => row.forEach((value, ci) => {
-            const addr = XLSX.utils.encode_cell({r:ri,c:ci});
-            if (!ws[addr]) return;
-            const isTotal = totals.includes(ri+1), isHeader = headers.includes(ri+1), isSection = sections.includes(ri+1);
-            const fill = isTotal ? pale : ri % 2 ? 'F8F8F2' : white;
-            ws[addr].s = isHeader ? headStyle : isSection ? sectionStyle : isTotal ? totalStyle : ri===0 ? titleStyle : style(fill,false,ink,14, numericCols.includes(ci) ? 'right' : 'left');
-            if (typeof value === 'number' || (typeof value === 'string' && /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*[~～-]\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2})?\s*$/.test(value))) {
-                if (typeof value === 'number') ws[addr].z = numberFormat;
-                ws[addr].s = {...ws[addr].s, font:{...ws[addr].s.font, name:'Georgia'}};
-            }
-        }));
-        ws['!rows'] = rows.map((_,ri) => ({hpt:ri===0 ? 45 : headers.includes(ri+1) || sections.includes(ri+1) ? 37 : totals.includes(ri+1) ? 36 : 33}));
-        ws['!margins'] = {left:0.35,right:0.35,top:0.45,bottom:0.45,header:0,footer:0};
-        ws['!pageSetup'] = {orientation:'portrait',paperSize:9,fitToWidth:1,fitToHeight:0};
-        ws['!header'] = ''; ws['!footer'] = '';
-    };
-    const totalRows = [
-        ['百麒國際股份有限公司｜客戶對帳總表','',''],
-        ['客戶名稱',document.getElementById('ciName').value || report.comp,''],
-        ['對帳期間',period,''],
-        [],
-        ['項次','部門名稱','未稅金額']
-    ];
-    entries.forEach(([name,dept], index) => {
-        totalRows.push([index + 1,name,dept.total]);
-    });
-    const hasManagementFee = report.managementFee.amount > 0;
-    const hasRebate = report.rebate.amount > 0;
-    totalRows.push([]);
-    totalRows.push(['','未稅金額',report.rounded]);
-    if (hasManagementFee) totalRows.push(['',`布巾洗滌管理費（${report.managementFee.percent}）`,report.managementFee.amount]);
-    if (hasRebate) totalRows.push(['',`客戶回饋（${report.rebate.percent}）`,-report.rebate.amount]);
-    if (hasManagementFee || hasRebate) totalRows.push(['','調整後未稅金額',report.afterRebate]);
-    totalRows.push(['','營業稅（5%）',report.tax]);
-    totalRows.push(['','含稅總金額',report.afterRebate+report.tax]);
-
-    const totalHeaderRows = [5];
-    const totalTotalRows = [];
-    const totalSectionRows = [];
-    const summaryStart = 5 + entries.length + 2;
-    for (let r = summaryStart; r <= totalRows.length; r++) totalTotalRows.push(r);
-
-    totalRows.push([]);
-    totalSectionRows.push(totalRows.length + 1);
-    totalRows.push(['01 月總量總結','','','']);
-
-    entries.forEach(([name,dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
-        totalSectionRows.push(totalRows.length + 1);
-        totalRows.push([`${name}｜月總量總結`,'','','']);
-        totalHeaderRows.push(totalRows.length + 1);
-        totalRows.push(['品項名稱','總數量','單價','未稅金額']);
-        items.forEach(item => totalRows.push([item.item,item.qty,item.price,item.amt]));
-        totalTotalRows.push(totalRows.length + 1);
-        totalRows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
-        totalRows.push([]);
-    });
-
-    const totalSheet = XLSX.utils.aoa_to_sheet(totalRows);
-    totalSheet['!cols'] = [{wch:30},{wch:30},{wch:22},{wch:24}];
-    totalSheet['!merges'] = [
-        {s:{r:0,c:0},e:{r:0,c:3}},
-        {s:{r:1,c:1},e:{r:1,c:3}},
-        {s:{r:2,c:1},e:{r:2,c:3}}
-    ];
-    totalSectionRows.forEach(r => totalSheet['!merges'].push({s:{r:r-1,c:0},e:{r:r-1,c:3}}));
-    formatData(totalSheet,totalRows,[0,1,2,3],totalHeaderRows,totalTotalRows,totalSectionRows);
-    totalTotalRows.forEach(r => {
-        for (let c = 0; c < 4; c++) {
-            const addr = XLSX.utils.encode_cell({r:r-1,c});
-            if (totalSheet[addr]) {
-                totalSheet[addr].s = {
-                    ...totalSheet[addr].s,
-                    alignment:{...totalSheet[addr].s.alignment,wrapText:false,vertical:'center'}
-                };
-            }
-        }
-        totalSheet['!rows'][r-1] = {hpt:30};
-    });
-    for (let r = 6; r < 6 + entries.length; r++) {
-        const a = XLSX.utils.encode_cell({r:r-1,c:0});
-        const b = XLSX.utils.encode_cell({r:r-1,c:1});
-        const c = XLSX.utils.encode_cell({r:r-1,c:2});
-        if (totalSheet[a]) totalSheet[a].s = {...totalSheet[a].s, alignment:{horizontal:'center',vertical:'center',wrapText:false}};
-        if (totalSheet[b]) totalSheet[b].s = {...totalSheet[b].s, alignment:{horizontal:'left',vertical:'center',wrapText:false}};
-        if (totalSheet[c]) totalSheet[c].s = {...totalSheet[c].s, alignment:{horizontal:'right',vertical:'center',wrapText:false}};
-    }
-    totalSheet['!print_area'] = `A1:D${totalRows.length}`;
-    XLSX.utils.book_append_sheet(wb,totalSheet,'結算總表');
-    const usedNames = new Set(['結算總表']);
-    const allocateName = raw => {
-        let sheetName = raw.replace(/[\\/?*\[\]:]/g,'_').slice(0,31) || '未命名部門';
-        const base = sheetName;
-        for(let n=2;usedNames.has(sheetName);n++) sheetName = `${base.slice(0,31-String(n).length-1)}_${n}`;
-        usedNames.add(sheetName);
-        return sheetName;
-    };
-    entries.forEach(([name,dept]) => {
-        const items = Object.values(dept.summary).sort((a,b) => compareLogisticsItems(name, a.item, b.item) || a.firstSeen - b.firstSeen);
-        const rows = [
-          ['百麒國際股份有限公司｜部門對帳明細'],
-          ['部門名稱',name],['對帳期間',period],[],
-          ['01 月總量總結'],
-          ['品項名稱','總數量','單價','未稅金額','']
-        ];
-        items.forEach(item => rows.push([item.item,item.qty,item.price,item.amt]));
-        rows.push(['部門合計',items.reduce((sum,item)=>sum+item.qty,0),'',dept.total]);
-        const monthlyEnd = rows.length;
-        rows.push([],['02 交易明細'],['日期','品項名稱','數量','單價','金額']);
-        const detailHeader = rows.length;
-        const shipmentCounts = shipmentCountsByDate(dept.records);
-        let lastDate = '';
-        dept.records.forEach(r => { rows.push([shipmentCounts.get(r.date) > 1 || r.date!==lastDate ? r.date : '',r.item,r.qty,r.price,r.amt]); lastDate=r.date; });
-        const detailTotalQty = dept.records.reduce((sum,r)=>sum+(Number(r.qty)||0),0);
-        rows.push(['','部門總量',detailTotalQty,'部門小計',dept.total]);
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:26},{wch:44},{wch:19},{wch:21},{wch:25}];
-        ws['!merges'] = [
-          {s:{r:0,c:0},e:{r:0,c:4}},
-          {s:{r:4,c:0},e:{r:4,c:4}},
-          {s:{r:monthlyEnd+1,c:0},e:{r:monthlyEnd+1,c:4}}
-        ];
-        formatData(ws,rows,[1,2,3,4],[6,detailHeader],[monthlyEnd,rows.length],[5,monthlyEnd+2]);
-        ws['!print_area'] = `A1:E${rows.length}`;
-        XLSX.utils.book_append_sheet(wb,ws,allocateName(name));
-    });
-    XLSX.writeFile(wb,`百麒國際股份有限公司對帳單_${report.comp.replace(/[\\/:*?"<>|]/g,'_')}_${document.getElementById('endDate').value.replace(/-/g,'')}.xlsx`);
+    const snapshot = currentStatementSnapshot;
+    if (!snapshot || !snapshot.departments?.length) { alert('請先產生對帳單！'); return; }
+    const wb = buildStatementWorkbook(XLSX, snapshot);
+    XLSX.writeFile(wb, statementFileBase(snapshot) + '.xlsx');
 }
 
 // ==========================================

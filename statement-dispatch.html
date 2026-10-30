@@ -1,29 +1,457 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>百麒｜對帳單送件中心・版面預覽</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>百麒｜對帳單送件中心</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
-:root{--bg:#f5f6f2;--ink:#24332f;--muted:#74827a;--line:#e1e7df;--green:#315e4c;--warm:#b78b55;--white:#fff}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Microsoft JhengHei",sans-serif}button,select{font:inherit}button{cursor:pointer}header{background:#fff;border-bottom:1px solid var(--line)}.wrap{max-width:1120px;margin:auto;padding:24px}.head{display:flex;justify-content:space-between;align-items:center;gap:16px}.eyebrow{font-size:12px;letter-spacing:.18em;color:var(--green);font-weight:700}h1{font-family:"Noto Serif TC",serif;font-size:30px;margin:8px 0}p{line-height:1.6}.muted{color:var(--muted)}.demo{border:1px solid #d5dfd4;background:#edf2e9;color:#315e4c;padding:9px 12px;border-radius:9px;font-size:12px;font-weight:700}.intro{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}.filter{background:white;border:1px solid var(--line);padding:10px 15px;border-radius:100px;color:var(--ink)}.filter.active{background:var(--green);color:white}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:23px;box-shadow:0 5px 22px #203b2b08}.top{display:flex;justify-content:space-between;align-items:start;gap:12px}.hotel{font-size:21px;font-weight:750}.period{color:var(--muted);font-size:13px;margin-top:7px}.status{font-size:12px;background:#f0f3f0;padding:7px 10px;border-radius:20px;white-space:nowrap}.status.warn{background:#fbf1df;color:#95651f}.status.ok{background:#e8f4eb;color:#286245}.amount{font-size:28px;font-weight:750;letter-spacing:-.02em;margin:20px 0 17px}.meta{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px;font-size:13px}.meta-row{display:flex;justify-content:space-between;gap:14px}.meta-row span:first-child{color:var(--muted)}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}.btn{border:1px solid var(--line);background:#fff;border-radius:11px;padding:13px 8px;font-weight:700;color:var(--green)}.btn.primary{background:var(--green);border-color:var(--green);color:white}.note{font-size:12px;color:var(--muted);margin-top:13px}.overlay{position:fixed;inset:0;background:#17251bb3;z-index:10;display:none;align-items:center;justify-content:center;padding:20px}.overlay.show{display:flex}.dialog{background:white;width:min(100%,480px);border-radius:19px;padding:24px;max-height:90vh;overflow:auto}.dialog h2{margin:0 0 9px;font-size:22px}.dialog select{width:100%;padding:13px;border:1px solid var(--line);border-radius:10px;background:white;margin:10px 0 16px}.dialog .btn{width:100%}.subtle{font-size:13px;color:var(--muted)}.modal-actions{display:flex;gap:10px;margin-top:14px}.preview{position:fixed;inset:0;background:#edf0ed;z-index:20;display:none;flex-direction:column}.preview.show{display:flex}.preview-head{background:white;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 20px}.preview-head button{background:transparent;border:0;font-size:15px;font-weight:700;color:var(--green)}.paper{background:white;box-shadow:0 8px 35px #0001;margin:22px auto;padding:35px;width:min(720px,calc(100% - 24px));min-height:620px}.paper table{width:100%;border-collapse:collapse;font-size:12px;margin-top:25px}.paper td,.paper th{border-bottom:1px solid #e1e1e1;padding:11px 4px;text-align:left}.paper .right{text-align:right}.scroll{overflow:auto;flex:1}.foot{font-size:12px;color:#88948a;text-align:center;padding:20px}@media(max-width:720px){.wrap{padding:19px 16px}.head{align-items:flex-start}.head h1{font-size:24px}.intro{display:block}.grid{grid-template-columns:1fr}.card{padding:19px}.amount{font-size:26px}.overlay{padding:12px}.dialog{padding:22px}.preview-head{padding:14px}.paper{margin:12px auto;padding:22px 14px;min-height:500px}}
-</style></head>
+:root{--bg:#f5f6f2;--ink:#24332f;--muted:#74827a;--line:#e1e7df;--green:#315e4c;--warm:#b78b55;--white:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Microsoft JhengHei",sans-serif}
+button,select,input{font:inherit}
+button{cursor:pointer}
+header{background:#fff;border-bottom:1px solid var(--line)}
+.wrap{max-width:1120px;margin:auto;padding:24px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.eyebrow{font-size:12px;letter-spacing:.18em;color:var(--green);font-weight:700}
+h1{font-family:"Noto Serif TC",serif;font-size:30px;margin:8px 0}
+p{line-height:1.6}
+.muted{color:var(--muted)}
+.live{border:1px solid #b7d4c3;background:#e7f2ea;color:#1f5b3a;padding:9px 12px;border-radius:9px;font-size:12px;font-weight:700}
+.intro{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+.filter{background:white;border:1px solid var(--line);padding:10px 15px;border-radius:100px;color:var(--ink)}
+.filter.active{background:var(--green);color:white}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:23px;box-shadow:0 5px 22px #203b2b08}
+.top{display:flex;justify-content:space-between;align-items:start;gap:12px}
+.hotel{font-size:21px;font-weight:750}
+.period{color:var(--muted);font-size:13px;margin-top:7px}
+.status{font-size:12px;background:#f0f3f0;padding:7px 10px;border-radius:20px;white-space:nowrap}
+.status.warn{background:#fbf1df;color:#95651f}
+.status.ok{background:#e8f4eb;color:#286245}
+.amount{font-size:28px;font-weight:750;letter-spacing:-.02em;margin:20px 0 17px}
+.meta{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px;font-size:13px}
+.meta-row{display:flex;justify-content:space-between;gap:14px}
+.meta-row span:first-child{color:var(--muted)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:11px;padding:13px 8px;font-weight:700;color:var(--green)}
+.btn.primary{background:var(--green);border-color:var(--green);color:white}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.note{font-size:12px;color:var(--muted);margin-top:13px}
+.banner{background:#fff7e8;color:#8b632d;border:1px solid #f1e3c9;border-radius:12px;padding:12px 14px;margin-top:16px;font-size:14px;font-weight:700}
+.empty{background:#fff;border:1px dashed var(--line);border-radius:16px;padding:28px;text-align:center}
+.overlay{position:fixed;inset:0;background:#17251bb3;z-index:10;display:none;align-items:center;justify-content:center;padding:20px}
+.overlay.show{display:flex}
+.dialog{background:white;width:min(100%,480px);border-radius:19px;padding:24px;max-height:90vh;overflow:auto}
+.dialog h2{margin:0 0 9px;font-size:22px}
+.dialog select,.dialog input{width:100%;padding:13px;border:1px solid var(--line);border-radius:10px;background:white;margin:10px 0 16px}
+.subtle{font-size:13px;color:var(--muted)}
+.modal-actions{display:flex;gap:10px;margin-top:14px}
+.modal-actions .btn{flex:1}
+.preview{position:fixed;inset:0;background:#edf0ed;z-index:20;display:none;flex-direction:column}
+.preview.show{display:flex}
+.preview-head{background:white;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 20px}
+.preview-head button{background:transparent;border:0;font-size:15px;font-weight:700;color:var(--green)}
+.paper{background:white;box-shadow:0 8px 35px #0001;margin:22px auto;padding:28px;width:min(820px,calc(100% - 24px))}
+.scroll{overflow:auto;flex:1}
+.foot{font-size:12px;color:#88948a;text-align:center;padding:8px 0 20px}
+.paper .invoice-header{display:flex;justify-content:space-between;gap:12px;border-bottom:2px solid #b69b68;padding-bottom:10px;margin-bottom:16px}
+.paper .invoice-title,.paper .report-heading{font-weight:900;color:#173c36}
+.paper .invoice-title{font-size:22px}
+.paper .info-boxes{display:flex;gap:12px;flex-wrap:wrap}
+.paper .info-box{flex:1;min-width:240px;border:1px solid #d8cdb6;border-radius:8px;overflow:hidden}
+.paper .info-box-title{background:#173c36;color:#fff;padding:8px 10px;font-weight:800}
+.paper table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0 16px}
+.paper th,.paper td{border:1px solid #d9dfd8;padding:7px 8px;text-align:left}
+.paper th{background:#173c36;color:#fff}
+.paper .report-section-title{font-size:16px;background:#f5f0e5;border-left:4px solid #b69b68;padding:8px 10px}
+.paper .report-totals{margin-left:auto;max-width:360px;background:#f8f5ed;border:1px solid #d8c9a8;border-radius:8px;padding:10px 12px}
+.paper .report-totals > div{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
+.paper .report-grand{border-top:1px solid #b69b68;font-size:18px;font-weight:900}
+.paper .report-department{margin-top:28px;padding-top:12px;border-top:1px solid var(--line)}
+@media(max-width:720px){
+ .wrap{padding:19px 16px}
+ .head,.intro{align-items:flex-start;display:block}
+ .head h1{font-size:24px}
+ .grid{grid-template-columns:1fr}
+ .card{padding:19px}
+ .amount{font-size:26px}
+ .overlay{padding:12px}
+ .paper{margin:12px auto;padding:16px}
+}
+@media print{
+ body *{visibility:hidden}
+ #preview,#preview *{visibility:visible}
+ #preview{display:block !important;position:absolute;inset:0;background:#fff}
+ #preview .preview-head{display:none !important}
+ .paper{box-shadow:none;margin:0;width:auto}
+}
+</style>
+</head>
 <body>
-<header><div class="wrap head"><div><div class="eyebrow">BAI QI · FINANCE</div><h1>對帳單送件中心</h1><div class="muted" style="font-size:13px">對帳核對 · 格式選擇 · 寄送登記</div></div><div class="demo">版面示意 · 非正式資料</div></div></header>
-<main class="wrap"><div class="intro"><div><h2 style="font-size:19px;margin-bottom:5px">待處理帳單</h2><p class="muted" style="font-size:13px;margin-top:0">此頁使用虛構示例。尚未串接財務資料、NAS、LINE 或檔案生成。</p></div><div class="muted" style="font-size:13px">2026 年 10 月 · 示範清單</div></div>
-<div class="filters"><button class="filter active" data-filter="all">全部</button><button class="filter" data-filter="pending">待寄送</button><button class="filter" data-filter="resend">新版待重寄</button><button class="filter" data-filter="sent">已登記寄送</button></div>
-<div class="grid" id="cards"></div><p class="foot">此為開發分支上的獨立版面示意，沒有任何正式寄送或資料修改功能。</p></main>
-<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><div class="dialog"><h2 id="dialogTitle">確認送出</h2><div id="dialogBody"></div><div class="modal-actions"><button class="btn" id="cancel">返回</button><button class="btn primary" id="next">繼續</button></div></div></div>
-<div class="preview" id="preview" role="dialog" aria-modal="true" aria-label="PDF 預覽示意"><div class="preview-head"><strong id="previewTitle">對帳單 PDF 預覽</strong><button id="closePreview">關閉預覽 ✕</button></div><div class="scroll"><div class="paper"><div class="eyebrow">BAI QI INTERNATIONAL</div><h2>客戶對帳單</h2><p id="previewHotel"></p><p class="subtle">此處為 PDF 閱讀器版面示意，並非真正的 PDF。正式版會顯示由同一結帳快照產生的 PDF 檔案。</p><table><thead><tr><th>部門</th><th>品項</th><th class="right">數量</th><th class="right">金額</th></tr></thead><tbody><tr><td>示範部門 A</td><td>示範品項</td><td class="right">10</td><td class="right">示意</td></tr><tr><td>示範部門 B</td><td>示範品項</td><td class="right">12</td><td class="right">示意</td></tr></tbody></table><p class="subtle" style="margin-top:25px">實際內容與多部門分頁將以正式對帳資料為準。</p></div></div></div>
-<script>
-'use strict';
-// All demo data and send states are session-only. No backend, download, upload or production changes.
-const hotels=[{id:1,name:'示範飯店 A',period:'2026/09/26－2026/10/25',amount:'NT$ 85,900',recipient:'採購窗口（示例）',version:'V1',state:'pending'},{id:2,name:'示範飯店 B',period:'2026/10/01－2026/10/31',amount:'NT$ 126,450',recipient:'財務窗口（示例）',version:'V2',state:'resend'},{id:3,name:'示範飯店 C',period:'2026/10/01－2026/10/25',amount:'NT$ 43,200',recipient:'行政窗口（示例）',version:'V1',state:'sent'},{id:4,name:'示範飯店 D',period:'2026/10/01－2026/10/31',amount:'NT$ 67,380',recipient:'總務窗口（示例）',version:'V1',state:'pending'}];
-let activeFilter='all',selected=null,chosenFormat='xlsx';
-const $=id=>document.getElementById(id);
-const statuses={pending:'待寄送',resend:'新版待重寄',sent:'已登記寄送'};
-function render(){const list=hotels.filter(h=>activeFilter==='all'||h.state===activeFilter);$('cards').replaceChildren();for(const h of list){const card=document.createElement('article');card.className='card';card.innerHTML='<div class="top"><div><div class="hotel"></div><div class="period"></div></div><span class="status"></span></div><div class="amount"></div><div class="meta"><div class="meta-row"><span>LINE 收件名稱</span><strong class="recipient"></strong></div><div class="meta-row"><span>帳單版本</span><strong class="version"></strong></div><div class="meta-row"><span>寄送格式</span><strong>送出時選擇</strong></div></div><div class="actions"><button class="btn preview-btn">核對帳單</button><button class="btn primary send-btn">確認送出</button></div><div class="note">PDF 全螢幕核對，Excel / PDF 於送出時選擇。</div>';card.querySelector('.hotel').textContent=h.name;card.querySelector('.period').textContent=h.period;card.querySelector('.amount').textContent=h.amount;card.querySelector('.recipient').textContent=h.recipient;card.querySelector('.version').textContent=h.version;const status=card.querySelector('.status');status.textContent=statuses[h.state];status.classList.add(h.state==='resend'?'warn':h.state==='sent'?'ok':'neutral');card.querySelector('.preview-btn').onclick=()=>showPreview(h);card.querySelector('.send-btn').onclick=()=>showSend(h);$('cards').append(card)}}
-function showPreview(h){$('previewTitle').textContent=h.name+' · '+h.version+' · PDF 預覽';$('previewHotel').textContent=h.name+'｜'+h.period+'｜'+h.amount;$('preview').classList.add('show');document.body.style.overflow='hidden'}
-function closePreview(){$('preview').classList.remove('show');document.body.style.overflow=''}
-function showSend(h){selected=h;chosenFormat='xlsx';$('dialogTitle').textContent='確認送出 · '+h.name;$('dialogBody').innerHTML='<p class="subtle">請確認 LINE 收件人與寄送格式。此為介面模擬，不會產生檔案或傳送 LINE。</p><p><strong>LINE 收件名稱：</strong><span id="recipientName"></span></p><label for="format"><strong>本次寄送格式</strong></label><select id="format"><option value="xlsx">Excel（.xlsx）</option><option value="pdf">PDF（.pdf）</option></select><p class="subtle">核對帳單一律開啟 PDF 預覽；正式送件檔案由此處選擇。</p>';$('recipientName').textContent=h.recipient;$('next').textContent='模擬下一步';$('next').onclick=()=>{chosenFormat=$('format').value;showConfirm()};$('overlay').classList.add('show')}
-function showConfirm(){$('dialogTitle').textContent='寄送確認 · 模擬';$('dialogBody').innerHTML='<p>示範流程：先取得 <strong id="formatName"></strong>，自行透過 LINE 傳送給指定窗口，之後再由員工登記「已寄送」。</p><p class="subtle">本頁沒有實際檔案或 LINE 串接，按下完成僅改變本頁示範狀態，不代表送達。</p>';$('formatName').textContent=chosenFormat==='pdf'?'PDF':'Excel';$('next').textContent='完成示範';$('next').onclick=()=>{selected.state='sent';$('overlay').classList.remove('show');render()}}
-$('cancel').onclick=()=>$('overlay').classList.remove('show');$('closePreview').onclick=closePreview;document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{activeFilter=b.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===b));render()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePreview();$('overlay').classList.remove('show')}});render();
-</script></body></html>
+<header>
+ <div class="wrap head">
+  <div>
+   <div class="eyebrow">BAI QI · FINANCE</div>
+   <h1>對帳單送件中心</h1>
+   <div class="muted" style="font-size:13px">核對同一份帳單 · 取得 Excel 或 PDF · 用 LINE 寄出後登記</div>
+  </div>
+  <div class="live">正式送件清單</div>
+ </div>
+</header>
+<main class="wrap">
+ <div class="intro">
+  <div>
+   <h2 style="font-size:19px;margin-bottom:5px">待處理帳單</h2>
+   <p class="muted" style="font-size:13px;margin-top:0">這裡是財務系統按「產生對帳單」後送過來的帳單。系統不會自動傳 LINE。下載或打開分享，都不算寄出，要等您傳完再按「我已寄出」。</p>
+  </div>
+  <button class="btn" id="refresh" type="button">重新整理</button>
+ </div>
+ <div id="banner" class="banner" hidden></div>
+ <div class="filters">
+  <button class="filter active" data-filter="all" type="button">全部</button>
+  <button class="filter" data-filter="pending" type="button">待寄送</button>
+  <button class="filter" data-filter="resend" type="button">新版待重寄</button>
+  <button class="filter" data-filter="sent" type="button">已登記寄送</button>
+  <button class="filter" data-filter="needs_review" type="button">開票後有變</button>
+ </div>
+ <div class="grid" id="cards" data-testid="dispatch-cards"></div>
+ <p class="foot">同一家飯店、同一個結帳區間只留一份案件。內容沒變就不會重複新增；內容有變會變成新版本。已寄出的舊版紀錄會保留。</p>
+</main>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+ <div class="dialog">
+  <h2 id="dialogTitle">確認送出</h2>
+  <div id="dialogBody" data-testid="send-dialog"></div>
+  <div class="modal-actions">
+   <button class="btn" id="cancel" type="button">返回</button>
+   <button class="btn primary" id="next" type="button">繼續</button>
+  </div>
+ </div>
+</div>
+<div class="preview" id="preview" role="dialog" aria-modal="true" aria-label="對帳單內容">
+ <div class="preview-head">
+  <strong id="previewTitle">對帳單</strong>
+  <div>
+   <button id="printStatement" type="button">列印 / 存 PDF</button>
+   <button id="closePreview" type="button">關閉預覽 ✕</button>
+  </div>
+ </div>
+ <div class="scroll"><div class="paper" id="previewPaper" data-testid="statement-preview"></div></div>
+</div>
+<script type="module">
+import {
+    STATUS_LABELS,
+    buildStatementWorkbook,
+    formatCardAmount,
+    formatPeriod,
+    latestVersion,
+    payableAmount,
+    renderStatementHtml,
+    statementFileBase,
+} from './statement-case.js?v=20261030-statement-dispatch';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
+
+const params = new URLSearchParams(location.search);
+const localOnly = params.get('store') === 'local';
+const $ = id => document.getElementById(id);
+let repo = null;
+let cases = [];
+let activeFilter = 'all';
+let selected = null;
+let chosenFormat = 'xlsx';
+let busy = false;
+
+function taipeiStamp(iso) {
+    if (!iso) return '';
+    return new Intl.DateTimeFormat('zh-TW', {
+        timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(iso));
+}
+function showBanner(text) {
+    const banner = $('banner');
+    banner.hidden = !text;
+    banner.textContent = text || '';
+}
+async function setup() {
+    if (localOnly) {
+        repo = createLocalRepository(localStorage);
+        showBanner('這是只看這台電腦的檢查模式，不是正式送件清單。');
+        return;
+    }
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js');
+    const fsMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
+    const app = appMod.initializeApp({
+        apiKey: 'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',
+        authDomain: 'hotel-inventory-3a1ad.firebaseapp.com',
+        projectId: 'hotel-inventory-3a1ad',
+        storageBucket: 'hotel-inventory-3a1ad.firebasestorage.app',
+        messagingSenderId: '363844184412',
+        appId: '1:363844184412:web:66cdd6425d53bde75f3999',
+    });
+    const db = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache() });
+    repo = createFirestoreRepository(db, {
+        doc: fsMod.doc,
+        runTransaction: fsMod.runTransaction,
+        collection: fsMod.collection,
+        getDocsFromServer: fsMod.getDocsFromServer,
+    }, localStorage);
+}
+function visibleCases() {
+    return cases.filter(item => activeFilter === 'all' || item.state === activeFilter);
+}
+function render() {
+    const list = visibleCases();
+    const cards = $('cards');
+    cards.replaceChildren();
+    if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.dataset.testid = 'dispatch-empty';
+        empty.textContent = cases.length
+            ? '這個分類目前沒有帳單。'
+            : '還沒有對帳單。請到「結帳戰情系統」產生對帳單，完成後會出現在這裡。';
+        cards.append(empty);
+        return;
+    }
+    for (const item of list) {
+        const version = latestVersion(item);
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.dataset.testid = 'dispatch-card';
+        const top = document.createElement('div');
+        top.className = 'top';
+        const titles = document.createElement('div');
+        const hotel = document.createElement('div');
+        hotel.className = 'hotel';
+        hotel.textContent = item.customerName || item.customerKey || '未命名客戶';
+        const period = document.createElement('div');
+        period.className = 'period';
+        period.textContent = formatPeriod(item.startDate, item.endDate);
+        titles.append(hotel, period);
+        const status = document.createElement('span');
+        status.className = 'status' + (item.state === 'sent' ? ' ok' : item.state === 'pending' ? '' : ' warn');
+        status.textContent = STATUS_LABELS[item.state] || item.state;
+        top.append(titles, status);
+        const amount = document.createElement('div');
+        amount.className = 'amount';
+        amount.textContent = version ? formatCardAmount(payableAmount(version.snapshot)) : '';
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.append(
+            metaRow('LINE 收件名稱', item.lineRecipient || '尚未填寫'),
+            metaRow('帳單版本', version ? `V${version.version}` : ''),
+            metaRow('寄送格式', version?.sentFormat === 'pdf' ? 'PDF' : version?.sentFormat === 'xlsx' ? 'Excel' : '送出時選擇'),
+        );
+        if (item.invoiceStatus === 'ready') meta.append(metaRow('開票', '待開票（開立發票功能尚未開放）'));
+        const older = (item.versions || []).filter(row => row.version < item.latestVersion && row.sentAt);
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const preview = document.createElement('button');
+        preview.className = 'btn preview-btn';
+        preview.type = 'button';
+        preview.textContent = '核對帳單';
+        preview.onclick = () => showPreview(item);
+        const send = document.createElement('button');
+        send.className = 'btn primary send-btn';
+        send.type = 'button';
+        send.textContent = item.state === 'needs_review' ? '先不要寄' : item.state === 'sent' ? '再次取得檔案' : '確認送出';
+        send.disabled = item.state === 'needs_review';
+        send.onclick = () => showSend(item);
+        actions.append(preview, send);
+        const note = document.createElement('div');
+        note.className = 'note';
+        const notes = [];
+        if (item.cloudPending) notes.push('這份還在補送雲端，其他電腦暫時看不到。請按重新整理。');
+        if (older.length) notes.push(`上一版 V${older[older.length - 1].version} 已於 ${taipeiStamp(older[older.length - 1].sentAt)} 登記寄出。`);
+        if (item.state === 'needs_review') notes.push('這份以前已開過票。新內容不能蓋掉舊帳，請先跟老闆確認差異，不要直接寄出。');
+        else if (item.state === 'sent') notes.push(`已於 ${taipeiStamp(version?.sentAt)} 登記寄出。再次取得檔案不會改掉這個紀錄。`);
+        else notes.push('核對的是這一份帳單。Excel 或 PDF 在送出時選擇，傳完 LINE 再登記。');
+        note.textContent = notes.join('');
+        card.append(top, amount, meta, actions, note);
+        cards.append(card);
+    }
+}
+function metaRow(label, value) {
+    const row = document.createElement('div');
+    row.className = 'meta-row';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = value;
+    row.append(span, strong);
+    return row;
+}
+function showPreview(item) {
+    const version = latestVersion(item);
+    if (!version) return;
+    $('previewTitle').textContent = `${item.customerName || item.customerKey} · V${version.version}`;
+    $('previewPaper').innerHTML = renderStatementHtml(version.snapshot);
+    $('preview').classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+function closePreview() {
+    $('preview').classList.remove('show');
+    document.body.style.overflow = '';
+}
+function showSend(item) {
+    selected = item;
+    chosenFormat = 'xlsx';
+    const version = latestVersion(item);
+    $('dialogTitle').textContent = `確認送出 · ${item.customerName || item.customerKey}`;
+    $('dialogBody').replaceChildren();
+    const intro = document.createElement('p');
+    intro.className = 'subtle';
+    intro.textContent = item.state === 'sent'
+        ? '這一版已經登記寄出。可以再次取得同一份檔案。下載不等於再寄一次，狀態不會被清掉。'
+        : '請確認 LINE 收件人與檔案格式。下一步只準備檔案，不會自動傳 LINE，也不會把這份改成已寄出。';
+    const label = document.createElement('p');
+    label.innerHTML = '<strong>LINE 收件名稱</strong>';
+    const input = document.createElement('input');
+    input.id = 'recipientName';
+    input.value = item.lineRecipient || '';
+    input.maxLength = 80;
+    input.setAttribute('aria-label', 'LINE 收件名稱');
+    const formatLabel = document.createElement('label');
+    formatLabel.htmlFor = 'format';
+    formatLabel.innerHTML = '<strong>本次檔案格式</strong>';
+    const select = document.createElement('select');
+    select.id = 'format';
+    select.innerHTML = '<option value="xlsx">Excel（.xlsx）</option><option value="pdf">PDF（用列印存檔）</option>';
+    const hint = document.createElement('p');
+    hint.className = 'subtle';
+    hint.textContent = version ? `現在準備的是 V${version.version}。核對畫面與檔案都來自同一份結帳內容。` : '';
+    $('dialogBody').append(intro, label, input, formatLabel, select, hint);
+    $('next').hidden = false;
+    $('next').textContent = item.state === 'sent' ? '取得檔案' : '下一步：準備檔案';
+    $('next').onclick = () => prepareAndContinue();
+    $('overlay').classList.add('show');
+}
+async function prepareAndContinue() {
+    if (!selected || busy) return;
+    const name = $('recipientName')?.value.trim() || '';
+    if (!name) { alert('請先填 LINE 收件名稱，同事才知道要傳給誰。'); return; }
+    chosenFormat = $('format')?.value || 'xlsx';
+    const expected = selected.latestVersion;
+    busy = true;
+    $('next').disabled = true;
+    try {
+        try { await repo.saveRecipient(selected.id, name); }
+        catch (error) { if (!error.queued) throw error; }
+        selected.lineRecipient = name;
+        await prepareFile(selected, chosenFormat);
+        if (selected.state === 'sent') {
+            $('overlay').classList.remove('show');
+            await reload();
+            return;
+        }
+        showSentConfirm(expected);
+    } catch (error) {
+        alert(error.message || String(error));
+    } finally {
+        busy = false;
+        $('next').disabled = false;
+    }
+}
+function showSentConfirm(expectedVersion) {
+    $('dialogTitle').textContent = '請先用 LINE 傳出，再登記';
+    $('dialogBody').replaceChildren();
+    const text = document.createElement('p');
+    text.textContent = chosenFormat === 'pdf'
+        ? '請用剛剛的列印畫面把這份存成 PDF，再用 LINE 傳給上面的收件人。'
+        : 'Excel 已準備好。請用 LINE 把這個檔案傳給上面的收件人。';
+    const warn = document.createElement('p');
+    warn.className = 'subtle';
+    warn.textContent = '下載、開啟分享或列印，都不代表客戶已經收到。只有您真的傳出去之後，才按下面的按鈕。';
+    $('dialogBody').append(text, warn);
+    $('next').textContent = '我已用 LINE 寄出，登記';
+    $('next').dataset.testid = 'mark-sent';
+    $('next').onclick = () => markSent(expectedVersion);
+}
+async function prepareFile(item, format) {
+    const version = latestVersion(item);
+    if (!version) throw new Error('找不到帳單內容。');
+    if (format === 'pdf') {
+        showPreview(item);
+        window.print();
+        return;
+    }
+    if (!window.XLSX) throw new Error('Excel 元件還沒載入，請稍後再試。');
+    const workbook = buildStatementWorkbook(window.XLSX, version.snapshot);
+    const filename = `${statementFileBase(version.snapshot)}.xlsx`;
+    const bytes = window.XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const file = new File([bytes], filename, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: filename }); }
+        catch (error) { if (error?.name !== 'AbortError') throw error; }
+        return;
+    }
+    window.XLSX.writeFile(workbook, filename);
+}
+async function markSent(expectedVersion) {
+    if (!selected || busy) return;
+    busy = true;
+    $('next').disabled = true;
+    try {
+        await repo.register(selected.id, expectedVersion, chosenFormat, new Date().toISOString());
+        $('overlay').classList.remove('show');
+        await reload();
+    } catch (error) {
+        alert(error.queued
+            ? '這台電腦已先記住寄出登記，雲端稍後會再補上。請按重新整理確認。'
+            : (error.message || String(error)));
+        if (error.queued) {
+            $('overlay').classList.remove('show');
+            await reload();
+        }
+    } finally {
+        busy = false;
+        $('next').disabled = false;
+    }
+}
+async function reload() {
+    if (!repo) return;
+    $('refresh').disabled = true;
+    try {
+        const result = repo.cloud ? await repo.list() : { cases: await repo.list(), cloudError: null, fromCache: false };
+        cases = result.cases || [];
+        if (localOnly) showBanner('這是只看這台電腦的檢查模式，不是正式送件清單。');
+        else if (result.fromCache) showBanner('雲端暫時讀不到。現在先顯示這台電腦留著的清單，請按重新整理。');
+        else if (cases.some(item => item.cloudPending)) showBanner('有帳單還在補送雲端，其他電腦暫時看不到。請稍後按重新整理。');
+        else showBanner('');
+        render();
+    } catch (error) {
+        showBanner(error.message || '送件清單讀取失敗。');
+        render();
+    } finally {
+        $('refresh').disabled = false;
+    }
+}
+$('cancel').onclick = () => $('overlay').classList.remove('show');
+$('closePreview').onclick = closePreview;
+$('printStatement').onclick = () => window.print();
+document.querySelectorAll('.filter').forEach(button => {
+    button.onclick = () => {
+        activeFilter = button.dataset.filter;
+        document.querySelectorAll('.filter').forEach(item => item.classList.toggle('active', item === button));
+        render();
+    };
+});
+$('refresh').onclick = () => reload();
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        closePreview();
+        $('overlay').classList.remove('show');
+    }
+});
+window.addEventListener('message', event => {
+    if (event.origin !== location.origin) return;
+    if (event.data?.type === 'baiqi-refresh-statements') reload();
+});
+setup().then(reload).catch(error => {
+    showBanner(error.message || '送件中心沒有啟動。');
+});
+</script>
+</body>
+</html>
