@@ -499,7 +499,7 @@ body { background: white; padding: 0; margin: 0; }
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
 
 const firebaseConfig = {
@@ -1426,11 +1426,25 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
     const cached = logisticsPeriodCache.get(key);
     if (cached && (cached.promise || (!force && Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS))) return cached.promise || cached.docs;
     const staleDocs = cached?.docs || null;
+    let usedPersistentCache = false;
     const promise = (async () => {
         const dateQueries = legacyDatePrefixes(startDate, endDate).map(prefix =>
             query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')));
         dateQueries.push(query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59.999`))));
-        const snapshots = await withTimeout(Promise.all(dateQueries.map(q => getDocsFromServer(q))), 15000, '物流明細');
+        let snapshots;
+        try {
+            snapshots = await withTimeout(Promise.all(dateQueries.map(q => getDocsFromServer(q))), 15000, '物流明細');
+        } catch (serverError) {
+            try {
+                const cachedSnapshots = await Promise.all(dateQueries.map(q => getDocsFromCache(q)));
+                if (!cachedSnapshots.some(snap => !snap.empty)) throw serverError;
+                snapshots = cachedSnapshots;
+                usedPersistentCache = true;
+                showToast('⚠️ 物流連線逾時，暫用本機快取資料；出帳前請重新載入確認最新資料。');
+            } catch (cacheError) {
+                throw serverError;
+            }
+        }
         const docs = new Map();
         snapshots.forEach(snap => snap.forEach(d => {
             const date = standardizeDate(d.data().date);
@@ -1447,7 +1461,7 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
     }
     try {
         const docs = await promise;
-        logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs});
+        logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs, fromCache:usedPersistentCache});
         return docs;
     } catch (error) {
         if (staleDocs && !force) {
