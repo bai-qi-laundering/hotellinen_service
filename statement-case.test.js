@@ -247,7 +247,8 @@ test('財務搜尋修正仍在，送件頁不再使用示範飯店', () => {
     const dashboard = fs.readFileSync(new URL('./finance-dashboard.html', import.meta.url), 'utf8');
     const dispatch = fs.readFileSync(new URL('./statement-dispatch.html', import.meta.url), 'utf8');
     assert.match(finance, /id="keywordFilter"/);
-    assert.match(finance, /oncompositionend="filterCheckboxes\(\)"/);
+    assert.match(finance, /setHotelKeywordComposing/);
+    assert.match(finance, /oncompositionend="setHotelKeywordComposing\(false\)"/);
     assert.match(finance, /id="settlementHotelSearch"/);
     assert.match(finance, /filterSettlementHotelRows/);
     assert.match(finance, /statementRepo\.publish\(snapshot\)/);

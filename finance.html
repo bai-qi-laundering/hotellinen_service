@@ -218,7 +218,7 @@ body { background: white; padding: 0; margin: 0; }
         <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
             <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">3. 關鍵字過濾 (自訂選單)：</h3>
             <div class="flex flex-col gap-3 flex-1">
-                <input type="text" id="keywordFilter" oninput="filterCheckboxes()" oncompositionend="filterCheckboxes()" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
+                <input type="text" id="keywordFilter" oncompositionstart="setHotelKeywordComposing(true)" oncompositionend="setHotelKeywordComposing(false)" oninput="filterCheckboxes(event)" onkeyup="filterCheckboxes(event)" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
                 <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
                     <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
                 </button>
@@ -1047,6 +1047,7 @@ window.closePreview = () => {
 };
 window.exportToExcel = exportToExcel;
 window.filterCheckboxes = filterCheckboxes;
+window.setHotelKeywordComposing = setHotelKeywordComposing;
 window.selectAllVisible = selectAllVisible;
 window.quickSelectGroup = quickSelectGroup;
 window.calculateDriverPerformance = calculateDriverPerformance;
@@ -1526,14 +1527,24 @@ container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded"
 }
 }
 
-function filterCheckboxes() {
+let hotelKeywordComposing = false;
+function setHotelKeywordComposing(active) {
+hotelKeywordComposing = !!active;
+// iOS 在 compositionend 當下還沒把選好的字寫進輸入框，要等這一輪事件結束再讀。
+if (!active) setTimeout(filterCheckboxes, 0);
+}
+
+function filterCheckboxes(event) {
+// 注音／拼音組字期間先不要改清單。這時 input 的內容仍是拼音，過濾會把店家全部藏起來，iOS 也會因此取消選字。
+if (hotelKeywordComposing || event?.isComposing) return;
 const clean = value => String(value || '').normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLocaleLowerCase();
 const kw = clean(document.getElementById('keywordFilter').value);
 const container = document.getElementById('hotelCheckboxes');
 container.querySelectorAll('.cb-label').forEach(lbl => {
-const matches = !kw || clean(lbl.textContent).includes(kw);
-lbl.hidden = !matches;
-lbl.style.setProperty('display', matches ? 'flex' : 'none', 'important');
+const name = lbl.querySelector('input')?.value || '';
+const matches = !kw || clean(name).includes(kw) || clean(lbl.textContent).includes(kw);
+lbl.hidden = false;
+lbl.style.display = matches ? 'flex' : 'none';
 });
 container.scrollTop = 0;
 }
