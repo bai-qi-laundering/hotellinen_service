@@ -491,12 +491,8 @@ body { background: white; padding: 0; margin: 0; }
 <button onclick="window.print()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 flex items-center gap-1"><span>🖨️</span> 列印 / 存PDF</button>
 </div>
 
-<!-- 底部導覽列 -->
-<div class="excel-bottom-bar no-print">
-<a href="boss_admin.html" class="excel-tab">👑 盤點明細後台</a>
-<a href="boss_admin.html" class="excel-tab">📦 物流查帳後台</a>
-<a href="finance.html?v=20261019-same-names" class="excel-tab active">💰 結帳戰情系統</a>
-</div>
+<!-- 財務系統已使用 finance-dashboard.html 的上方分頁導覽。
+     此處不再顯示盤點／物流連結，避免混入財務操作畫面。 -->
 
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
