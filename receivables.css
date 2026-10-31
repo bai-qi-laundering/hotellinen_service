@@ -56,3 +56,15 @@
 #receivables .ledger-pending td{background:#fff8e8!important}
 #receivables .ledger-row-status{min-height:20px}
 @media(max-width:600px){#receivables{padding:12px;margin:8px 0}#receivables .ledger-table th:first-child,#receivables .ledger-table td:first-child{position:static}#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){position:static}}
+
+/* Compact company-grouped collection sheet. */
+#receivables .ledger-table{min-width:1940px}
+#receivables .ledger-table th,#receivables .ledger-table td{padding:9px 10px}
+#receivables .ledger-table th:first-child,#receivables .ledger-table td:first-child{min-width:220px;width:220px}
+#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){position:static;min-width:140px;width:140px;box-shadow:none}
+#receivables .ledger-table thead th:nth-child(2){position:sticky;top:0;z-index:3}
+#receivables .ledger-table .ledger-payment{min-width:70px;white-space:nowrap}
+#receivables .ledger-table .ledger-company th{position:static;width:auto;min-width:0;background:#e4ece4;color:#294c3c;padding:11px 14px;font-size:16px;border-bottom:1px solid #c5d5c8;text-align:left}
+#receivables .ledger-table .ledger-customer small{margin:4px 0 0;font-size:11px;max-width:220px;white-space:normal}
+#receivables .ledger-table .ledger-customer strong{font-size:15px}
+#receivables .ledger-table button{margin-top:0}
