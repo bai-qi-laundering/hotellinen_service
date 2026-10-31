@@ -325,6 +325,23 @@ test('the 1st bills the previous calendar month, including 鼎王 departments, a
     assert.ok(!hotels.includes('麥當勞'));
 });
 
+test('歐遊 and 捷中正 bill on the 1st, not again at month end', () => {
+    assert.equal(settlementGroup('歐遊', {}), '1st');
+    assert.equal(settlementGroup('捷中正', {}), '1st');
+    assert.equal(settlementGroup('歐遊', { 歐遊: 'month' }), '1st');
+    assert.equal(settlementGroup('捷中正', { 捷中正: '25th' }), '1st');
+    assert.equal(settlementGroup('歐遊 房務', { 歐遊: 'month' }), '1st');
+    assert.equal(settlementGroup('捷中正 特處', {}), '1st');
+    assert.equal(settlementGroup('捷站前', {}), 'month');
+    assert.equal(settlementGroup('比歐', {}), 'month');
+    assert.equal(settlementGroup('鉑麗', {}), 'month');
+    assert.equal(settlementGroup('歐遊', { 歐遊: '' }), '');
+    assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前', '鉑麗'], { 歐遊: 'month', 捷中正: '25th' }, 'month'), ['捷站前', '鉑麗']);
+    assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前'], { 歐遊: 'month', 捷中正: 'month' }, '1st'), ['捷中正', '歐遊']);
+    assert.equal(closingPeriod('歐遊', '2026-10-31', { 歐遊: 'month' }), null);
+    assert.deepEqual(closingPeriod('捷中正', '2026-11-01', { 捷中正: 'month' }), { startDate: '2026-10-01', endDate: '2026-10-31' });
+});
+
 test('天慕 inherits the saved 天幕 group, 鉑麗 closes at month end, and H2O 西餐 stays on the H2O bill', () => {
     assert.equal(settlementGroup('天慕', { 天幕: '25th' }), '25th');
     assert.equal(settlementGroup('鉑麗', {}), 'month');

@@ -153,7 +153,8 @@ import {
     payableAmount,
     renderStatementHtml,
     statementFileBase,
-} from './statement-case.js?v=20261031-item-order';
+    dispatchHotelName,
+} from './statement-case.js?v=20261031-logistics-name';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261031-unsent';
@@ -243,7 +244,7 @@ function render() {
         const titles = document.createElement('div');
         const hotel = document.createElement('div');
         hotel.className = 'hotel';
-        hotel.textContent = item.customerName || item.customerKey || '未命名客戶';
+        hotel.textContent = dispatchHotelName(item);
         const period = document.createElement('div');
         period.className = 'period';
         period.textContent = formatPeriod(item.startDate, item.endDate);
@@ -306,7 +307,7 @@ function metaRow(label, value) {
 function showPreview(item) {
     const version = latestVersion(item);
     if (!version) return;
-    $('previewTitle').textContent = `${item.customerName || item.customerKey} · V${version.version}`;
+    $('previewTitle').textContent = `${dispatchHotelName(item)} · V${version.version}`;
     $('previewPaper').innerHTML = renderStatementHtml(version.snapshot, itemTemplate);
     $('preview').classList.add('show');
     document.body.style.overflow = 'hidden';
@@ -319,7 +320,7 @@ function showSend(item) {
     selected = item;
     chosenFormat = 'xlsx';
     const version = latestVersion(item);
-    $('dialogTitle').textContent = `確認送出 · ${item.customerName || item.customerKey}`;
+    $('dialogTitle').textContent = `確認送出 · ${dispatchHotelName(item)}`;
     $('dialogBody').replaceChildren();
     const intro = document.createElement('p');
     intro.className = 'subtle';

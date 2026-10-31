@@ -154,12 +154,15 @@ try {
     await evaluate(dispatch, `localStorage.setItem('baiqi_statement_cases_v1', ${JSON.stringify(JSON.stringify({ [id]: stored }))})`);
     try { await evaluate(dispatch, 'location.reload()'); } catch { /* 重新載入會中斷這次指令 */ }
     await new Promise(resolve => setTimeout(resolve, 400));
-    await waitFor(dispatch, `document.body.innerText.includes('驗證飯店股份有限公司') && document.body.innerText.includes('待寄送')`);
+    await waitFor(dispatch, `document.querySelector('.hotel')?.textContent === '驗證飯店' && document.body.innerText.includes('待寄送') && !document.querySelector('.hotel')?.textContent.includes('股份有限公司')`);
     const before = await evaluate(dispatch, 'document.body.innerText');
     if (before.includes('示範飯店') || before.includes('介面模擬')) throw new Error('送件中心仍是示範頁');
     await evaluate(dispatch, `[...document.querySelectorAll('button')].find(b => b.textContent.includes('核對帳單')).click()`);
     await waitFor(dispatch, `document.getElementById('preview').classList.contains('show') && document.getElementById('previewPaper').innerText.includes('驗證浴巾') && document.getElementById('previewPaper').innerText.includes('2,100')`);
+    const previewTitle = await evaluate(dispatch, `document.getElementById('previewTitle').textContent`);
+    if (!previewTitle.startsWith('驗證飯店') || previewTitle.includes('股份有限公司')) throw new Error('預覽標題仍是發票抬頭：' + previewTitle);
     const preview = await evaluate(dispatch, `document.getElementById('previewPaper').innerText`);
+    if (!preview.includes('驗證飯店股份有限公司')) throw new Error('對帳單正文應保留發票抬頭');
     if (preview.includes('示範')) throw new Error('核對畫面仍是示範表格');
     await evaluate(dispatch, `document.getElementById('closePreview').click()`);
     await waitFor(dispatch, '!!window.XLSX');

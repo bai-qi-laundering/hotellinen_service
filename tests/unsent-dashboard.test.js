@@ -196,6 +196,33 @@ test('board counts the current period only and keeps hotels with no billing day'
     assert.equal(formatBoardPeriod(group('25th').period), '2026/09/26－2026/10/25');
 });
 
+test('歐遊 and 捷中正 show on the 1st card under the logistics name', () => {
+    assert.equal(settlementGroupOf('歐遊', { 歐遊: 'month' }), '1st');
+    assert.equal(settlementGroupOf('捷中正', { 捷中正: '25th' }), '1st');
+    assert.equal(settlementGroupOf('捷站前', { 捷站前: 'month' }), 'month');
+    const board = buildUnsentBoard({
+        today: '2026-11-01',
+        baseNames: ['歐遊', '捷中正', '捷站前'],
+        items: [{ baseName: '歐遊', hotel: '歐遊 房務' }, { baseName: '捷中正', hotel: '捷中正 房務' }],
+        groups: { 歐遊: 'month', 捷中正: '25th', 捷站前: 'month' },
+        cases: [{
+            customerKey: '歐遊',
+            customerName: '歐遊國際大飯店股份有限公司',
+            startDate: '2026-10-01',
+            endDate: '2026-10-31',
+            latestVersion: 1,
+            invoiceStatus: 'none',
+            versions: [{ version: 1, sentAt: null }],
+        }],
+    });
+    const group = id => board.groups.find(item => item.id === id);
+    assert.deepEqual(group('1st').unsent.map(row => row.name), ['捷中正', '歐遊']);
+    assert.equal(group('1st').unsent.find(row => row.name === '歐遊').sendLabel, '已產生未送');
+    assert.equal(group('month').unsent.some(row => row.name === '歐遊' || row.name === '捷中正'), false);
+    assert.equal(JSON.stringify(board).includes('股份有限公司'), false);
+    assert.equal(JSON.stringify(board).includes('天幕'), false);
+});
+
 test('the dashboard query stays on the current period and does not listen', () => {
     const source = readFileSync(new URL('../unsent-dashboard.js', import.meta.url), 'utf8');
     assert.equal(source.includes('onSnapshot'), false);

@@ -37,6 +37,12 @@ export function statementFileBase(snapshot) {
     return `百麒國際股份有限公司對帳單_${safe}_${end}`;
 }
 
+// 送件清單、卡片與檔名用物流簽收單的飯店名（customerKey）。發票抬頭留在對帳單正文。
+export function dispatchHotelName(item) {
+    const key = text(item?.customerKey || item?.snapshot?.customerKey);
+    return key || '未命名客戶';
+}
+
 function text(value) {
     return String(value ?? '').trim();
 }

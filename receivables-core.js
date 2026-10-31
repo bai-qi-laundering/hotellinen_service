@@ -1,6 +1,7 @@
 import { payableAmount } from './statement-case.js';
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
-const groupEndOfMonth = ["捷站前", "捷中正", "歐遊", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心", "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏", "鉑麗"];
+const group1st = ["歐遊", "捷中正"];
+const groupEndOfMonth = ["捷站前", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心", "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏", "鉑麗"];
 const settlementAliases = { '天幕': '天慕' };
 
 
@@ -16,14 +17,17 @@ export function invoiceState(c) {
 }
 function resolvedGroup(name,groups={}) {
  const canonical=settlementAliases[name]||name;
- let group='';
- if(Object.hasOwn(groups,name)) group=groups[name];
- else if(Object.hasOwn(groups,canonical)) group=groups[canonical];
+ let saved;
+ if(Object.hasOwn(groups,name)) saved=groups[name];
+ else if(Object.hasOwn(groups,canonical)) saved=groups[canonical];
  else {
-  for (const [alias,target] of Object.entries(settlementAliases)) if(target===name && Object.hasOwn(groups,alias)) group=groups[alias];
-  if(!group) group=group25th.some(x=>canonical.includes(x))?'25th':groupEndOfMonth.some(x=>canonical.includes(x))?'month':'';
+  for (const [alias,target] of Object.entries(settlementAliases)) if(target===name && Object.hasOwn(groups,alias)) saved=groups[alias];
  }
- return group;
+ if(group1st.some(x=>canonical.includes(x))) return saved==='' ? '' : '1st';
+ if(saved!==undefined) return saved;
+ if(group25th.some(x=>canonical.includes(x))) return '25th';
+ if(groupEndOfMonth.some(x=>canonical.includes(x))) return 'month';
+ return '';
 }
 export function periodFor(name,month,groups={}) {
  const group=resolvedGroup(name,groups);

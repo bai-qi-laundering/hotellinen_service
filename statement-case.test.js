@@ -10,9 +10,11 @@ import {
     formatCardAmount,
     mergeCaseDocs,
     payableAmount,
+    dispatchHotelName,
     publishSnapshot,
     renderStatementHtml,
     snapshotFromParts,
+    statementFileBase,
 } from './statement-case.js';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js';
 
@@ -156,6 +158,9 @@ test('對帳單畫面與 Excel 用同一份品項、數量與含稅金額', asyn
     const snapshot = sample();
     const html = renderStatementHtml(snapshot);
     assert.match(html, /驗證飯店股份有限公司/);
+    assert.equal(dispatchHotelName({ customerKey: '天慕', customerName: '天慕股份有限公司' }), '天慕');
+    assert.equal(statementFileBase(snapshot), '百麒國際股份有限公司對帳單_驗證飯店_20261025');
+    assert.equal(statementFileBase(snapshot).includes('股份有限公司對帳單_驗證飯店股份有限公司'), false);
     assert.match(html, /浴巾/);
     assert.match(html, /2,100/);
     assert.doesNotMatch(html, /示範/);

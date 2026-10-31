@@ -55,9 +55,10 @@ export function dueHotelKeywords(baseNames, groups, group) {
         if (trimmed && settlementGroup(trimmed, groups) === group) due.add(trimmed);
     }
     // 設定裡的舊名（天幕）改成物流名稱（天慕）後才查，避免同一家查兩次或用錯名字出單。
-    for (const [name, value] of Object.entries(groups || {})) {
+    // 用結算後的組別，歐遊、捷中正即使設定還寫月底，也只進 1 號。
+    for (const name of Object.keys(groups || {})) {
         const trimmed = canonicalHotelKeyword(name);
-        if (trimmed && value === group) due.add(trimmed);
+        if (trimmed && settlementGroup(trimmed, groups) === group) due.add(trimmed);
     }
     return [...due].sort((a, b) => a.localeCompare(b, 'zh-TW'));
 }
