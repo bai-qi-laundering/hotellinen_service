@@ -1,5 +1,5 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
-import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261101-simple';
+import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261101-fixed-hotels';
 import {formatCardAmount} from './statement-case.js';
 import {createFirestoreRepository} from './statement-store.js?v=20261101-month-query';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
