@@ -372,10 +372,12 @@ body { background: white; padding: 0; margin: 0; }
         </div>
 
         <div id="bossDashboardContent" class="hidden relative z-10">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・未稅</p><p id="bossTotalUntaxed" class="text-3xl font-black">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">布巾洗滌管理費</p><p id="bossTotalFee" class="text-3xl font-black">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">客戶回饋</p><p id="bossTotalRebate" class="text-3xl font-black">$0</p></div>
                 <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・營業稅（5%）</p><p id="bossTotalTax" class="text-3xl font-black">$0</p></div>
-                <div class="bg-white/20 border border-white/30 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・含稅</p><p id="bossTotalFinal" class="text-3xl font-black text-yellow-300">$0</p></div>
+                <div class="bg-white/20 border border-white/30 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・含稅應收</p><p id="bossTotalFinal" class="text-3xl font-black text-yellow-300">$0</p></div>
             </div>
             <p id="bossGroupNote" class="text-sm text-emerald-100 mb-4"></p>
             <div id="bossGroupsContainer" class="grid grid-cols-1 xl:grid-cols-2 gap-5"></div>
@@ -515,7 +517,8 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts, isRewashName, isRewashItem } from './statement-case.js?v=20261031-exclude-rewash';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261030-statement-dispatch';
+import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const firebaseConfig = {
@@ -701,13 +704,13 @@ async function refreshPricingActiveHotels() {
       const d = snap.data();
       if (d.manualDeletedReceipt) return;
       const date = standardizeDate(d.date);
-      if (date < start || date > end || isRewashName(d.deptName)) return;
+      if (date < start || date > end || String(d.deptName || '').includes('回洗')) return;
       const hotel = String(d.hotelKeyword || '').trim();
       if (!hotel) return;
       const fullHotel = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
       const hasBillable = billingReceiptItems(d).some(item => {
         const qty = resolveItemBillingQty(item);
-        if (!(qty > 0) || isRewashItem(item)) return false;
+        if (!(qty > 0) || String(item.itemName || '').includes('回洗')) return false;
         const itemName = String(item.itemName || '');
         const price = item.price !== undefined && item.price !== null && item.price !== ''
           ? Number(item.price) : Number(getPrice(fullHotel, itemName));
@@ -912,8 +915,8 @@ window.refreshSettlementHotels=async()=>{
       if (data.manualDeletedReceipt) return;
       const hotel=String(data.hotelKeyword||'').trim();
       if (!hotel || date < periods.queryStart || date > periods.queryEnd) return;
-      if (isRewashName(data.deptName)) return;
-      if (!billingReceiptItems(data).some(item=>resolveItemBillingQty(item)>0 && !isRewashItem(item))) return;
+      if (String(data.deptName||'').includes('回洗')) return;
+      if (!billingReceiptItems(data).some(item=>resolveItemBillingQty(item)>0 && !String(item.itemName||'').includes('回洗'))) return;
       active.add(hotel);
     });
     if (`${document.getElementById('bossTargetMonth').value}|${document.getElementById('bossCutoffDate').value}`!==targetMonth) return;
@@ -1513,7 +1516,7 @@ if (dDate >= startDate && dDate <= endDate) {
 let h = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
 
-if (!isRewashName(h) && !isRewashName(d.deptName)) {
+if (!h.includes("回洗") && !(d.deptName && d.deptName.includes("回洗"))) {
 hotels.add(h);
 if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword);
 }
@@ -1617,7 +1620,7 @@ async function fetchRecordsForSelectedHotels() {
                 billingReceiptItems(d).forEach((item, idx) => {
                     const actual = resolveItemBillingQty(item);
 
-                    if (actual > 0 && !isRewashName(hotelName) && !isRewashName(d.deptName) && !isRewashItem(item)) {
+                    if (actual > 0 && !String(item.itemName).includes("回洗")) {
                         results.push({
                             docId: docSnap.id, rowId: JSON.stringify([docSnap.id, idx]),
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
@@ -1743,25 +1746,33 @@ async function loadFinanceData() {
 // 📊 系統2：老闆業績戰情室
 let currentBossGroups = null;
 function classifyBossGroup(hotel) {
-    if (isRewashName(hotel)) return null;
+    if (String(hotel).includes('回洗')) return null;
     return settlementGroupOf(hotel) || null;
 }
 function bossRecordPrice(r) {
     return reportRecordPrice(r);
 }
+function bossPricingRules(rows) {
+    const hotel = rows[0]?.parentCompany || '';
+    return {
+        rebate: pricingRules.rebates.find(rule => rule.hotel === hotel) || null,
+        managementFee: pricingRules.managementFees.find(rule => rule.hotel === hotel) || null,
+    };
+}
 function summarizeBossGroup(records) {
     const stores = {};
     const storeParents = {};
-    let rawTotal = 0;
     records.forEach(r => {
         const amount = r.qty * bossRecordPrice(r);
         stores[r.hotel] = (stores[r.hotel] || 0) + amount;
         storeParents[r.hotel] = r.parentCompany || r.hotel;
-        rawTotal += amount;
     });
-    const untaxed = Math.round(rawTotal);
-    const tax = Math.round(untaxed * 0.05);
-    return {records, stores, storeParents, untaxed, tax, final:untaxed + tax};
+    const priced = sumCustomerReceivables(records, bossRecordPrice, bossPricingRules);
+    return {
+        records, stores, storeParents, customers: priced.customers,
+        untaxed: priced.untaxed, tax: priced.tax, final: priced.final,
+        managementFee: priced.managementFee, rebate: priced.rebate, afterRebate: priced.afterRebate,
+    };
 }
 function sortedBossStores(group) {
     return Object.entries(group.stores).sort(([nameA],[nameB])=>
@@ -1788,15 +1799,15 @@ async function loadBossData() {
             if (date < startDate || date > endDate) return;
             const hotel = d.hotelKeyword || '未命名飯店';
             const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
-            if (isRewashName(fullName) || isRewashName(d.deptName)) return;
+            if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
             const key = classifyBossGroup(hotel);
-            const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !isRewashItem(item));
+            const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !String(item.itemName).includes('回洗'));
             if (!key) { if (hasValid) unmatched.add(fullName); return; }
             const groupPeriod = key==='25th' ? periods['25th'] : periods.monthGroup;
             if (date < groupPeriod.start || date > groupPeriod.end) return;
             billingReceiptItems(d).forEach((item,idx) => {
                 const qty = resolveItemBillingQty(item);
-                if (qty <= 0 || isRewashItem(item)) return;
+                if (qty <= 0 || String(item.itemName).includes('回洗')) return;
                 groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
                     receiptOrder:idx, savedPrice:item.price, manualPriceOverride:!!item.manualFinancePrice});
             });
@@ -1804,12 +1815,13 @@ async function loadBossData() {
         currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), startDate, endDate, periods };
         currentBossData = [...groups['25th'],...groups.month];
         const a = currentBossGroups['25th'], b = currentBossGroups.month;
-        const totalUntaxed = Math.round(a.untaxed + b.untaxed);
-        const totalTax = Math.round(totalUntaxed * .05);
+        const header = sumGroupFigures([a, b]);
         document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}`;
-        document.getElementById('bossTotalUntaxed').innerText = `$${totalUntaxed.toLocaleString()}`;
-        document.getElementById('bossTotalTax').innerText = `$${totalTax.toLocaleString()}`;
-        document.getElementById('bossTotalFinal').innerText = `$${(totalUntaxed + totalTax).toLocaleString()}`;
+        document.getElementById('bossTotalUntaxed').innerText = `$${header.untaxed.toLocaleString()}`;
+        document.getElementById('bossTotalFee').innerText = `$${header.managementFee.toLocaleString()}`;
+        document.getElementById('bossTotalRebate').innerText = `$${header.rebate.toLocaleString()}`;
+        document.getElementById('bossTotalTax').innerText = `$${header.tax.toLocaleString()}`;
+        document.getElementById('bossTotalFinal').innerText = `$${header.final.toLocaleString()}`;
         const e = escapeReportHTML;
         const renderGroup = (key,label,accent) => {
             const g = currentBossGroups[key];
@@ -1820,19 +1832,34 @@ async function loadBossData() {
                 if(!byHotel.has(parent))byHotel.set(parent,[]);
                 byHotel.get(parent).push([name,amt]);
             });
+            const money = value => '$' + Number(value || 0).toLocaleString('zh-TW');
             const cards = stores.length ? [...byHotel.entries()].map(([parent,rows])=>{
-                const subtotal=rows.reduce((sum,[,amt])=>sum+amt,0);
-                return `<div class="mb-3 rounded-xl border border-white/20 overflow-hidden"><div class="flex justify-between gap-3 items-center bg-black/20 px-3 py-2"><span class="font-black">🏨 ${e(parent)}</span><b class="whitespace-nowrap">$${subtotal.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div><div class="p-2 space-y-2">${rows.map(([name,amt])=>`<div class="bg-white/10 border border-white/10 p-3 rounded-lg flex justify-between items-center gap-3"><span class="font-bold break-words">${e(name)}</span><b class="text-lg whitespace-nowrap">$${amt.toLocaleString('zh-TW',{maximumFractionDigits:2})}</b></div>`).join('')}</div></div>`;
+                const parentBill = g.customers.find(item => item.key === parent);
+                const deptRows = rows.map(([name,amt])=>{
+                    const own = g.customers.find(item => item.key === name);
+                    const shown = parentBill ? amt : (own ? own.payable : amt);
+                    const caption = parentBill ? '' : '<span class="block text-xs text-emerald-100">含稅應收</span>';
+                    return `<div class="bg-white/10 border border-white/10 p-3 rounded-lg flex justify-between items-center gap-3"><span class="font-bold break-words">${e(name)}</span><b class="text-lg whitespace-nowrap">${caption}$${(parentBill ? amt : shown).toLocaleString('zh-TW',{maximumFractionDigits: parentBill ? 2 : 0})}</b></div>`;
+                }).join('');
+                const billNote = parentBill
+                    ? `<p class="px-3 py-2 text-sm text-emerald-50">未稅 ${money(parentBill.rounded)}　管理費 ${money(parentBill.managementFee.amount)}　回饋 ${money(parentBill.rebate.amount)}　稅 ${money(parentBill.tax)}　<b>含稅應收 ${money(parentBill.payable)}</b></p>`
+                    : '';
+                const headlineValue = parentBill ? parentBill.payable : rows.reduce((sum,[name])=>sum+(g.customers.find(item=>item.key===name)?.payable||0),0);
+                return `<div class="mb-3 rounded-xl border border-white/20 overflow-hidden"><div class="flex justify-between gap-3 items-center bg-black/20 px-3 py-2"><span class="font-black">🏨 ${e(parent)}</span><b class="whitespace-nowrap">含稅 ${money(headlineValue)}</b></div>${billNote}<div class="p-2 space-y-2">${deptRows}</div></div>`;
             }).join('') : '<p class="text-white/70 py-5 text-center">這個區間沒有符合的出貨資料</p>';
             const range=key==='25th' ? periods['25th'] : periods.monthGroup;
             return `<section class="bg-white/10 border border-white/20 rounded-2xl p-5 min-w-0">
                 <h3 class="text-xl font-black mb-2 border-l-4 ${accent} pl-3">${label}</h3>
                 <p class="text-sm font-bold text-emerald-100 mb-4 bg-black/20 rounded-lg px-3 py-2 inline-block">📅 結帳統計區間：${e(range.start)} 至 ${e(range.end)}</p>
-                <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                <div class="grid grid-cols-3 gap-2 mb-2 text-center">
                     <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">未稅</p><p class="font-black text-lg">$${g.untaxed.toLocaleString()}</p></div>
                     <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">稅金 5%</p><p class="font-black text-lg">$${g.tax.toLocaleString()}</p></div>
-                    <div class="rounded-lg bg-white/15 p-3"><p class="text-xs text-emerald-100 mb-1">含稅</p><p class="font-black text-lg text-yellow-300">$${g.final.toLocaleString()}</p></div>
-                </div><p class="font-bold mb-3 text-emerald-100">飯店／部門業績（未稅）・${stores.length} 個</p>
+                    <div class="rounded-lg bg-white/15 p-3"><p class="text-xs text-emerald-100 mb-1">含稅應收</p><p class="font-black text-lg text-yellow-300">$${g.final.toLocaleString()}</p></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mb-4 text-center text-sm">
+                    <div class="rounded-lg bg-black/20 p-2"><p class="text-xs text-emerald-100 mb-1">布巾洗滌管理費</p><p class="font-black">+$${g.managementFee.toLocaleString()}</p></div>
+                    <div class="rounded-lg bg-black/20 p-2"><p class="text-xs text-emerald-100 mb-1">客戶回饋</p><p class="font-black">-$${g.rebate.toLocaleString()}</p></div>
+                </div><p class="font-bold mb-3 text-emerald-100">飯店應收（與對帳單同一公式）・${stores.length} 個部門</p>
                 <div class="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">${cards}</div></section>`;
         };
         document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','1號／月底結帳','border-sky-300');
@@ -1862,36 +1889,14 @@ async function exportBossExcel() {
             const [,m,d] = str.split('-');
             return `${m}/${d}`;
         };
-        const rawAmount = (records) => records.reduce((sum, r) => sum + (Number(r.qty) || 0) * bossRecordPrice(r), 0);
-        const summarizeAdjustments = (records) => {
-            const grouped = new Map();
-            records.forEach(r => {
-                const hotel = r.parentCompany || r.hotel;
-                if (!grouped.has(hotel)) grouped.set(hotel, []);
-                grouped.get(hotel).push(r);
-            });
+        const adjustmentLines = (group) => {
             const rebateLines = [];
             const managementFeeLines = [];
-            let totalRebate = 0, totalManagementFee = 0;
-            [...grouped.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'zh-TW')).forEach(([hotel,recs]) => {
-                const rebate = rebateForReport(hotel, recs);
-                if (rebate.amount) {
-                    rebateLines.push({ label: `${hotel}回饋`, amount: -Number(rebate.amount || 0) });
-                    totalRebate += Number(rebate.amount || 0);
-                }
-                const fee = managementFeeForReport(hotel, recs);
-                if (fee.amount) {
-                    managementFeeLines.push({ label: `${hotel}布巾管理費`, amount: Number(fee.amount || 0) });
-                    totalManagementFee += Number(fee.amount || 0);
-                }
+            [...(group.customers || [])].sort((x,y)=>String(x.key).localeCompare(String(y.key),'zh-TW')).forEach(customer => {
+                if (customer.rebate.amount) rebateLines.push({ label: `${customer.key}回饋`, amount: -customer.rebate.amount });
+                if (customer.managementFee.amount) managementFeeLines.push({ label: `${customer.key}布巾管理費`, amount: customer.managementFee.amount });
             });
-            return {
-                rebateLines,
-                managementFeeLines,
-                totalRebate,
-                totalManagementFee,
-                adjusted: rawAmount(records) + totalManagementFee - totalRebate
-            };
+            return { rebateLines, managementFeeLines };
         };
         const buildPeriodsForMonth = (monthValue, cutoffValue = null) => {
             const [y,m] = monthValue.split('-').map(Number);
@@ -1913,14 +1918,14 @@ async function exportBossExcel() {
                 if (date < p.queryStart || date > p.queryEnd) return;
                 const hotel = d.hotelKeyword || '未命名飯店';
                 const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
-                if (isRewashName(fullName) || isRewashName(d.deptName)) return;
+                if (fullName.includes('回洗') || String(d.deptName || '').includes('回洗')) return;
                 const key = classifyBossGroup(hotel);
                 if (!key) return;
                 const gp = key === '25th' ? p['25th'] : p.monthGroup;
                 if (date < gp.start || date > gp.end) return;
                 billingReceiptItems(d).forEach((item, idx) => {
                     const qty = resolveItemBillingQty(item);
-                    if (qty <= 0 || isRewashItem(item)) return;
+                    if (qty <= 0 || String(item.itemName || '').includes('回洗')) return;
                     groups[key].push({
                         docId: docSnap.id,
                         parentCompany: hotel,
@@ -1938,10 +1943,10 @@ async function exportBossExcel() {
             return { '25th': summarizeBossGroup(groups['25th']), month: summarizeBossGroup(groups.month) };
         };
 
-        const raw25 = rawAmount(a.records);
-        const rawMonth = rawAmount(b.records);
-        const currentGross = raw25 + rawMonth;
-        const currentAdj = summarizeAdjustments([...(a.records || []), ...(b.records || [])]);
+        const currentAdj = {
+            rebateLines: [...adjustmentLines(a).rebateLines, ...adjustmentLines(b).rebateLines],
+            managementFeeLines: [...adjustmentLines(a).managementFeeLines, ...adjustmentLines(b).managementFeeLines],
+        };
 
         const currentMonthDate = new Date(Number(periods.month.slice(0,4)), Number(periods.month.slice(5,7)) - 1, 1);
         const prevMonthDate = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - 1, 1);
@@ -1949,7 +1954,7 @@ async function exportBossExcel() {
         const prevPeriods = buildPeriodsForMonth(prevMonth);
         const prevDocs = await getLogisticsDocsForPeriod(prevPeriods.queryStart, prevPeriods.queryEnd);
         const prevGroups = summarizeDocsForPeriods(prevDocs, prevPeriods);
-        const prevAdj = summarizeAdjustments([...(prevGroups['25th'].records || []), ...(prevGroups.month.records || [])]);
+        const prevPayable = prevGroups['25th'].final + prevGroups.month.final;
 
         const compareWs = XLSX.utils.aoa_to_sheet([]);
         const numFmt = '#,##0.0;[Red]-#,##0.0;–';
@@ -1984,16 +1989,18 @@ async function exportBossExcel() {
          [3,4,'月底／1號區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4,ink,'left',12)));
 
         const summaryLines = [
-            {label:`${fmtDate(periods['25th'].start)}-${fmtDate(periods['25th'].end)}`, value:raw25, fill:yellow, color:'000000', bold:true},
-            {label:`${fmtDate(periods.monthGroup.start)}-${fmtDate(periods.monthGroup.end)}`, value:rawMonth, fill:yellow, color:'000000', bold:true},
-            {label:`${fmtDate(periods.monthGroup.end)}營業額`, value:currentGross, fill:yellow, color:'000000', bold:true}
+            {label:`${fmtDate(periods['25th'].start)}-${fmtDate(periods['25th'].end)}未稅`, value:a.untaxed, fill:yellow, color:'000000', bold:true},
+            {label:`${fmtDate(periods.monthGroup.start)}-${fmtDate(periods.monthGroup.end)}未稅`, value:b.untaxed, fill:yellow, color:'000000', bold:true},
+            {label:'兩組未稅合計', value:a.untaxed + b.untaxed, fill:yellow, color:'000000', bold:true}
         ];
         currentAdj.rebateLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
         currentAdj.managementFeeLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
-        summaryLines.push({label:`${fmtDate(periods.monthGroup.end)}營業額`, value:currentAdj.adjusted, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'調整後未稅', value:a.afterRebate + b.afterRebate, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'營業稅（5%）', value:a.tax + b.tax, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'含稅應收', value:a.final + b.final, fill:yellow, color:'000000', bold:true});
         summaryLines.push({label:'', value:'', fill:'FFFFFF', color:ink, bold:false});
-        summaryLines.push({label:`${fmtDate(prevPeriods.monthGroup.end)}營業額`, value:prevAdj.adjusted, fill:yellow, color:'000000', bold:true});
-        summaryLines.push({label:'差額', value:currentAdj.adjusted - prevAdj.adjusted, fill:lavender, color:'FF0000', bold:true});
+        summaryLines.push({label:`${fmtDate(prevPeriods.monthGroup.end)}含稅應收`, value:prevPayable, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'差額', value:(a.final + b.final) - prevPayable, fill:lavender, color:'FF0000', bold:true});
 
         let row = 5;
         summaryLines.forEach((line) => {
@@ -2012,10 +2019,10 @@ async function exportBossExcel() {
         const headRow = sectionRow + 1;
         set(headRow,1,'飯店／部門',cellStyle(beige,true,ink,'center',12));
         set(headRow,2,'銷貨淨額（未稅）',cellStyle(beige,true,ink,'center',12));
-        set(headRow,3,'飯店小計',cellStyle(beige,true,ink,'center',12));
+        set(headRow,3,'含稅應收',cellStyle(beige,true,ink,'center',12));
         set(headRow,5,'飯店／部門',cellStyle(beige,true,ink,'center',12));
         set(headRow,6,'銷貨淨額（未稅）',cellStyle(beige,true,ink,'center',12));
-        set(headRow,7,'飯店小計',cellStyle(beige,true,ink,'center',12));
+        set(headRow,7,'含稅應收',cellStyle(beige,true,ink,'center',12));
 
         function createSideRows(group,startCol,startRow) {
             const grouped=new Map();
@@ -2027,7 +2034,8 @@ async function exportBossExcel() {
             let rowPtr=startRow, block=0;
             for(const [parent,items] of grouped){
                 const from=rowPtr, fill=colored[block++%colored.length];
-                const subtotal=items.reduce((sum,[,amount])=>sum+amount,0);
+                const parentBill=group.customers.find(item=>item.key===parent);
+                const subtotal=parentBill ? parentBill.payable : items.reduce((sum,[name])=>sum+(group.customers.find(item=>item.key===name)?.payable||0),0);
                 for(const [name,amount] of items){
                     set(rowPtr,startCol,name,cellStyle(fill,true,ink,'left',12));
                     set(rowPtr,startCol+1,amount,cellStyle(fill,true,ink,'right',12));
@@ -2048,16 +2056,20 @@ async function exportBossExcel() {
             const g=c===1?a:b;
             set(totalRow,c,'未稅合計',cellStyle(green,true,'FFFFFF','left',13));
             set(totalRow,c+1,g.untaxed,cellStyle(green,true,'FFFFFF','right',13),numFmt);
-            set(totalRow+1,c,'營業稅（5%）',cellStyle(pale,true,ink,'left',12));
-            set(totalRow+1,c+1,g.tax,cellStyle(pale,true,ink,'right',12));
-            set(totalRow+2,c,'含稅合計',cellStyle(green,true,'FFFFFF','left',13));
-            set(totalRow+2,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
+            set(totalRow+1,c,'布巾洗滌管理費',cellStyle(pale,true,ink,'left',12));
+            set(totalRow+1,c+1,g.managementFee,cellStyle(pale,true,ink,'right',12));
+            set(totalRow+2,c,'客戶回饋',cellStyle(pale,true,ink,'left',12));
+            set(totalRow+2,c+1,-g.rebate,cellStyle(pale,true,ink,'right',12));
+            set(totalRow+3,c,'營業稅（5%）',cellStyle(pale,true,ink,'left',12));
+            set(totalRow+3,c+1,g.tax,cellStyle(pale,true,ink,'right',12));
+            set(totalRow+4,c,'含稅應收',cellStyle(green,true,'FFFFFF','left',13));
+            set(totalRow+4,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
         });
-        const overallRow = totalRow + 4;
+        const overallRow = totalRow + 6;
         set(overallRow,1,'兩組未稅合計',cellStyle(pale,true,ink,'left',12));
         set(overallRow,2,a.untaxed + b.untaxed,cellStyle(pale,true,ink,'right',12),numFmt);
-        set(overallRow,5,'加回饋/管理費後本月營業額',cellStyle(pale,true,ink,'left',12));
-        set(overallRow,6,currentAdj.adjusted,cellStyle(pale,true,ink,'right',12),numFmt);
+        set(overallRow,5,'兩組合計含稅應收',cellStyle(pale,true,ink,'left',12));
+        set(overallRow,6,a.final + b.final,cellStyle(pale,true,ink,'right',12),numFmt);
 
         compareWs['!cols']=[{wch:27},{wch:19},{wch:18},{wch:3},{wch:27},{wch:19},{wch:18}];
         compareWs['!rows']=Array.from({length:overallRow},(_,i)=>({hpt:i===0?38:(i+1)===sectionRow?29:(i+1)===headRow?28:23}));
@@ -2312,7 +2324,7 @@ function buildInvoiceReport() {
         isMergeAll
             ? rawLogisticsData
             : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
-    ).filter(r => !isRewashName(r.hotel) && !isRewashName(r.item));
+    );
 
     const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
     const compLabel = isMergeAll ? mergedCompanyNames.join('＋') : targetVal;
@@ -2484,6 +2496,7 @@ if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～
 
 try {
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
+await Promise.all([ensurePricingRules(), ensureEffectivePrices()]);
 if (!Object.keys(sheetPrices || {}).length) {
     try { await syncMasterDataFromSheet(); } catch (err) { console.warn('司機業績價目表同步失敗，沿用現有資料', err); }
 } else {
@@ -2501,13 +2514,17 @@ if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-if (isRewashName(hotelName) || isRewashName(d.deptName)) return;
+if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
 
 let driverName = d.assignedDriver || null;
 billingReceiptItems(d).forEach(item => {
 const actual = resolveItemBillingQty(item);
-if (actual > 0 && !isRewashItem(item)) {
-let price = item.price !== undefined && item.price !== null && item.price !== '' ? Number(item.price) : (getPrice(hotelName, item.itemName) || 0);
+if (actual > 0 && !String(item.itemName).includes("回洗")) {
+let price = reportRecordPrice({
+    hotel: hotelName, item: item.itemName, date: dDate,
+    parentCompany: d.hotelKeyword || hotelName,
+    savedPrice: item.price, manualPriceOverride: !!item.manualFinancePrice
+});
 let amt = actual * price;
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };
 if (driverName) {

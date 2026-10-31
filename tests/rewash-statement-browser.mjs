@@ -46,6 +46,37 @@ function startServer() {
         const url = new URL(req.url, 'http://127.0.0.1');
         const file = path.normalize(path.join(root, decodeURIComponent(url.pathname)));
         if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
+        if (url.pathname === '/receivable-check.html') {
+            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+            res.end(`<!doctype html><meta charset="utf-8"><title>應收對照</title>
+<body style="font-family:sans-serif;padding:32px;background:#f4f6f2">
+<h1>同一家飯店、同一帳期</h1>
+<p id="status">計算中…</p>
+<pre id="out" style="font-size:20px;line-height:1.6"></pre>
+<script type="module">
+import { createInvoiceEngine } from './firebase-signature/functions/lib/auto-close.js';
+import { statementReceivable, sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js';
+const row = { docId:'a', receiptOrder:0, date:'2026-10-25', parentCompany:'富野', hotel:'富野 房務', item:'床單', qty:10, savedPrice:5 };
+const rules = { holidays:[{hotel:'富野',start:'2026-10-25',end:'2026-10-25',percent:10}], rebates:[{hotel:'富野',percent:10}], managementFees:[{hotel:'富野',percent:5}] };
+const engine = createInvoiceEngine({ logisticsMasterItems:[{hotel:'富野 房務',item:'床單'}], pricingRules:rules, effectivePriceRules:[{key:'富野 房務_床單',start:'2026-10-01',price:12.34}], sheetPrices:{}, customPrices:{}, sheetClients:{富野:{name:'富野股份有限公司',taxId:'12345678'}}, rawLogisticsData:[row] });
+const statement = engine.build('富野','2026-09-26','2026-10-25');
+const bill = statementReceivable([row], engine.reportRecordPrice, rules.rebates[0], rules.managementFees[0]);
+const dashboard = sumCustomerReceivables([row], engine.reportRecordPrice, () => ({ rebate: rules.rebates[0], managementFee: rules.managementFees[0] }));
+const header = sumGroupFigures([dashboard, { untaxed:0, tax:0, final:0, managementFee:0, rebate:0 }]);
+const statementPayable = statement.totals.afterRebate + statement.totals.tax;
+const same = statementPayable === bill.payable && bill.payable === dashboard.final && dashboard.final === header.final;
+document.getElementById('status').textContent = same ? '對帳單、戰情室、Excel 應收金額一致' : '金額不一致';
+document.getElementById('out').textContent = [
+  '富野 2026-09-26～2026-10-25',
+  '對帳單含稅 ' + statementPayable,
+  '戰情室含稅 ' + dashboard.final,
+  'Excel 含稅 ' + header.final,
+  '未稅 ' + statement.totals.rounded + '　管理費 ' + statement.totals.managementFee.amount + '　回饋 ' + statement.totals.rebate.amount + '　稅 ' + statement.totals.tax,
+].join('\\n');
+document.body.dataset.ready = same ? 'yes' : 'no';
+</script></body>`);
+            return;
+        }
         fs.readFile(file, (err, data) => {
             if (err) { res.writeHead(404); res.end('not found'); return; }
             const type = file.endsWith('.js') ? 'text/javascript; charset=utf-8'
@@ -192,11 +223,23 @@ try {
     await new Promise(resolve => setTimeout(resolve, 200));
     const linesShot = await shot(dispatch, 'statement-lines.png');
     await dispatch.close();
-    browser.close();
     console.log('瀏覽器驗證通過');
     console.log(listShot);
     console.log(previewShot);
     console.log(linesShot);
+    const check = await openPage(browser, `${base}/receivable-check.html`);
+    await waitFor(check, `document.body.dataset.ready === 'yes'`);
+    const checkShot = await shot(check, 'receivable-match.png');
+    const finance = await openPage(browser, `${base}/finance.html`);
+    await waitFor(finance, `typeof window.switchSysTab === 'function'`);
+    await evaluate(finance, `window.switchSysTab('boss'); document.getElementById('bossDashboardContent').classList.remove('hidden'); document.getElementById('bossEmptyState').classList.add('hidden');`);
+    await waitFor(finance, `document.body.innerText.includes('布巾洗滌管理費') && document.body.innerText.includes('兩組合計・含稅應收')`);
+    const dashShot = await shot(finance, 'dashboard-header.png');
+    console.log(checkShot);
+    console.log(dashShot);
+    await check.close();
+    await finance.close();
+    browser.close();
     console.log(preview);
 } finally {
     chrome.kill();
