@@ -264,7 +264,12 @@ async function setup() {
         messagingSenderId: '363844184412',
         appId: '1:363844184412:web:66cdd6425d53bde75f3999',
     });
-    const db = fsMod.initializeFirestore(firebaseApp, { localCache: fsMod.memoryLocalCache() });
+    // Avoid stalled Fetch streams on Safari/WebKit; retain the same Firestore rules and queries.
+    const db = fsMod.initializeFirestore(firebaseApp, {
+        localCache: fsMod.memoryLocalCache(),
+        experimentalForceLongPolling: true,
+        useFetchStreams: false,
+    });
     repoDb = db;
     repoFs = fsMod;
     repo = createFirestoreRepository(db, {
