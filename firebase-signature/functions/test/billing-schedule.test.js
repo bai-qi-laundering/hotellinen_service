@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { caseDocumentId } from '../lib/auto-close.js';
+import { caseDocumentId, rowsForPeriod, settlementGroup } from '../lib/auto-close.js';
 import {
     BILLING_CRON,
     BILLING_TIME_ZONE,
@@ -33,11 +33,11 @@ test('billing days are the 25th and the real last day, including February', () =
 
 test('due hotels follow the group for today, including a saved name missing from the template', () => {
     const groups = { 富野: '', 新店: '15', 天幕: '25th' };
-    assert.deepEqual(dueHotelKeywords(['富野', '日航', '新店'], groups, '25th'), ['天幕']);
+    assert.deepEqual(dueHotelKeywords(['富野', '日航', '新店'], groups, '25th'), ['天慕']);
     assert.deepEqual(dueHotelKeywords(['富野', '日航', '新店'], groups, 'month'), ['日航']);
     const warnings = settlementWarnings(['富野', '日航', '新店', '麥當勞'], groups);
     assert.ok(warnings.some(item => item.type === 'unknown_day' && item.customer === '新店'));
-    assert.ok(warnings.some(item => item.type === 'not_in_template' && item.customer === '天幕'));
+    assert.ok(warnings.some(item => item.type === 'not_in_template' && item.customer === '天慕'));
     assert.ok(warnings.some(item => item.type === 'no_billing_day' && item.customer === '富野'));
     assert.ok(warnings.some(item => item.type === 'no_billing_day' && item.customer === '麥當勞'));
 });
@@ -180,6 +180,7 @@ test('25th run bills only that group, keeps unsigned deliveries, drops 回洗, a
             { 富野: '25th', 日航: 'month', 天幕: '25th', 新店: '15', 麥當勞: '' },
             [
                 { baseName: '富野', hotel: '富野 房務', item: '床單' },
+                { baseName: '天慕', hotel: '天慕 餐廳', item: '床單' },
                 { baseName: '日航', hotel: '日航 房務', item: '床單' },
                 { baseName: '候工所', hotel: '候工所 房務', item: '床單' },
                 { baseName: '新店', hotel: '新店 房務', item: '床單' },
@@ -214,9 +215,11 @@ test('25th run bills only that group, keeps unsigned deliveries, drops 回洗, a
     assert.equal(bills[0].versions[0].snapshot.totals.tax, 3);
     assert.equal(JSON.stringify(bills[0]).includes('回洗'), false);
     assert.ok(warnings.some(item => item.type === 'unknown_day' && item.customer === '新店'));
-    assert.ok(warnings.some(item => item.type === 'not_in_template' && item.customer === '天幕'));
+    assert.equal(warnings.some(item => item.customer === '天幕'), false);
     const hotels = db.queries.map(filters => filters.find(filter => filter.field === 'hotelKeyword')?.value);
-    assert.deepEqual([...new Set(hotels)].sort(), ['候工所', '天幕', '富野']);
+    assert.ok(hotels.includes('天慕'));
+    assert.ok(hotels.includes('天幕'));
+    assert.ok(!hotels.includes('日航'));
     const queriesAfterFirst = db.queries.length;
     const fetchesAfterFirst = http.calls();
     db.stored.get(`statement_cases/${created.id}`).versions[0].snapshot.totals.grandTotal = 1;
@@ -272,6 +275,18 @@ test('month-end splits 鼎王 by department from one hotel query and still drops
     assert.equal(JSON.stringify(bills).includes('羽毛被'), false);
     assert.ok(db.queries.every(filters => filters.some(filter => filter.field === 'hotelKeyword' && filter.value === '鼎王')));
     assert.equal(result.results.find(item => item.customer === '鼎王 回洗').status, 'skipped_empty');
+});
+
+test('天慕 inherits the saved 天幕 group, 鉑麗 closes at month end, and H2O 西餐 stays on the H2O bill', () => {
+    assert.equal(settlementGroup('天慕', { 天幕: '25th' }), '25th');
+    assert.equal(settlementGroup('鉑麗', {}), 'month');
+    assert.deepEqual(dueHotelKeywords(['鉑麗', '天慕'], { 天幕: '25th' }, 'month'), ['鉑麗']);
+    assert.equal(settlementGroup('H2O', {}), '25th');
+    const rows = rowsForPeriod([
+        { id: 'west', data: { date: '2026-10-25', hotelKeyword: 'H2O', deptName: '西餐', items: [{ itemName: '口布', actualQty: 2, price: 8 }] } },
+        { id: 'rooms', data: { date: '2026-10-25', hotelKeyword: 'H2O', deptName: '房務', items: [{ itemName: '床單', actualQty: 1, price: 10 }] } },
+    ], 'H2O', '2026-09-26', '2026-10-25');
+    assert.deepEqual(rows.map(row => row.hotel), ['H2O 西餐', 'H2O 房務']);
 });
 
 test('the sign page no longer starts statement generation', () => {

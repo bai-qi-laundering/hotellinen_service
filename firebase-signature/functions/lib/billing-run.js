@@ -8,6 +8,8 @@ import {
     settlementWarnings,
 } from './billing-schedule.js';
 import {
+    aliasSourceKeywords,
+    canonicalHotelKeyword,
     caseDocumentId,
     closingPeriod,
     commitOnce,
@@ -54,7 +56,7 @@ export function signatureCoverage(documents, customer, start, end) {
     return { signedReceiptCount: signed, unsignedReceiptCount: unsigned };
 }
 
-async function readHotelPeriod(db, hotelKeyword, start, end) {
+async function readOneHotelPeriod(db, hotelKeyword, start, end) {
     const queries = hotelPeriodQueries(start, end).map(spec => {
         const base = db.collection('logistics_records').where('hotelKeyword', '==', hotelKeyword);
         if (spec.kind === 'prefix') return base.where('date', '>=', spec.prefix).where('date', '<=', `${spec.prefix}\uf8ff`);
@@ -73,6 +75,17 @@ async function readHotelPeriod(db, hotelKeyword, start, end) {
         const date = recordDate(doc.data.date);
         return date >= start && date <= end;
     });
+}
+
+async function readHotelPeriod(db, hotelKeyword, start, end) {
+    const canonical = canonicalHotelKeyword(hotelKeyword);
+    const docs = new Map();
+    for (const keyword of aliasSourceKeywords(canonical)) {
+        for (const doc of await readOneHotelPeriod(db, keyword, start, end)) {
+            docs.set(doc.id, { ...doc, data: { ...doc.data, hotelKeyword: canonical } });
+        }
+    }
+    return [...docs.values()];
 }
 
 async function outcome(db, customer, period) {

@@ -152,7 +152,7 @@ import {
     payableAmount,
     renderStatementHtml,
     statementFileBase,
-} from './statement-case.js?v=20261030-statement-dispatch';
+} from './statement-case.js?v=20261031-item-order';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const params = new URLSearchParams(location.search);
@@ -164,6 +164,7 @@ let activeFilter = 'all';
 let selected = null;
 let chosenFormat = 'xlsx';
 let busy = false;
+let itemTemplate = [];
 
 function taipeiStamp(iso) {
     if (!iso) return '';
@@ -199,6 +200,13 @@ async function setup() {
         collection: fsMod.collection,
         getDocsFromServer: fsMod.getDocsFromServer,
     }, localStorage);
+    try {
+        const template = await fsMod.getDoc(fsMod.doc(db, 'inventory_config', 'master_template'));
+        itemTemplate = template.exists() ? (template.data().items || []) : [];
+    } catch (error) {
+        console.warn('品項順序暫用帳單原本的順序', error);
+        itemTemplate = [];
+    }
 }
 function visibleCases() {
     return cases.filter(item => activeFilter === 'all' || item.state === activeFilter);
@@ -291,7 +299,7 @@ function showPreview(item) {
     const version = latestVersion(item);
     if (!version) return;
     $('previewTitle').textContent = `${item.customerName || item.customerKey} · V${version.version}`;
-    $('previewPaper').innerHTML = renderStatementHtml(version.snapshot);
+    $('previewPaper').innerHTML = renderStatementHtml(version.snapshot, itemTemplate);
     $('preview').classList.add('show');
     document.body.style.overflow = 'hidden';
 }
@@ -382,7 +390,7 @@ async function prepareFile(item, format) {
         return;
     }
     if (!window.XLSX) throw new Error('Excel 元件還沒載入，請稍後再試。');
-    const workbook = buildStatementWorkbook(window.XLSX, version.snapshot);
+    const workbook = buildStatementWorkbook(window.XLSX, version.snapshot, itemTemplate);
     const filename = `${statementFileBase(version.snapshot)}.xlsx`;
     const bytes = window.XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     const file = new File([bytes], filename, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

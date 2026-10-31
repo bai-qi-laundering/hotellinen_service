@@ -2,7 +2,7 @@
 // `25th` = 每月 25 日，`month` = 每月最後一天。沒有第三種結帳日。
 // 空白字串代表這筆設定明確不自動結帳，沿用財務頁既有規則。
 import { legacyDatePrefixes } from './logistics-items.js';
-import { settlementGroup } from './auto-close.js';
+import { canonicalHotelKeyword, settlementGroup } from './auto-close.js';
 
 export const BILLING_TIME_ZONE = 'Asia/Taipei';
 export const BILLING_HOUR = 9;
@@ -51,10 +51,9 @@ export function dueHotelKeywords(baseNames, groups, group) {
         const trimmed = String(name || '').trim();
         if (trimmed && settlementGroup(trimmed, groups) === group) due.add(trimmed);
     }
-    // 設定裡寫了 25 日或月底、但物流範本沒這間名字時仍要查。
-    // 否則像「天幕」這種有簽收單、卻沒進範本的飯店會被悄悄跳過。
+    // 設定裡的舊名（天幕）改成物流名稱（天慕）後才查，避免同一家查兩次或用錯名字出單。
     for (const [name, value] of Object.entries(groups || {})) {
-        const trimmed = String(name || '').trim();
+        const trimmed = canonicalHotelKeyword(name);
         if (trimmed && value === group) due.add(trimmed);
     }
     return [...due].sort((a, b) => a.localeCompare(b, 'zh-TW'));
@@ -73,8 +72,9 @@ export function settlementWarnings(baseNames, groups) {
     const names = new Set((baseNames || []).map(name => String(name || '').trim()).filter(Boolean));
     for (const [customer, raw] of Object.entries(groups || {})) {
         const value = String(raw ?? '');
-        if (value !== '25th' && value !== 'month' && value !== '') push({ type: 'unknown_day', customer, value });
-        if (!names.has(customer)) push({ type: 'not_in_template', customer, value });
+        const canonical = canonicalHotelKeyword(customer);
+        if (value !== '25th' && value !== 'month' && value !== '') push({ type: 'unknown_day', customer: canonical, value });
+        if (!names.has(canonical)) push({ type: 'not_in_template', customer: canonical, value });
     }
     for (const customer of names) {
         const value = String(settlementGroup(customer, groups) ?? '');

@@ -1,21 +1,10 @@
 // Pricing formulas shared with finance.html. Parity is covered by tests.
 import { snapshotFromParts } from './statement-case.js';
+import { orderStatementSnapshot } from './logistics-items.js';
 import { catalogPrice, datedPrice, unitPriceForRecord } from './price-catalog.js';
 export function createInvoiceEngine(options) {
 const { logisticsMasterItems, pricingRules, effectivePriceRules, sheetPrices, customPrices, sheetClients, rawLogisticsData } = options;
 const MERGE_ALL_KEY = '__MERGE_ALL_SELECTED__';
-function getLogisticsItemSortIndex(hotelName, itemName) {
-    let expectedOrder = logisticsMasterItems.filter(d => d.hotel === hotelName).map(d => d.item);
-    if (expectedOrder.length === 0) expectedOrder = [...new Set(logisticsMasterItems.map(d => d.item))];
-    const index = expectedOrder.indexOf(itemName);
-    return index === -1 ? 99999 : index;
-}
-
-function compareLogisticsItems(hotelName, itemA, itemB) {
-    const diff = getLogisticsItemSortIndex(hotelName, itemA) - getLogisticsItemSortIndex(hotelName, itemB);
-    return diff || String(itemA).localeCompare(String(itemB), 'zh-TW');
-}
-
 function activeHolidayRule(company, date) {
   return pricingRules.holidays.find(r => r.hotel === company && date >= r.start && date <= r.end) || null;
 }
@@ -106,7 +95,7 @@ function buildInvoiceReport(targetVal) {
         depts[name].total += amount;
         grandTotal += amount;
     });
-    Object.entries(depts).forEach(([hotelName, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || compareLogisticsItems(hotelName, a.item, b.item) || String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder));
+    Object.entries(depts).forEach(([, dept]) => dept.records.sort((a,b) => a.date.localeCompare(b.date) || String(a.docId || '').localeCompare(String(b.docId || '')) || a.receiptOrder - b.receiptOrder));
 
     const groupedByParent = new Map();
     matches.forEach(r => {
@@ -196,7 +185,7 @@ const report = buildInvoiceReport(customerKey);
 const profile = resolveClientProfile(customerKey);
 if (!profile?.name) throw new Error('客戶抬頭未設定：'+customerKey);
 if (!Object.keys(report.depts).length) throw new Error('沒有可出帳的明細');
-return snapshotFromParts({customerKey,startDate,endDate,profile,lineRecipient:'',
-departments:Object.entries(report.depts).sort(([a],[b])=>a.localeCompare(b,'zh-TW')).map(([name,dept])=>({name,total:dept.total,summary:Object.values(dept.summary).sort((a,b)=>compareLogisticsItems(name,a.item,b.item)||a.firstSeen-b.firstSeen).map(({item,qty,price,amt})=>({item,qty,price,amt})),records:dept.records.map(r=>({date:r.date,item:r.item,qty:r.qty,price:r.price,amt:r.amt,docId:r.docId||''}))})),totals:report});
+return snapshotFromParts(orderStatementSnapshot({customerKey,startDate,endDate,profile,lineRecipient:'',
+departments:Object.entries(report.depts).map(([name,dept])=>({name,total:dept.total,summary:Object.values(dept.summary).map(({item,qty,price,amt})=>({item,qty,price,amt})),records:dept.records.map(r=>({date:r.date,item:r.item,qty:r.qty,price:r.price,amt:r.amt,docId:r.docId||''}))})),totals:report}, logisticsMasterItems));
 }};
 }

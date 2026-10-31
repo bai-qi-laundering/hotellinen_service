@@ -233,3 +233,81 @@ export function legacyDatePrefixes(startDate, endDate) {
     return [...prefixes];
 }
 
+function templateRows(template) {
+    return Array.isArray(template) ? template : (template?.items || []);
+}
+
+// 與簽收頁相同：先對這家飯店、這個部門的範本，對不到再用這家飯店的品項。
+// 不把「日航」算進「日航休閒中心」，除非簽收頁那條包含條件也會算到。
+export function receiptTemplateRows(template, hotelKeyword, deptName) {
+    const items = templateRows(template);
+    const hotel = String(hotelKeyword || '').trim();
+    const dept = String(deptName ?? '').trim();
+    const matchesHotel = row => row?.baseName === hotel || (row?.hotel && String(row.hotel).includes(hotel));
+    const matchesDept = row => {
+        const templateDept = row?.deptName || '房務';
+        return templateDept === dept || (row?.deptName === '' && dept === '房務') || (row?.hotel && dept && String(row.hotel).includes(dept));
+    };
+    const matched = dept ? items.filter(row => matchesHotel(row) && matchesDept(row)) : items.filter(matchesHotel);
+    return matched.length ? matched : items.filter(matchesHotel);
+}
+
+export function receiptItemRanks(template, hotelKeyword, deptName) {
+    const ranks = new Map();
+    receiptTemplateRows(template, hotelKeyword, deptName).forEach((row, index) => {
+        const name = String(row?.item || '').trim();
+        if (name && !ranks.has(name)) ranks.set(name, index);
+    });
+    return ranks;
+}
+
+export function splitDepartmentLabel(template, label) {
+    const items = templateRows(template);
+    const name = String(label || '').trim();
+    const bases = [...new Set(items.map(row => String(row?.baseName || '').trim()).filter(Boolean))]
+        .sort((a, b) => b.length - a.length);
+    const hotelKeyword = bases.find(base => name === base || name.startsWith(`${base} `)) || name;
+    const deptName = name.startsWith(`${hotelKeyword} `) ? name.slice(hotelKeyword.length + 1) : '房務';
+    return { hotelKeyword, deptName };
+}
+
+function compareByReceiptRank(ranks, a, b) {
+    const left = ranks.has(a.item) ? ranks.get(a.item) : null;
+    const right = ranks.has(b.item) ? ranks.get(b.item) : null;
+    if (left != null && right != null && left !== right) return left - right;
+    if (left != null && right == null) return -1;
+    if (left == null && right != null) return 1;
+    return (a._order ?? 0) - (b._order ?? 0);
+}
+
+// 範本裡的品項照簽收單順序；範本沒有的放最後，並維持原本出現的先後。
+export function orderStatementSnapshot(snapshot, template) {
+    const items = templateRows(template);
+    if (!snapshot || !items.length) return snapshot;
+    const departments = (snapshot.departments || []).map((dept, index) => {
+        const { hotelKeyword, deptName } = splitDepartmentLabel(items, dept.name);
+        const ranks = receiptItemRanks(items, hotelKeyword, deptName);
+        const summary = (dept.summary || []).map((row, order) => ({ ...row, _order: order }));
+        summary.sort((a, b) => compareByReceiptRank(ranks, a, b));
+        const records = (dept.records || []).map((row, order) => ({ ...row, _order: order }));
+        records.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || compareByReceiptRank(ranks, a, b));
+        const rank = items.findIndex(row => {
+            const hotel = String(row?.baseName || '').trim();
+            const department = String(row?.deptName || '房務').trim();
+            return hotel === hotelKeyword && department === deptName;
+        });
+        return {
+            ...dept,
+            _rank: rank === -1 ? Number.MAX_SAFE_INTEGER : rank,
+            _order: index,
+            summary: summary.map(({ _order, ...row }) => row),
+            records: records.map(({ _order, ...row }) => row),
+        };
+    });
+    departments.sort((a, b) => a._rank - b._rank || a._order - b._order);
+    return {
+        ...snapshot,
+        departments: departments.map(({ _rank, _order, ...dept }) => dept),
+    };
+}
+
