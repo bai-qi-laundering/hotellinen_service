@@ -321,7 +321,6 @@ body { background: white; padding: 0; margin: 0; }
 
 <!-- ==================== 【系統 2：老闆業績戰情室】 ==================== -->
 <div id="sysBoss" class="hidden">
-    <div id="unsentDashboardHost" class="mb-5"></div>
     <div class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-5 mb-5 no-print">
       <div class="flex flex-wrap items-end gap-4 justify-between">
         <div><label for="bossTargetMonth" class="block text-emerald-900 font-black mb-2">📅 業績結帳月份</label><input id="bossTargetMonth" type="month" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossMonth()"></div>
@@ -512,7 +511,6 @@ import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/fu
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
-import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261031-einvoice';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -1042,7 +1040,6 @@ window.switchSysTab = function(tab) {
         document.getElementById('sysBoss').classList.remove('hidden');
         document.getElementById('sharedFilterSection').classList.add('hidden');
         activeBtn.classList.add('border-emerald-600', 'text-emerald-700');
-        ensureUnsentDashboard();
     } else if (tab === 'driver') {
         document.getElementById('sysDriver').classList.remove('hidden');
         document.getElementById('sharedFilterSection').classList.add('hidden');
@@ -1611,14 +1608,6 @@ if (type === 'clear') { checkboxes.forEach(cb => cb.checked = false); return; }
 const wanted = type === '25th' ? '25th' : type === '1st' ? '1st' : 'month';
 checkboxes.forEach(cb => cb.checked = false);
 checkboxes.forEach(cb => { const hotel=[...settlementHotels()].sort((a,b)=>b.length-a.length).find(n=>cb.value===n||cb.value.startsWith(n+' '))||cb.value; if (settlementGroupOf(hotel)===wanted) cb.checked=true; });
-}
-let unsentDashboard = null;
-function ensureUnsentDashboard() {
-  if (unsentDashboard) return;
-  unsentDashboard = mountUnsentDashboard(document.getElementById('unsentDashboardHost'), {
-    db,
-    fs: { doc, getDocFromServer, collection, query, where, getDocsFromServer },
-  });
 }
 
 function distinctShipmentRows(records) {
