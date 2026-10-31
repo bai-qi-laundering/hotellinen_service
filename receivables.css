@@ -73,3 +73,24 @@
 #receivables .ledger-table td:last-child input{width:140px;min-width:0;display:inline-block;vertical-align:middle}
 #receivables .ledger-table td:last-child button{display:inline-block;margin-left:6px;vertical-align:middle}
 #receivables .ledger-table .ledger-row-status{min-height:0;margin:2px 0 0;line-height:1.3}
+
+/* Compact 13-column collections sheet. */
+#receivables .ledger-summary{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}
+#receivables .ledger-summary>div{display:flex;align-items:baseline;gap:8px;padding:12px 18px;background:#f0f5ef;border:1px solid #d9e4d7;border-radius:10px}
+#receivables .ledger-summary strong{font-size:26px;line-height:1.2;color:#315e4c}
+#receivables .ledger-summary span{font-size:14px}
+#receivables .ledger-table{table-layout:fixed;width:1708px;min-width:1708px;font-size:14px}
+#receivables .ledger-table th,#receivables .ledger-table td{width:auto;min-width:0;padding:8px;box-sizing:border-box}
+#receivables .ledger-table th:first-child,#receivables .ledger-table td:first-child{width:auto;min-width:0}
+#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){width:auto;min-width:0;position:sticky;left:76px;z-index:2;box-shadow:2px 0 3px #0001}
+#receivables .ledger-table thead th:nth-child(2){top:0;z-index:4}
+#receivables .ledger-table input{min-width:0;padding:7px 5px;font-size:14px;min-height:36px}
+#receivables .ledger-table .ledger-payment{min-width:0}
+#receivables .ledger-table .ledger-customer small{max-width:174px;font-size:11px;line-height:1.4}
+#receivables .ledger-table .ledger-settlement{white-space:nowrap}
+#receivables .ledger-table td:last-child{min-width:0}
+#receivables .ledger-table td:last-child input{width:125px}
+#receivables .ledger-table td:last-child button{margin-left:4px;padding:7px}
+#receivables .ledger-table .ledger-company th,#receivables .ledger-table tfoot th{position:static;width:auto;min-width:0}
+#receivables .ledger-table tfoot th,#receivables .ledger-table tfoot td{background:#e4ece4;border-top:2px solid #315e4c;font-weight:700;white-space:nowrap}
+@media(max-width:600px){#receivables .ledger-table td:nth-child(2){position:static;box-shadow:none}#receivables .ledger-table thead th:nth-child(2){left:auto}#receivables .ledger-table input{font-size:16px}#receivables .ledger-summary{gap:8px}#receivables .ledger-summary>div{padding:10px;flex:1;white-space:nowrap}}
