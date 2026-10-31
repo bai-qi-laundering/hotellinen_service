@@ -1,17 +1,22 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261031c';
 import {formatCardAmount} from './statement-case.js';
-import {createFirestoreRepository} from './statement-store.js';
+import {createFirestoreRepository} from './statement-store.js?v=20261101-month-query';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 const app=initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',appId:'1:363844184412:web:66cdd6425d53bde75f3999'},'receivables');
-const db=fs.initializeFirestore(app,{localCache:fs.memoryLocalCache()});
+const db=fs.initializeFirestore(app,{localCache:fs.memoryLocalCache(),experimentalForceLongPolling:true,useFetchStreams:false});
 const repo=createFirestoreRepository(db,fs,localStorage);
 const root=document.getElementById('receivables');
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let cases=[],loading=false,available=false,sequence=0;
-root.innerHTML=`<h2>貨款登記</h2><p>寄送、飯店確認與開票分別記錄；金額直接沿用財務對帳單。</p><div class="ledger-tools"><label>月份 <input id="ledger-month" type="month" value="${today.slice(0,7)}"></label><input id="ledger-search" placeholder="搜尋飯店" aria-label="搜尋飯店"><select id="ledger-filter" aria-label="篩選"><option value="">全部</option><option>待重寄</option><option>未開票</option><option>開票後有變</option></select><button id="ledger-refresh" type="button">重新整理</button></div><p id="ledger-message" role="status"></p><div id="ledger-list"></div><dialog id="ledger-dialog"><form id="ledger-form"><h2 id="ledger-title"></h2><div id="ledger-fields"></div><p id="ledger-error" role="alert"></p><footer><button type="button" id="ledger-cancel">返回</button><button id="ledger-save">儲存</button></footer></form></dialog>`;
+function billingMonth(now=new Date()){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
+ const date=new Date(Date.UTC(parts.year,parts.month-1-(parts.day<=24?1:0),1));
+ return date.getUTCFullYear()+'-'+String(date.getUTCMonth()+1).padStart(2,'0');
+}
+root.innerHTML=`<h2>貨款登記</h2><p>寄送、飯店確認與開票分別記錄；金額直接沿用財務對帳單。</p><div class="ledger-tools"><label>月份 <input id="ledger-month" type="month" value="${billingMonth()}"></label><input id="ledger-search" placeholder="搜尋飯店" aria-label="搜尋飯店"><select id="ledger-filter" aria-label="篩選"><option value="">全部</option><option>待重寄</option><option>未開票</option><option>開票後有變</option></select><button id="ledger-refresh" type="button">重新整理</button></div><p id="ledger-message" role="status"></p><div id="ledger-list"></div><dialog id="ledger-dialog"><form id="ledger-form"><h2 id="ledger-title"></h2><div id="ledger-fields"></div><p id="ledger-error" role="alert"></p><footer><button type="button" id="ledger-cancel">返回</button><button id="ledger-save">儲存</button></footer></form></dialog>`;
 const $=id=>document.getElementById('ledger-'+id);
 async function timeout(p){let t;try{return await Promise.race([p,new Promise((_,r)=>t=setTimeout(()=>r(Error('雲端讀取逾時，請重試。')),20000))]);}finally{clearTimeout(t);}}
 function render(){
@@ -26,10 +31,10 @@ async function reload(){
  if(new URLSearchParams(location.search).get('store')==='local'){ $('message').textContent='本機檢查模式：不讀寫正式貨款資料。';return; }
  const token=++sequence;available=false;$('list').textContent='讀取中…';$('message').textContent='';
  try{
- const result=await timeout(repo.list());
- if(result.fromCache||result.cloudError||result.cases.some(c=>c.cloudPending))throw Error('雲端尚未完整同步，暫不判定開票，請重新整理。');
- if(token!==sequence)return;cases=result.cases;available=true;
- $('message').textContent='只列出已登記寄送的對帳單；重寄後沿用同一筆貨款更新金額。';render();
+ const result=await timeout(repo.list({skipFlush:true,month:$('month').value}));
+ if(token!==sequence)return;
+ if(result.fromCache||result.cloudError)throw Error('雲端讀取未完成，暫不判定開票，請重新整理。');cases=result.cases.filter(c=>!c.cloudPending);available=true;
+ $('message').textContent='只列出已登記寄送的對帳單；重寄後沿用同一筆貨款更新金額。'+(result.cases.some(c=>c.cloudPending)?' 部分資料尚未同步，暫不提供這些帳單的貨款操作。':'');render();
  }catch(e){if(token===sequence){$('message').textContent=e.message;$('list').textContent='讀取未完成，請重試。';}}
 }
 let selected=null,action='';
