@@ -94,3 +94,11 @@
 #receivables .ledger-table .ledger-company th,#receivables .ledger-table tfoot th{position:static;width:auto;min-width:0}
 #receivables .ledger-table tfoot th,#receivables .ledger-table tfoot td{background:#e4ece4;border-top:2px solid #315e4c;font-weight:700;white-space:nowrap}
 @media(max-width:600px){#receivables .ledger-table td:nth-child(2){position:static;box-shadow:none}#receivables .ledger-table thead th:nth-child(2){left:auto}#receivables .ledger-table input{font-size:16px}#receivables .ledger-summary{gap:8px}#receivables .ledger-summary>div{padding:10px;flex:1;white-space:nowrap}}
+
+/* Match cells to their content, including seven-digit customer amounts. */
+#receivables .ledger-table{width:1438px;min-width:1438px}
+#receivables .ledger-table th,#receivables .ledger-table td{padding-left:6px;padding-right:6px}
+#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){left:56px}
+#receivables .ledger-table .ledger-customer small{max-width:162px}
+#receivables .ledger-table td:last-child input{width:110px}
+@media(max-width:600px){#receivables .ledger-table thead th:nth-child(2){left:auto}}
