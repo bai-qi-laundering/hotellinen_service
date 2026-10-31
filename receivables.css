@@ -36,3 +36,5 @@
 .copy-invoice{padding:16px}
 .copy-intro{font-size:11px}
 #receivables dialog{width:min(960px,94vw)}
+
+#ledger-list{max-height:55vh;overflow:auto;padding-right:8px}#receivables[data-mode="payments"] #ledger-list{max-height:none}
