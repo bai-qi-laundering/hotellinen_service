@@ -3,7 +3,12 @@ import { settlementGroup } from './firebase-signature/functions/lib/auto-close.j
 
 
 export function sentVersion(c) { return [...(c.versions||[])].filter(v=>v.sentAt).sort((a,b)=>b.version-a.version)[0]||null; }
+export function isFixedHotelCase(c) {
+ const name=String(c?.customerKey||'').normalize('NFKC').replace(/\s/g,'');
+ return !name.includes('+') || name==='良西+良一';
+}
 export function ledger(c) {
+ if(!isFixedHotelCase(c))return null;
  const v=sentVersion(c); if(!v)return null;
  return {version:v.version,amount:payableAmount(v.snapshot),snapshot:v.snapshot,pending:Number(c.latestVersion)!==Number(v.version),confirmed:c.paymentConfirmation?.version===v.version,invoice:c.invoiceRecord||null};
 }
