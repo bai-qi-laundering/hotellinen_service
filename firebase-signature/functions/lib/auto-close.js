@@ -1,6 +1,6 @@
 import { billingReceiptItems } from './logistics-items.js';
 import { createInvoiceEngine } from './invoice-engine.js';
-import { caseDocumentId, publishSnapshot } from './statement-case.js';
+import { caseDocumentId, publishSnapshot, isRewashItem, isRewashReceipt } from './statement-case.js';
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
 const groupEndOfMonth = ["捷站前", "捷中正", "歐遊", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心" , "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏"];
 export function taipeiDate(value) {
@@ -37,14 +37,14 @@ export function rowsForPeriod(documents,customer,start,end) {
  const rows=[];
  for(const {id,data:d} of documents) {
   const date=recordDate(d.date);
-  if(d.manualDeletedReceipt || customerOf(d)!==customer || date<start || date>end) continue;
+  if(d.manualDeletedReceipt || customerOf(d)!==customer || date<start || date>end || isRewashReceipt(d)) continue;
   const parent=String(d.hotelKeyword||'').trim();
   const hotel=d.deptName && d.deptName!==parent ? parent+' '+d.deptName : parent;
   billingReceiptItems(d).forEach((item,idx)=>{
    if(item.deletedInLogistics) return;
    const raw=item.actualQty!==undefined && item.actualQty!==null && String(item.actualQty).trim()!=='' ? item.actualQty : item.originalQty ?? item.bqQty ?? 0;
    const qty=Number(raw)||0;
-   if(qty<=0 || String(item.itemName).includes('回洗')) return;
+   if(qty<=0 || isRewashItem(item)) return;
    rows.push({docId:id,receiptOrder:idx,rowId:JSON.stringify([id,idx]),parentCompany:parent,hotel,date,item:item.itemName,qty,savedPrice:item.price,manualPriceOverride:!!item.manualFinancePrice});
   });
  }

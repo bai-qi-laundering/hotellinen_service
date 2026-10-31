@@ -515,7 +515,7 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261030-statement-dispatch';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts, isRewashName, isRewashItem } from './statement-case.js?v=20261031-exclude-rewash';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const firebaseConfig = {
@@ -701,13 +701,13 @@ async function refreshPricingActiveHotels() {
       const d = snap.data();
       if (d.manualDeletedReceipt) return;
       const date = standardizeDate(d.date);
-      if (date < start || date > end || String(d.deptName || '').includes('回洗')) return;
+      if (date < start || date > end || isRewashName(d.deptName)) return;
       const hotel = String(d.hotelKeyword || '').trim();
       if (!hotel) return;
       const fullHotel = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
       const hasBillable = billingReceiptItems(d).some(item => {
         const qty = resolveItemBillingQty(item);
-        if (!(qty > 0) || String(item.itemName || '').includes('回洗')) return false;
+        if (!(qty > 0) || isRewashItem(item)) return false;
         const itemName = String(item.itemName || '');
         const price = item.price !== undefined && item.price !== null && item.price !== ''
           ? Number(item.price) : Number(getPrice(fullHotel, itemName));
@@ -912,8 +912,8 @@ window.refreshSettlementHotels=async()=>{
       if (data.manualDeletedReceipt) return;
       const hotel=String(data.hotelKeyword||'').trim();
       if (!hotel || date < periods.queryStart || date > periods.queryEnd) return;
-      if (String(data.deptName||'').includes('回洗')) return;
-      if (!billingReceiptItems(data).some(item=>resolveItemBillingQty(item)>0 && !String(item.itemName||'').includes('回洗'))) return;
+      if (isRewashName(data.deptName)) return;
+      if (!billingReceiptItems(data).some(item=>resolveItemBillingQty(item)>0 && !isRewashItem(item))) return;
       active.add(hotel);
     });
     if (`${document.getElementById('bossTargetMonth').value}|${document.getElementById('bossCutoffDate').value}`!==targetMonth) return;
@@ -1513,7 +1513,7 @@ if (dDate >= startDate && dDate <= endDate) {
 let h = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) h += ` ${d.deptName}`;
 
-if (!h.includes("回洗") && !(d.deptName && d.deptName.includes("回洗"))) {
+if (!isRewashName(h) && !isRewashName(d.deptName)) {
 hotels.add(h);
 if (d.hotelKeyword) uniqueCompanies.add(d.hotelKeyword);
 }
@@ -1617,7 +1617,7 @@ async function fetchRecordsForSelectedHotels() {
                 billingReceiptItems(d).forEach((item, idx) => {
                     const actual = resolveItemBillingQty(item);
 
-                    if (actual > 0 && !String(item.itemName).includes("回洗")) {
+                    if (actual > 0 && !isRewashName(hotelName) && !isRewashName(d.deptName) && !isRewashItem(item)) {
                         results.push({
                             docId: docSnap.id, rowId: JSON.stringify([docSnap.id, idx]),
                             parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
@@ -1743,7 +1743,7 @@ async function loadFinanceData() {
 // 📊 系統2：老闆業績戰情室
 let currentBossGroups = null;
 function classifyBossGroup(hotel) {
-    if (String(hotel).includes('回洗')) return null;
+    if (isRewashName(hotel)) return null;
     return settlementGroupOf(hotel) || null;
 }
 function bossRecordPrice(r) {
@@ -1788,15 +1788,15 @@ async function loadBossData() {
             if (date < startDate || date > endDate) return;
             const hotel = d.hotelKeyword || '未命名飯店';
             const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
-            if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
+            if (isRewashName(fullName) || isRewashName(d.deptName)) return;
             const key = classifyBossGroup(hotel);
-            const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !String(item.itemName).includes('回洗'));
+            const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !isRewashItem(item));
             if (!key) { if (hasValid) unmatched.add(fullName); return; }
             const groupPeriod = key==='25th' ? periods['25th'] : periods.monthGroup;
             if (date < groupPeriod.start || date > groupPeriod.end) return;
             billingReceiptItems(d).forEach((item,idx) => {
                 const qty = resolveItemBillingQty(item);
-                if (qty <= 0 || String(item.itemName).includes('回洗')) return;
+                if (qty <= 0 || isRewashItem(item)) return;
                 groups[key].push({docId:docSnap.id, parentCompany:hotel, hotel:fullName, date, item:item.itemName, qty,
                     receiptOrder:idx, savedPrice:item.price, manualPriceOverride:!!item.manualFinancePrice});
             });
@@ -1913,14 +1913,14 @@ async function exportBossExcel() {
                 if (date < p.queryStart || date > p.queryEnd) return;
                 const hotel = d.hotelKeyword || '未命名飯店';
                 const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
-                if (fullName.includes('回洗') || String(d.deptName || '').includes('回洗')) return;
+                if (isRewashName(fullName) || isRewashName(d.deptName)) return;
                 const key = classifyBossGroup(hotel);
                 if (!key) return;
                 const gp = key === '25th' ? p['25th'] : p.monthGroup;
                 if (date < gp.start || date > gp.end) return;
                 billingReceiptItems(d).forEach((item, idx) => {
                     const qty = resolveItemBillingQty(item);
-                    if (qty <= 0 || String(item.itemName || '').includes('回洗')) return;
+                    if (qty <= 0 || isRewashItem(item)) return;
                     groups[key].push({
                         docId: docSnap.id,
                         parentCompany: hotel,
@@ -2047,7 +2047,7 @@ async function exportBossExcel() {
         [1,5].forEach((c)=>{
             const g=c===1?a:b;
             set(totalRow,c,'未稅合計',cellStyle(green,true,'FFFFFF','left',13));
-            set(totalRow,c+1,rawAmount(g.records || []),cellStyle(green,true,'FFFFFF','right',13),numFmt);
+            set(totalRow,c+1,g.untaxed,cellStyle(green,true,'FFFFFF','right',13),numFmt);
             set(totalRow+1,c,'營業稅（5%）',cellStyle(pale,true,ink,'left',12));
             set(totalRow+1,c+1,g.tax,cellStyle(pale,true,ink,'right',12));
             set(totalRow+2,c,'含稅合計',cellStyle(green,true,'FFFFFF','left',13));
@@ -2055,7 +2055,7 @@ async function exportBossExcel() {
         });
         const overallRow = totalRow + 4;
         set(overallRow,1,'兩組未稅合計',cellStyle(pale,true,ink,'left',12));
-        set(overallRow,2,currentGross,cellStyle(pale,true,ink,'right',12),numFmt);
+        set(overallRow,2,a.untaxed + b.untaxed,cellStyle(pale,true,ink,'right',12),numFmt);
         set(overallRow,5,'加回饋/管理費後本月營業額',cellStyle(pale,true,ink,'left',12));
         set(overallRow,6,currentAdj.adjusted,cellStyle(pale,true,ink,'right',12),numFmt);
 
@@ -2312,7 +2312,7 @@ function buildInvoiceReport() {
         isMergeAll
             ? rawLogisticsData
             : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
-    );
+    ).filter(r => !isRewashName(r.hotel) && !isRewashName(r.item));
 
     const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
     const compLabel = isMergeAll ? mergedCompanyNames.join('＋') : targetVal;
@@ -2501,12 +2501,12 @@ if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
+if (isRewashName(hotelName) || isRewashName(d.deptName)) return;
 
 let driverName = d.assignedDriver || null;
 billingReceiptItems(d).forEach(item => {
 const actual = resolveItemBillingQty(item);
-if (actual > 0 && !String(item.itemName).includes("回洗")) {
+if (actual > 0 && !isRewashItem(item)) {
 let price = item.price !== undefined && item.price !== null && item.price !== '' ? Number(item.price) : (getPrice(hotelName, item.itemName) || 0);
 let amt = actual * price;
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };

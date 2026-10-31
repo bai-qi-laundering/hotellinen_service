@@ -152,7 +152,8 @@ import {
     payableAmount,
     renderStatementHtml,
     statementFileBase,
-} from './statement-case.js?v=20261030-statement-dispatch';
+    statementWithoutRewash,
+} from './statement-case.js?v=20261031-exclude-rewash';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const params = new URLSearchParams(location.search);
@@ -238,7 +239,7 @@ function render() {
         top.append(titles, status);
         const amount = document.createElement('div');
         amount.className = 'amount';
-        amount.textContent = version ? formatCardAmount(payableAmount(version.snapshot)) : '';
+        amount.textContent = version ? formatCardAmount(payableAmount(statementWithoutRewash(version.snapshot))) : '';
         const meta = document.createElement('div');
         meta.className = 'meta';
         meta.append(

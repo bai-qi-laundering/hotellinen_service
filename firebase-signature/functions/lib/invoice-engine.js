@@ -1,6 +1,6 @@
 // Pricing functions copied verbatim from finance.html 37c5ab8d570c43ed9f8d68930d2e4051e575ec57.
 // Re-sync this adapter when the finance formulas change; parity is covered by tests.
-import { snapshotFromParts } from './statement-case.js';
+import { snapshotFromParts, isRewashName } from './statement-case.js';
 export function createInvoiceEngine(options) {
 const { logisticsMasterItems, pricingRules, effectivePriceRules, sheetPrices, customPrices, sheetClients, rawLogisticsData } = options;
 const MERGE_ALL_KEY = '__MERGE_ALL_SELECTED__';
@@ -108,7 +108,7 @@ function buildInvoiceReport(targetVal) {
         isMergeAll
             ? rawLogisticsData
             : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
-    );
+    ).filter(r => !isRewashName(r.hotel) && !isRewashName(r.item));
 
     const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
     const compLabel = isMergeAll ? mergedCompanyNames.join('＋') : targetVal;

@@ -40,6 +40,28 @@ function text(value) {
     return String(value ?? '').trim();
 }
 
+// 回洗 is a department (回洗 / 回洗部) and also an item-name prefix (回洗床單).
+// 重洗 is the same exclusion. Matching is only these words, so 房務、特處、餐廳 stay.
+export function isRewashName(value) {
+    const name = String(value ?? '').normalize('NFKC').replace(/[\s\u3000]+/g, '');
+    if (!name) return false;
+    if (/回洗|重洗/.test(name)) return true;
+    return /(?:^|[^a-z])rewash(?:[^a-z]|$)/i.test(name);
+}
+
+export function isRewashItem(item) {
+    if (!item || typeof item !== 'object') return isRewashName(item);
+    const aliases = Array.isArray(item.itemNameAliases) ? item.itemNameAliases : [];
+    return [item.itemName, item.item, item.inventoryItemName, ...aliases].some(isRewashName);
+}
+
+export function isRewashReceipt(receipt) {
+    const hotel = String(receipt?.hotelKeyword || receipt?.parentCompany || '').trim();
+    const dept = String(receipt?.deptName || receipt?.department || '').trim();
+    const label = dept && dept !== hotel ? `${hotel} ${dept}` : (dept || hotel);
+    return isRewashName(dept) || isRewashName(label);
+}
+
 export function canonicalStatement(input) {
     const source = input || {};
     const profile = source.profile || {};
@@ -88,9 +110,51 @@ export function canonicalStatement(input) {
     };
 }
 
+export function statementWithoutRewash(input) {
+    const content = canonicalStatement(input);
+    content.lineRecipient = text(input?.lineRecipient);
+    let dropped = false;
+    const departments = [];
+    for (const dept of content.departments) {
+        if (isRewashName(dept.name)) { dropped = true; continue; }
+        const summary = dept.summary.filter(row => !isRewashName(row.item));
+        const records = dept.records.filter(row => !isRewashName(row.item));
+        if (summary.length !== dept.summary.length || records.length !== dept.records.length) dropped = true;
+        if (!summary.length && !records.length) {
+            if (dept.summary.length || dept.records.length) continue;
+            departments.push(dept);
+            continue;
+        }
+        const lines = summary.length ? summary : records;
+        const total = summary.length !== dept.summary.length || records.length !== dept.records.length
+            ? num(lines.reduce((sum, row) => sum + num(row.amt), 0))
+            : dept.total;
+        departments.push({ ...dept, summary, records, total });
+    }
+    if (!dropped) return content;
+    const grandTotal = num(departments.reduce((sum, dept) => sum + num(dept.total), 0));
+    const oldGrand = num(content.totals.grandTotal);
+    content.departments = departments;
+    if (grandTotal === oldGrand) return content;
+    const fee = content.totals.managementFee;
+    const rebate = content.totals.rebate;
+    const feeAmount = oldGrand > 0 ? Math.round(num(fee.amount) * grandTotal / oldGrand) : 0;
+    const rebateAmount = oldGrand > 0 ? Math.round(num(rebate.amount) * grandTotal / oldGrand) : 0;
+    const rounded = Math.round(grandTotal);
+    const afterRebate = num(rounded + feeAmount - rebateAmount);
+    content.totals = {
+        grandTotal,
+        rounded,
+        managementFee: { percent: fee.percent, amount: feeAmount },
+        rebate: { percent: rebate.percent, amount: rebateAmount },
+        afterRebate,
+        tax: Math.round(afterRebate * 0.05),
+    };
+    return content;
+}
+
 export function snapshotFromParts(input) {
-    const snapshot = canonicalStatement(input);
-    snapshot.lineRecipient = text(input?.lineRecipient);
+    const snapshot = statementWithoutRewash(input);
     if (!snapshot.customerKey || !snapshot.startDate || !snapshot.endDate || !snapshot.departments.length) {
         throw new Error('對帳單內容不完整，沒有送出。');
     }
@@ -300,7 +364,7 @@ function shipmentCountsByDate(records) {
 }
 
 export function renderStatementHtml(snapshot) {
-    const content = canonicalStatement(snapshot);
+    const content = statementWithoutRewash(snapshot);
     const e = escapeHtml;
     const period = `${content.startDate} ~ ${content.endDate}`;
     const profile = content.profile;
@@ -361,7 +425,7 @@ export function renderStatementHtml(snapshot) {
 }
 
 export function buildStatementTables(snapshot) {
-    const content = canonicalStatement(snapshot);
+    const content = statementWithoutRewash(snapshot);
     const period = `${content.startDate} ~ ${content.endDate}`;
     const entries = content.departments;
     const fee = content.totals.managementFee;
@@ -490,7 +554,7 @@ export function buildStatementWorkbook(XLSX, snapshot) {
         }
         totalSheet['!rows'][row - 1] = { hpt: 30 };
     });
-    const deptCount = (snapshot.departments || []).length;
+    const deptCount = tables.sheets.length;
     for (let row = 6; row < 6 + deptCount; row++) {
         const a = XLSX.utils.encode_cell({ r: row - 1, c: 0 });
         const b = XLSX.utils.encode_cell({ r: row - 1, c: 1 });
