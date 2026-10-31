@@ -39,12 +39,15 @@ export function rowsForPeriod(documents,customer,start,end) {
   const date=recordDate(d.date);
   if(d.manualDeletedReceipt || customerOf(d)!==customer || date<start || date>end) continue;
   const parent=String(d.hotelKeyword||'').trim();
-  const hotel=d.deptName && d.deptName!==parent ? parent+' '+d.deptName : parent;
+  const dept=String(d.deptName||'').trim();
+  const hotel=dept && dept!==parent ? parent+' '+dept : parent;
+  // Same department exclusion as finance's 產生對帳單 hotel list.
+  if(hotel.includes('回洗') || dept.includes('回洗')) continue;
   billingReceiptItems(d).forEach((item,idx)=>{
    if(item.deletedInLogistics) return;
    const raw=item.actualQty!==undefined && item.actualQty!==null && String(item.actualQty).trim()!=='' ? item.actualQty : item.originalQty ?? item.bqQty ?? 0;
    const qty=Number(raw)||0;
-   if(qty<=0 || String(item.itemName).includes('回洗')) return;
+   if(qty<=0 || String(item.itemName||'').includes('回洗')) return;
    rows.push({docId:id,receiptOrder:idx,rowId:JSON.stringify([id,idx]),parentCompany:parent,hotel,date,item:item.itemName,qty,savedPrice:item.price,manualPriceOverride:!!item.manualFinancePrice});
   });
  }
