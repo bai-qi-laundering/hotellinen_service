@@ -8,6 +8,7 @@ import {
     formatBoardPeriod,
     invoiceMark,
     periodEndDates,
+    nextFirstBill,
     periodOnBillingDay,
     sendState,
     settlementGroupOf,
@@ -53,7 +54,10 @@ test('current periods are the latest billing day on or before today', () => {
     assert.deepEqual(jan1['1st'], { start: '2025-12-01', end: '2025-12-31' });
     assert.deepEqual(jan1['25th'], { start: '2025-11-26', end: '2025-12-25' });
     assert.deepEqual(jan1.month, { start: '2025-12-01', end: '2025-12-31' });
+    assert.deepEqual(periodOnBillingDay('1st', '2026-11-01'), { start: '2026-10-01', end: '2026-10-31' });
     assert.deepEqual(periodOnBillingDay('1st', '2028-03-01'), { start: '2028-02-01', end: '2028-02-29' });
+    assert.deepEqual(nextFirstBill('2026-10-31'), { start: '2026-10-01', end: '2026-10-31', billOn: '2026-11-01' });
+    assert.deepEqual(nextFirstBill('2026-11-01'), { start: '2026-11-01', end: '2026-11-30', billOn: '2026-12-01' });
     assert.equal(currentBillingPeriods('2026-02-31'), null);
 });
 

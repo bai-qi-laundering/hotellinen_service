@@ -65,6 +65,14 @@ export function currentBillingPeriods(today) {
     };
 }
 
+// 下一次 1 號出帳要涵蓋的曆月。10/31 的下一期是 10/1–10/31，11/1 出帳。
+export function nextFirstBill(today) {
+    const parsed = parseDate(today);
+    if (!parsed) return null;
+    const { y, m } = parsed;
+    return { start: iso(y, m - 1, 1), end: iso(y, m, 0), billOn: iso(y, m, 1) };
+}
+
 export function periodEndDates(periods) {
     return [...new Set(BILLING_GROUP_ORDER.map(id => periods?.[id]?.end).filter(Boolean))];
 }
@@ -196,6 +204,7 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
             id,
             label: BILLING_GROUP_LABELS[id],
             period: periods[id],
+            upcoming: id === '1st' ? nextFirstBill(today) : null,
             unsent: list.filter(row => row.unsent),
             uninvoiced: list.filter(row => row.uninvoiced),
             unsentCount: list.filter(row => row.unsent).length,
@@ -321,11 +330,21 @@ export function renderUnsentBoard(board, onRefresh) {
         invoice.textContent = countLine(group.uninvoicedCount, '本期都已開發票', '還有 N 間未開發票');
         const period = document.createElement('div');
         period.className = 'baiqi-unsent-period';
-        period.textContent = formatBoardPeriod(group.period) + (group.id === '25th' ? '　H2O 西餐與 H2O 同一張對帳單' : '');
+        const periodBits = [formatBoardPeriod(group.period)];
+        if (group.id === '25th') periodBits.push('H2O 西餐與 H2O 同一張對帳單');
+        if (group.id === '1st') periodBits[0] += '（這期結帳日已到）';
+        period.textContent = periodBits.join('　');
         const tap = document.createElement('div');
         tap.className = 'baiqi-unsent-tap';
         tap.textContent = '點一下展開飯店';
-        summary.append(kicker, unsent, invoice, period, tap);
+        summary.append(kicker, unsent, invoice, period);
+        if (group.id === '1st' && group.upcoming) {
+            const upcoming = document.createElement('div');
+            upcoming.className = 'baiqi-unsent-period';
+            upcoming.textContent = `下一期 ${formatBoardPeriod(group.upcoming)}，${slash(group.upcoming.billOn)} 出帳`;
+            summary.append(upcoming);
+        }
+        summary.append(tap);
         const body = document.createElement('div');
         body.className = 'baiqi-unsent-body';
         const sendTitle = document.createElement('h3');
