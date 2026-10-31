@@ -1,5 +1,5 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
-import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261031c';
+import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261101-table';
 import {formatCardAmount} from './statement-case.js';
 import {createFirestoreRepository} from './statement-store.js?v=20261101-month-query';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
@@ -23,9 +23,33 @@ function render(){
  if(!available)return;
  const month=$('month').value,q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
  const rows=cases.filter(c=>c.endDate?.startsWith(month)&&ledger(c)).map(c=>({name:c.customerName||c.customerKey,c,period:{start:c.startDate,end:c.endDate},status:ledger(c).pending?'待重寄':'已寄送',invoice:invoiceState(c)})).filter(r=>[r.name,r.c?.customerKey,r.c?.customerName].some(n=>String(n||'').toLowerCase().includes(q))&&(!filter||r.status===filter||r.invoice===filter));
- $('list').innerHTML=rows.length?rows.map(r=>{const l=ledger(r.c);return `<article class="ledger-row"><h3>${esc(r.name)}</h3>${r.c.customerKey!==r.name?`<p>飯店：${esc(r.c.customerKey)}</p>`:''}<p>${esc(`${r.period.start} ～ ${r.period.end}`)}</p><p><b>${esc(r.status)}</b> · ${esc(r.invoice)}</p><strong>${formatCardAmount(l.amount)}</strong><p>已寄版本 V${l.version}${l.pending?' · 新版待重寄，金額將於登記重寄後更新':''}</p><p>${l.confirmed?'已收到飯店確認':'等待飯店確認通知'}</p>${l.invoice?`<p>發票 ${esc(l.invoice.number)} · ${formatCardAmount(l.invoice.amount)}</p>`:''}<button data-confirm="${esc(r.c.id)}" ${l.pending||l.confirmed?'disabled':''}>已收到飯店確認通知</button> <button data-invoice="${esc(r.c.id)}" ${l.pending||!l.confirmed||r.invoice!=='未開票'?'disabled':''}>登記手開／電子發票</button></article>`;}).join(''):'<p>此條件沒有紀錄。</p>';
+ $('list').innerHTML=rows.length?'<div class="ledger-table-scroll"><table class="ledger-table"><thead><tr>'+['對／結帳','客戶','發票登記／號碼','發票','付款','未稅','稅金','含稅','入帳日','入帳金額','到期日','票號','銀行','分行'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>{
+ const l=ledger(r.c),v=r.c.collectionRecord||{},disabled=l.pending?'disabled':'';
+ const field=(key,type='text')=>'<input data-field="'+key+'" type="'+type+'" value="'+esc(v[key]??'')+'" aria-label="'+esc(r.name+' '+({issuer:'開票公司',receivedDate:'入帳日',receivedAmount:'入帳金額',dueDate:'支票到期日',chequeNumber:'支票號碼',bank:'銀行',branch:'分行'}[key]||key))+'" '+(type==='number'?'min="0" step="0.01" ':'')+disabled+'>';
+ const select=(key,choices)=>'<select data-field="'+key+'" aria-label="'+esc(r.name+' '+(key==='paymentMethod'?'付款方式':'需否對帳'))+'" '+disabled+'>'+choices.map(([value,label])=>'<option value="'+value+'" '+(String(v[key]??'')===value?'selected':'')+'>'+label+'</option>').join('')+'</select>';
+ const end=r.c.endDate||'',day=Number(end.slice(-2)),last=new Date(Date.UTC(Number(end.slice(0,4)),Number(end.slice(5,7)),0)).getUTCDate(),period=day===last?'月底結':day+'日結';
+ const invoice=l.invoice?.number||r.c.invoiceNumber||'';
+ return '<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td>'+select('reconciliationRequired',[['','對帳未設定'],['yes','需對帳'],['no','不需對帳']])+'<div>'+esc(period)+'</div></td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(r.c.startDate+' ～ '+r.c.endDate)+'</small><small>'+esc(r.status)+' · 已寄 V'+l.version+'</small>'+(l.confirmed?'<small>已收到飯店確認</small>':'<button data-confirm="'+esc(r.c.id)+'" '+disabled+'>收到飯店確認</button>')+'</td><td><span class="ledger-invoice-number">'+esc(invoice||'尚未登記')+'</span><small>'+esc(r.invoice)+'</small><button data-invoice="'+esc(r.c.id)+'" '+(l.pending||!l.confirmed||r.invoice!=='未開票'?'disabled':'')+'>登記手開／電子發票</button></td><td>'+field('issuer')+'</td><td>'+select('paymentMethod',[['','請選擇'],['transfer','匯款'],['cheque','支票']])+'</td><td class="ledger-money">'+formatCardAmount(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+formatCardAmount(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+formatCardAmount(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存本列</button><small class="ledger-row-status" role="status"></small></td></tr>';
+ }).join('')+'</tbody></table></div>':'<p>此條件沒有紀錄。</p>';
  $('list').querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>open(b.dataset.confirm,'confirm'));
  $('list').querySelectorAll('[data-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.invoice,'invoice'));
+ $('list').querySelectorAll('[data-collection]').forEach(b=>b.onclick=()=>saveCollection(b));
+}
+async function saveCollection(button){
+ const row=button.closest('tr'),id=button.dataset.collection,c=cases.find(c=>c.id===id),l=ledger(c),status=row.querySelector('.ledger-row-status');
+ const payload=Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input=>[input.dataset.field,input.value]));
+ button.disabled=true;status.textContent='儲存中…';
+ try{
+  let saved;
+  await fs.runTransaction(db,async tx=>{
+   const ref=fs.doc(db,'statement_cases',id),snap=await tx.get(ref);
+   if(!snap.exists())throw Error('帳單不存在');
+   saved=applyLedger({id,...snap.data()},l.version,'collection',payload,new Date().toISOString());
+   tx.set(ref,saved);
+  });
+  cases=cases.map(item=>item.id===id?saved:item);status.textContent='已儲存';
+ }catch(error){status.textContent=error.message||'儲存失敗，請重試';}
+ finally{button.disabled=false;}
 }
 async function reload(){
  if(new URLSearchParams(location.search).get('store')==='local'){ $('message').textContent='本機檢查模式：不讀寫正式貨款資料。';return; }
