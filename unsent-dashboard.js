@@ -371,7 +371,7 @@ export function renderUnsentBoard(board, onRefresh) {
     }
     const foot = document.createElement('p');
     foot.className = 'baiqi-unsent-foot';
-    foot.textContent = '未送是指最新一版還沒按「我已寄出」（含尚未產生、已產生未送、新版待重寄）。未開發票是指這一版在貨款登記裡還沒有發票紀錄。請到「貨款登記」登錄發票號碼。';
+    foot.textContent = '未送是指最新一版還沒按「我已寄出」（含尚未產生、已產生未送、新版待重寄）。未開發票是指這一版還沒有發票紀錄。可在送件中心按「開立發票」，或到「貨款登記」登錄手開的發票號碼。';
     root.append(foot);
     return root;
 }

@@ -98,3 +98,38 @@ npx --yes firebase-tools@latest functions:log --only autoStatementOnBillingDay -
 暫停：把 `AUTO_STATEMENTS_ENABLED` 改回 `false` 再部署同一個函式。已產生的帳單保留。
 
 舊的 `autoStatementOnSignature`（簽名當下觸發）若主控台裡看得到，請刪除，避免和這個排程各跑一次。這次檢查時 `statement_auto_runs` 是空的，那個函式先前應未在正式環境跑過；主控台本身無法從這裡直接確認。
+
+## 電子發票（汎宇電商）
+
+送件中心每一張帳單有「開立發票」。員工先看抬頭、統編、期間、未稅、稅額、含稅實付和品項說明，按「確認開立」才會送到汎宇。結帳日排程和「我已寄出」都不會開立。有 8 碼統編走 B2B（A0401），沒有統編走 B2C（C0401N）。作廢要再確認並填原因，B2B 打 A0501、B2C 打 C0501。右上角「測試電子發票連線」只打 Y01，不開票。
+
+帳號不放在網頁。函式是 `issueStatementInvoice`、`voidStatementInvoice`、`testEInvoiceConnection`，都在 codebase `signature-statements`，地區沿用 `FUNCTION_REGION`（預設 `asia-east1`）。呼叫的人必須先用 Google 登入，而且信箱在 `EINVOICE_STAFF_EMAILS` 裡。
+
+在可以管理 `hotel-inventory-3a1ad` 的電腦上，於 `firebase-signature` 目錄：
+
+```bash
+npx --yes firebase-tools@latest functions:secrets:set EINVOICE_SELLER_ID --project hotel-inventory-3a1ad
+npx --yes firebase-tools@latest functions:secrets:set EINVOICE_POS_ID --project hotel-inventory-3a1ad
+npx --yes firebase-tools@latest functions:secrets:set EINVOICE_POS_SN --project hotel-inventory-3a1ad
+npx --yes firebase-tools@latest functions:secrets:set EINVOICE_STAFF_EMAILS --project hotel-inventory-3a1ad
+```
+
+`EINVOICE_STAFF_EMAILS` 填可以開票的 Google 信箱，多個用逗號隔開。Firebase 主控台要啟用 Google 登入，並把網站網域加進授權網域。
+
+賣方名稱、地址、網址寫在 `functions/.env.hotel-inventory-3a1ad`（沒有這個檔就從 `functions/.env.example` 複製）。預設網址是測試機：
+
+```
+EINVOICE_BASE_URL=https://epostw.einvoice.com.tw/GetInvoice.ashx
+EINVOICE_SELLER_NAME=百麒國際股份有限公司
+EINVOICE_SELLER_ADDRESS=公司地址
+```
+
+部署這三個函式（不要空跑 `firebase deploy`）：
+
+```bash
+npx --yes firebase-tools@latest deploy --only functions:signature-statements:issueStatementInvoice,functions:signature-statements:voidStatementInvoice,functions:signature-statements:testEInvoiceConnection --project hotel-inventory-3a1ad
+```
+
+改正式機時，把 `EINVOICE_BASE_URL` 換成 `https://eposw.einvoice.com.tw/GetInvoice.ashx`，再部署上面同一行。測試機開過的號碼不會自動帶到正式機。
+
+網頁上的送件中心假設函式在 `asia-east1`。若 `FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
