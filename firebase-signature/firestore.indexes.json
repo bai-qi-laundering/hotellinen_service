@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "logistics_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hotelKeyword", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,4 +1,4 @@
-// Browser-side automatic statement creation. Signature saving remains independent.
+// 舊的簽收頁產單路徑，簽收頁已不再載入。結帳日 09:30 改由 firebase-signature 排程產生。
 import { legacyDatePrefixes } from './logistics-items.js';
 import { caseDocumentId, publishSnapshot } from './statement-case.js';
 import { closingPeriod, customerOf, rowsForPeriod, recordDate, taipeiDate, createInvoiceEngine } from './firebase-signature/functions/lib/auto-close.js';

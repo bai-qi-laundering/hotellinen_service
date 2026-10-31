@@ -1,4 +1,5 @@
 // 對帳單快照、版本與同一份內容的 HTML / Excel。不含畫面與資料庫。
+import { orderStatementSnapshot } from './logistics-items.js';
 
 export const STATUS_LABELS = {
     pending: '待寄送',
@@ -299,8 +300,8 @@ function shipmentCountsByDate(records) {
     return new Map([...receipts].map(([date, ids]) => [date, ids.size]));
 }
 
-export function renderStatementHtml(snapshot) {
-    const content = canonicalStatement(snapshot);
+export function renderStatementHtml(snapshot, template) {
+    const content = canonicalStatement(orderStatementSnapshot(snapshot, template));
     const e = escapeHtml;
     const period = `${content.startDate} ~ ${content.endDate}`;
     const profile = content.profile;
@@ -360,8 +361,8 @@ export function renderStatementHtml(snapshot) {
     return html;
 }
 
-export function buildStatementTables(snapshot) {
-    const content = canonicalStatement(snapshot);
+export function buildStatementTables(snapshot, template) {
+    const content = canonicalStatement(orderStatementSnapshot(snapshot, template));
     const period = `${content.startDate} ~ ${content.endDate}`;
     const entries = content.departments;
     const fee = content.totals.managementFee;
@@ -431,8 +432,8 @@ export function buildStatementTables(snapshot) {
     return { period, totalRows, totalHeaderRows, totalTotalRows, totalSectionRows, sheets };
 }
 
-export function buildStatementWorkbook(XLSX, snapshot) {
-    const tables = buildStatementTables(snapshot);
+export function buildStatementWorkbook(XLSX, snapshot, template) {
+    const tables = buildStatementTables(snapshot, template);
     const wb = XLSX.utils.book_new();
     const navy = '173C36', pale = 'F5F0E5', white = 'FFFFFF', ink = '293D38';
     const style = (fill, bold = false, color = ink, size = 11, align = 'left') => ({
