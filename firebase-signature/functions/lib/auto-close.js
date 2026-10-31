@@ -39,16 +39,44 @@ function assignedGroup(name, groups) {
  }
  return {set:false, value:''};
 }
+// 較長的名稱放前面。H2O 西餐是 H2O 的西餐部門，不是另一間飯店。
+const pinnedBillingGroups = [
+ ['H2O 西餐', '25th'],
+ ['捷中正', '1st'],
+ ['歐遊', '1st'],
+ ['天慕', '25th'],
+ ['鉑麗', 'month'],
+ ['H2O', '25th'],
+];
+export function pinnedBillingGroup(key) {
+ const name=String(key||'').trim();
+ if (name.includes('H2O') && name.includes('西餐')) return '25th';
+ for (const [label, group] of pinnedBillingGroups) {
+  if (label === 'H2O') {
+   if (name === 'H2O' || name.startsWith('H2O ') || name.startsWith('H2O　')) return group;
+   continue;
+  }
+  if (name.includes(label)) return group;
+ }
+ return '';
+}
+// H2O 西餐的出貨在 H2O 這張對帳單上，不另出一張。
+export function statementHotelKey(hotel) {
+ const key=canonicalHotelKeyword(hotel);
+ if (key.includes('H2O') && key.includes('西餐')) return 'H2O';
+ return key;
+}
 export function settlementGroup(hotel, groups={}) {
  const name=String(hotel||'').trim();
  if(!name) return '';
  const key=canonicalHotelKeyword(name);
+ const pinned=pinnedBillingGroup(key);
+ if (pinned) return pinned;
  const saved=assignedGroup(name, groups);
- // 已存的月底或 25 號改成 1 號，避免同一個月出兩次。明確空白仍不自動結帳。
- if(group1st.some(x=>key.includes(x))) return saved.set && saved.value==='' ? '' : '1st';
  if(saved.set) return saved.value;
  if(group25th.some(x=>key.includes(x))) return '25th';
  if(groupEndOfMonth.some(x=>key.includes(x))) return 'month';
+ if(group1st.some(x=>key.includes(x))) return '1st';
  return '';
 }
 export function closingPeriod(hotel, date, groups={}) {

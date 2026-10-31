@@ -529,6 +529,7 @@ import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapsho
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261031-unsent';
 
 const firebaseConfig = {
@@ -863,35 +864,14 @@ function queueEffectivePrice(record,hotel,price) {
 let pendingUpdatesArray = [];
 let customPricesDirty = false;
 
-const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
-const group1st = ["歐遊", "捷中正"];
-const groupEndOfMonth = ["捷站前", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心" , "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏", "鉑麗"];
 const settlementAliases = { '天幕': '天慕' };
 
 const SETTLEMENT_REF = doc(db, 'inventory_config', 'finance_settlement_groups');
 let settlementGroups = {}, settlementGroupsReady = false, settlementGroupsPending = null;
 let settlementActiveHotels = new Set(), settlementActiveMonth = "", settlementHotelsLoading = false;
 const settlementExtraHotels = new Set();
-function settlementSuggestion(hotel) {
-  if (group1st.some(kw => hotel.includes(kw))) return '1st';
-  if (group25th.some(kw => hotel.includes(kw))) return '25th';
-  if (groupEndOfMonth.some(kw => hotel.includes(kw))) return 'month';
-  return '';
-}
-function storedSettlement(hotel) {
-  if (Object.prototype.hasOwnProperty.call(settlementGroups,hotel)) return settlementGroups[hotel];
-  const canonical = settlementAliases[hotel] || hotel;
-  if (canonical !== hotel && Object.prototype.hasOwnProperty.call(settlementGroups, canonical)) return settlementGroups[canonical];
-  for (const [alias, target] of Object.entries(settlementAliases)) {
-    if (target === hotel && Object.prototype.hasOwnProperty.call(settlementGroups, alias)) return settlementGroups[alias];
-  }
-  return undefined;
-}
 function settlementGroupOf(hotel) {
-  const stored = storedSettlement(hotel);
-  if (group1st.some(kw => String(hotel).includes(kw)) && stored !== '') return '1st';
-  if (stored !== undefined) return stored;
-  return settlementSuggestion(hotel);
+  return settlementGroup(hotel, settlementGroups);
 }
 async function ensureSettlementGroups(force=false) {
   if (settlementGroupsReady && !force) return;
@@ -906,19 +886,21 @@ async function ensureSettlementGroups(force=false) {
   try { await settlementGroupsPending; } finally { settlementGroupsPending=null; }
 }
 function settlementHotels() {
-  const names=new Set([...Object.keys(sheetClients), ...uniqueCompanies, ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName||r.hotel||'').trim()), ...Object.keys(settlementGroups), ...settlementExtraHotels]);
+  const names=new Set([...Object.keys(sheetClients), ...uniqueCompanies, ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName||r.hotel||'').trim()), ...Object.keys(settlementGroups), ...settlementExtraHotels, 'H2O 西餐']);
   return [...names].map(x=>String(x||'').trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-TW'));
 }
 function renderSettlementGroups() {
   const body=document.getElementById('settlementGroupRows');if(!body)return;
   const esc=escapeReportHTML;
   const periodKey=`${document.getElementById('bossTargetMonth')?.value}|${document.getElementById('bossCutoffDate')?.value}`;
-  const names=settlementHotels().filter(h => settlementExtraHotels.has(h) || (settlementActiveMonth === periodKey && settlementActiveHotels.has(h)));
+  const names=settlementHotels().filter(h => h === 'H2O 西餐' || settlementExtraHotels.has(h) || (settlementActiveMonth === periodKey && settlementActiveHotels.has(h)));
+  if (!names.includes('H2O 西餐')) names.push('H2O 西餐');
   body.innerHTML=names.length ? names.map(h=>{
     const saved=Object.prototype.hasOwnProperty.call(settlementGroups,h);
     const stored=saved?settlementGroups[h]:undefined;
     const value=settlementGroupOf(h);
-    const source=!saved?'舊名單建議，尚未儲存':stored===value?'已儲存':'已改為 1 號，請再按儲存';
+    const west=h.includes('H2O') && h.includes('西餐');
+    const source=west?'與 H2O 同一張對帳單':!saved?'舊名單建議，尚未儲存':stored===value?'已儲存':'已改為固定結帳日，請再按儲存';
     return `<tr class="settlement-hotel-row border-b" data-hotel="${esc(h)}"><td class="p-2 font-bold">${esc(h)}</td><td class="p-2"><select class="settlement-choice border rounded p-2 w-full" data-hotel="${esc(h)}"><option value="" ${!value?'selected':''}>未設定結帳日（不自動產生對帳單）</option><option value="25th" ${value==='25th'?'selected':''}>25 號（上月 26 日～當月 25 日）</option><option value="month" ${value==='month'?'selected':''}>月底（當月 1 日～月底）</option><option value="1st" ${value==='1st'?'selected':''}>1 號（上個曆月，每月 1 日結帳）</option></select></td><td class="p-2 text-slate-500">${source}</td></tr>`;
   }).join('') : '<tr><td colspan="3" class="p-4 text-center">本月份沒有實收出貨紀錄的飯店。可切換月份，或手動新增。</td></tr>';
   filterSettlementHotelRows();

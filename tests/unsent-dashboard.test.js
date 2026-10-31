@@ -20,8 +20,11 @@ test('dashboard grouping matches the billing function, including 天幕 and 1號
         assert.equal(settlementGroupOf(name, {}), settlementGroup(name, {}));
         assert.equal(settlementGroupOf(name, { 天幕: '25th' }), settlementGroup(name, { 天幕: '25th' }));
     }
-    assert.equal(settlementGroupOf('天慕', { 天幕: '1st' }), '1st');
-    assert.equal(settlementGroup('天慕', { 天幕: '1st' }), '1st');
+    assert.equal(settlementGroupOf('天慕', { 天幕: '1st' }), '25th');
+    assert.equal(settlementGroup('天慕', { 天幕: '1st' }), '25th');
+    assert.equal(settlementGroupOf('H2O 西餐', { 'H2O 西餐': 'month' }), '25th');
+    assert.equal(settlementGroupOf('鉑麗', { 鉑麗: '25th' }), 'month');
+    assert.equal(settlementGroupOf('歐遊', { 歐遊: 'month' }), '1st');
     assert.equal(settlementGroupOf('文旅', { 文旅: '' }), '');
 });
 
@@ -220,6 +223,18 @@ test('歐遊 and 捷中正 show on the 1st card under the logistics name', () =>
     assert.equal(group('1st').unsent.find(row => row.name === '歐遊').sendLabel, '已產生未送');
     assert.equal(group('month').unsent.some(row => row.name === '歐遊' || row.name === '捷中正'), false);
     assert.equal(JSON.stringify(board).includes('股份有限公司'), false);
+    const west = buildUnsentBoard({
+        today: '2026-10-31',
+        baseNames: ['H2O', 'H2O 西餐'],
+        items: [{ baseName: 'H2O', hotel: 'H2O 西餐' }, { baseName: 'H2O', hotel: 'H2O 房務' }],
+        groups: { 'H2O 西餐': 'month', H2O: 'month' },
+        cases: [bill('H2O', '2026-09-26', '2026-10-25', { invoiceStatus: 'ready', versions: [{ version: 1, sentAt: '2026-10-25T01:00:00.000Z' }] })],
+    });
+    const day25 = west.groups.find(item => item.id === '25th');
+    assert.deepEqual(day25.unsent.map(row => row.name), []);
+    assert.deepEqual(day25.uninvoiced.map(row => row.name), ['H2O']);
+    assert.equal(day25.uninvoiced[0].note, '含 H2O 西餐');
+    assert.equal(west.groups.find(item => item.id === 'month').unsent.some(row => row.name.includes('H2O')), false);
     assert.equal(JSON.stringify(board).includes('天幕'), false);
 });
 
@@ -236,4 +251,7 @@ test('the dashboard query stays on the current period and does not listen', () =
     assert.match(finance, /id="unsentDashboardHost"/);
     assert.match(finance, /value="1st"/);
     assert.match(finance, /1 號（上個曆月，每月 1 日結帳）/);
+    assert.match(finance, /settlementGroup\(hotel, settlementGroups\)/);
+    assert.match(finance, /H2O 西餐/);
+    assert.match(finance, /與 H2O 同一張對帳單/);
 });

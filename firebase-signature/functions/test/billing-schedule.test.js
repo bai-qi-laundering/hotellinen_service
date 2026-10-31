@@ -335,7 +335,16 @@ test('歐遊 and 捷中正 bill on the 1st, not again at month end', () => {
     assert.equal(settlementGroup('捷站前', {}), 'month');
     assert.equal(settlementGroup('比歐', {}), 'month');
     assert.equal(settlementGroup('鉑麗', {}), 'month');
-    assert.equal(settlementGroup('歐遊', { 歐遊: '' }), '');
+    assert.equal(settlementGroup('歐遊', { 歐遊: '' }), '1st');
+    assert.equal(settlementGroup('H2O 西餐', { 'H2O 西餐': 'month' }), '25th');
+    assert.equal(settlementGroup('H2O西餐', {}), '25th');
+    assert.equal(settlementGroup('H2O', { H2O: 'month' }), '25th');
+    assert.equal(settlementGroup('H2O 房務', {}), '25th');
+    assert.equal(settlementGroup('天慕', { 天幕: '1st' }), '25th');
+    assert.equal(settlementGroup('天幕', {}), '25th');
+    assert.equal(settlementGroup('鉑麗', { 鉑麗: '25th' }), 'month');
+    assert.deepEqual(dueHotelKeywords(['H2O', 'H2O 西餐', '鉑麗'], { 'H2O 西餐': 'month', H2O: 'month', 鉑麗: '25th' }, '25th'), ['H2O']);
+    assert.deepEqual(dueHotelKeywords(['H2O', 'H2O 西餐', '鉑麗'], { 'H2O 西餐': 'month', H2O: 'month', 鉑麗: '25th' }, 'month'), ['鉑麗']);
     assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前', '鉑麗'], { 歐遊: 'month', 捷中正: '25th' }, 'month'), ['捷站前', '鉑麗']);
     assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前'], { 歐遊: 'month', 捷中正: 'month' }, '1st'), ['捷中正', '歐遊']);
     assert.equal(closingPeriod('歐遊', '2026-10-31', { 歐遊: 'month' }), null);

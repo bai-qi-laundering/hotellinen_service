@@ -3,11 +3,13 @@
 // 發票看同一份案件的 invoiceStatus／invoiceRecord／invoicedVersion（貨款登記）。
 // 不聽即時更新，也不掃整份對帳單或出貨紀錄。
 
-const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
-const group1st = ["歐遊", "捷中正"];
-const groupEndOfMonth = ["捷站前", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心", "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏", "鉑麗"];
-const settlementNameAliases = { '天幕': '天慕' };
+import { canonicalHotelKeyword, settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
+
 const DEPARTMENT_PARENTS = new Set(['鼎王']);
+
+export function settlementGroupOf(hotel, groups = {}) {
+    return settlementGroup(hotel, groups);
+}
 
 export const BILLING_GROUP_ORDER = Object.freeze(['25th', 'month', '1st']);
 export const BILLING_GROUP_LABELS = Object.freeze({
@@ -15,33 +17,6 @@ export const BILLING_GROUP_LABELS = Object.freeze({
     month: '月底',
     '1st': '1號',
 });
-
-function canonicalHotelKeyword(name) {
-    const text = String(name || '').trim();
-    return settlementNameAliases[text] || text;
-}
-
-function assignedGroup(name, groups) {
-    if (Object.hasOwn(groups, name)) return { set: true, value: groups[name] };
-    const canonical = canonicalHotelKeyword(name);
-    if (canonical !== name && Object.hasOwn(groups, canonical)) return { set: true, value: groups[canonical] };
-    for (const [alias, target] of Object.entries(settlementNameAliases)) {
-        if (target === name && Object.hasOwn(groups, alias)) return { set: true, value: groups[alias] };
-    }
-    return { set: false, value: '' };
-}
-
-export function settlementGroupOf(hotel, groups = {}) {
-    const name = String(hotel || '').trim();
-    if (!name) return '';
-    const key = canonicalHotelKeyword(name);
-    const saved = assignedGroup(name, groups);
-    if (group1st.some(item => key.includes(item))) return saved.set && saved.value === '' ? '' : '1st';
-    if (saved.set) return saved.value;
-    if (group25th.some(item => key.includes(item))) return '25th';
-    if (groupEndOfMonth.some(item => key.includes(item))) return 'month';
-    return '';
-}
 
 export function lastDayOfMonth(year, month) {
     return new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -136,15 +111,11 @@ function byName(left, right) {
 
 function rosterParents(baseNames, groups) {
     const names = new Set();
-    for (const name of baseNames || []) {
-        const canonical = canonicalHotelKeyword(name);
-        if (canonical) names.add(canonical);
+    for (const name of [...(baseNames || []), ...Object.keys(groups || {})]) {
+        const key = statementHotelKey(name);
+        if (key && !key.includes('回洗')) names.add(key);
     }
-    for (const name of Object.keys(groups || {})) {
-        const canonical = canonicalHotelKeyword(name);
-        if (canonical) names.add(canonical);
-    }
-    return [...names].filter(name => name && !name.includes('回洗')).sort(byName);
+    return [...names].sort(byName);
 }
 
 function customersFor(parent, items, cases, period) {
@@ -189,6 +160,7 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
         const invoice = invoiceMark(doc);
         rows[group].push({
             name,
+            note: name === 'H2O' ? '含 H2O 西餐' : '',
             sendLabel: send.label,
             unsent: send.kind !== 'sent',
             invoiceLabel: invoice.label,
@@ -209,8 +181,9 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
         for (const name of customersFor(parent, items, cases, period)) addRow(group, name, findCase(cases, name, period));
     }
     for (const row of cases || []) {
-        const name = String(row?.customerKey || '').trim();
-        if (!name || name.includes('回洗')) continue;
+        const rawName = String(row?.customerKey || '').trim();
+        const name = statementHotelKey(rawName);
+        if (!name || name.includes('回洗') || name !== rawName) continue;
         const parent = parentOf(name, parents);
         const group = parent ? settlementGroupOf(parent, groups) : settlementGroupOf(name, groups);
         const period = periods[group];
@@ -301,7 +274,7 @@ function nameList(rows, labelKey, emptyText) {
         const li = document.createElement('li');
         const name = document.createElement('span');
         name.className = 'baiqi-unsent-name';
-        name.textContent = row.name;
+        name.textContent = row.note ? `${row.name}（${row.note}）` : row.name;
         const status = document.createElement('span');
         status.className = 'baiqi-unsent-status';
         status.textContent = row[labelKey];
@@ -348,7 +321,7 @@ export function renderUnsentBoard(board, onRefresh) {
         invoice.textContent = countLine(group.uninvoicedCount, '本期都已開發票', '還有 N 間未開發票');
         const period = document.createElement('div');
         period.className = 'baiqi-unsent-period';
-        period.textContent = formatBoardPeriod(group.period);
+        period.textContent = formatBoardPeriod(group.period) + (group.id === '25th' ? '　H2O 西餐與 H2O 同一張對帳單' : '');
         const tap = document.createElement('div');
         tap.className = 'baiqi-unsent-tap';
         tap.textContent = '點一下展開飯店';

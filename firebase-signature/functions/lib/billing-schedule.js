@@ -4,7 +4,7 @@
 // `1st` = 每月 1 日，期間為前一個曆月（上月 1 日～上月最後一天）。
 // 空白字串代表這筆設定明確不自動結帳，沿用財務頁既有規則。
 import { legacyDatePrefixes } from './logistics-items.js';
-import { canonicalHotelKeyword, settlementGroup } from './auto-close.js';
+import { canonicalHotelKeyword, settlementGroup, statementHotelKey } from './auto-close.js';
 
 export const BILLING_TIME_ZONE = 'Asia/Taipei';
 export const BILLING_HOUR = 9;
@@ -52,12 +52,11 @@ export function dueHotelKeywords(baseNames, groups, group) {
     const due = new Set();
     for (const name of baseNames || []) {
         const trimmed = String(name || '').trim();
-        if (trimmed && settlementGroup(trimmed, groups) === group) due.add(trimmed);
+        if (trimmed && settlementGroup(trimmed, groups) === group) due.add(statementHotelKey(trimmed));
     }
-    // 設定裡的舊名（天幕）改成物流名稱（天慕）後才查，避免同一家查兩次或用錯名字出單。
-    // 用結算後的組別，歐遊、捷中正即使設定還寫月底，也只進 1 號。
+    // 設定裡的舊名（天幕）改成物流名稱（天慕）後才查。H2O 西餐併回 H2O，不另出一張。
     for (const name of Object.keys(groups || {})) {
-        const trimmed = canonicalHotelKeyword(name);
+        const trimmed = statementHotelKey(name);
         if (trimmed && settlementGroup(trimmed, groups) === group) due.add(trimmed);
     }
     return [...due].sort((a, b) => a.localeCompare(b, 'zh-TW'));
