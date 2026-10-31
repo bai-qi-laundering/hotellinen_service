@@ -2294,9 +2294,6 @@ function refreshInvoiceCompanyOptions(preferred = '') {
     const oldValue = invoiceCustomerKeyFromHotelName(preferred || compSelect.value);
 
     let html = `<option value="">-- 請選擇出帳對象 --</option>`;
-    if (names.length > 1) {
-        html += `<option value="${MERGE_ALL_KEY}">🌟 合併目前載入的全部飯店一起結算（共 ${names.length} 間：${escapeReportHTML(names.join('、'))}）</option>`;
-    }
     html += names.map(c => `<option value="${escapeReportHTML(c)}">🏨 單獨結算：${escapeReportHTML(c)}</option>`).join('');
     compSelect.innerHTML = html;
 
@@ -2307,11 +2304,9 @@ function refreshInvoiceCompanyOptions(preferred = '') {
         else if (names.length) profileSelect.value = names[0];
     }
 
-    if (oldValue && (names.includes(oldValue) || (oldValue === MERGE_ALL_KEY && names.length > 1))) {
+    if (oldValue && names.includes(oldValue)) {
         compSelect.value = oldValue;
-    } else if (names.length > 1) {
-        compSelect.value = MERGE_ALL_KEY;
-    } else if (names.length === 1) {
+    } else if (names.length >= 1) {
         compSelect.value = names[0];
     }
 
@@ -2513,6 +2508,7 @@ function setDispatchStatus(message, isError) {
 async function generateOfficialInvoice() {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
     if (!targetVal) { alert('請先選擇出帳對象！'); return; }
+    if (targetVal === MERGE_ALL_KEY) { alert('請選擇固定的單一飯店出帳，不能將不同飯店任意合併。'); return; }
     const ciNameVal = document.getElementById('ciName').value.trim();
     if (!ciNameVal) {
         alert('請確認「發票抬頭」欄位已填寫！');
