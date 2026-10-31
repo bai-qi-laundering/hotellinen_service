@@ -42,7 +42,6 @@ export function applyLedger(c,expected,action,payload,now) {
  }
  else if(action==='confirm')out.paymentConfirmation={version:l.version,at:now};
  else if(action==='invoice') {
-  if(!l.confirmed)throw Error('請先確認已收到飯店確認通知。');
   const number=String(payload.number||'').trim().toUpperCase();
   if(!/^[A-Z]{2}[0-9]{8}$/.test(number))throw Error('發票號碼需為 2 碼英文及 8 碼數字。');
   if(out.invoiceRecord||out.invoiceStatus==='invoiced')throw Error('已有發票紀錄，請先核對原發票，不能重複登記或覆蓋。');
