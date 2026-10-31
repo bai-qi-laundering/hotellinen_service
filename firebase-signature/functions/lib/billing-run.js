@@ -230,7 +230,8 @@ export async function runBillingDay({
                 continue;
             }
             for (const customer of customers) {
-                const customerPeriod = closingPeriod(customer, date, groups);
+                // 部門帳單沿用母飯店這次的結帳區間。部門名稱本身對不到 1 號組時，不能改去查別的結帳日。
+                const customerPeriod = period;
                 if (!customerPeriod) continue;
                 const prior = await outcome(db, customer, customerPeriod);
                 if (prior.action === 'done') {

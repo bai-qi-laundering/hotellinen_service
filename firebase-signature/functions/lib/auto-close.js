@@ -52,6 +52,10 @@ export function closingPeriod(hotel, date, groups={}) {
   return {startDate:prev.toISOString().slice(0,10),endDate:date};
  }
  if(group==='month' && d===last) return {startDate:date.slice(0,7)+'-01',endDate:date};
+ // 1 號組：每月 1 日出前一個曆月（上月 1 日～上月最後一天）。
+ if(group==='1st' && d===1) {
+  return {startDate:new Date(Date.UTC(y,m-2,1)).toISOString().slice(0,10),endDate:new Date(Date.UTC(y,m-1,0)).toISOString().slice(0,10)};
+ }
  return null;
 }
 export function customerOf(receipt) {

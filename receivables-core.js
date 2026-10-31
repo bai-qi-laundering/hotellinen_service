@@ -14,7 +14,7 @@ export function invoiceState(c) {
  if(c.invoiceRecord||c.invoiceStatus==='invoiced')return Number(c.invoicedVersion)===Number(c.latestVersion)?'已開票':'開票後有變';
  return '未開票';
 }
-export function periodFor(name,month,groups={}) {
+function resolvedGroup(name,groups={}) {
  const canonical=settlementAliases[name]||name;
  let group='';
  if(Object.hasOwn(groups,name)) group=groups[name];
@@ -23,19 +23,30 @@ export function periodFor(name,month,groups={}) {
   for (const [alias,target] of Object.entries(settlementAliases)) if(target===name && Object.hasOwn(groups,alias)) group=groups[alias];
   if(!group) group=group25th.some(x=>canonical.includes(x))?'25th':groupEndOfMonth.some(x=>canonical.includes(x))?'month':'';
  }
+ return group;
+}
+export function periodFor(name,month,groups={}) {
+ const group=resolvedGroup(name,groups);
  const [y,m]=month.split('-').map(Number);
  if(group==='25th')return {start:new Date(Date.UTC(y,m-2,26)).toISOString().slice(0,10),end:month+'-25'};
- if(group==='month')return {start:month+'-01',end:new Date(Date.UTC(y,m,0)).toISOString().slice(0,10)};
+ if(group==='month'||group==='1st')return {start:month+'-01',end:new Date(Date.UTC(y,m,0)).toISOString().slice(0,10)};
  return null;
+}
+function billingDue(group,period) {
+ if(group!=='1st')return period.end;
+ const [y,m]=period.end.split('-').map(Number);
+ return new Date(Date.UTC(y,m,1)).toISOString().slice(0,10);
 }
 export function auditRows(names,cases,month,groups,today) {
  const rows=[];
  for(const name of new Set(names)) {
+  const group=resolvedGroup(name,groups);
   const period=periodFor(name,month,groups);
   if(!period){rows.push({name,status:'未設定結帳組別',invoice:'待確認'});continue;}
+  const due=billingDue(group,period);
   const c=cases.find(c=>c.customerKey===name&&c.startDate===period.start&&c.endDate===period.end);
   const v=c?.versions?.find(v=>Number(v.version)===Number(c.latestVersion));
-  rows.push({name,period,c,status:period.end>today?'未到結帳日':!c?'未產單':v?.sentAt?'已寄送':sentVersion(c)?'待重寄':'未寄送',invoice:period.end>today?'未到結帳日':invoiceState(c)});
+  rows.push({name,period,c,status:due>today?'未到結帳日':!c?'未產單':v?.sentAt?'已寄送':sentVersion(c)?'待重寄':'未寄送',invoice:due>today?'未到結帳日':invoiceState(c)});
  }
  return rows;
 }

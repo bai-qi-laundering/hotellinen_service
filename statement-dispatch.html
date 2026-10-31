@@ -103,6 +103,7 @@ p{line-height:1.6}
  </div>
 </header>
 <main class="wrap">
+ <section id="unsent-dashboard" aria-label="未送對帳單"></section>
  <section id="receivables" data-mode="audit"></section>
  <div class="intro">
   <div>
@@ -155,6 +156,7 @@ import {
 } from './statement-case.js?v=20261031-item-order';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
+import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261031-unsent';
 
 const params = new URLSearchParams(location.search);
 const localOnly = params.get('store') === 'local';
@@ -166,6 +168,9 @@ let selected = null;
 let chosenFormat = 'xlsx';
 let busy = false;
 let itemTemplate = [];
+let unsentDashboard = null;
+let repoDb = null;
+let repoFs = null;
 
 function taipeiStamp(iso) {
     if (!iso) return '';
@@ -195,6 +200,8 @@ async function setup() {
         appId: '1:363844184412:web:66cdd6425d53bde75f3999',
     });
     const db = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache() });
+    repoDb = db;
+    repoFs = fsMod;
     repo = createFirestoreRepository(db, {
         doc: fsMod.doc,
         runTransaction: fsMod.runTransaction,
@@ -470,7 +477,10 @@ document.querySelectorAll('.filter').forEach(button => {
         render();
     };
 });
-$('refresh').onclick = () => reload();
+$('refresh').onclick = () => {
+    reload();
+    unsentDashboard?.reload();
+};
 document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
         closePreview();
@@ -481,7 +491,17 @@ window.addEventListener('message', event => {
     if (event.origin !== location.origin) return;
     if (['baiqi-refresh-statements','baiqi-ledger-updated'].includes(event.data?.type)) reload();
 });
-setup().then(reload).catch(error => {
+setup().then(() => {
+    if (!localOnly && repo?.cloud) {
+        unsentDashboard = mountUnsentDashboard($('unsent-dashboard'), {
+            db: repoDb,
+            fs: repoFs,
+        });
+    } else if ($('unsent-dashboard')) {
+        $('unsent-dashboard').textContent = '本機檢查模式不統計正式環境的未送對帳單。';
+    }
+    return reload();
+}).catch(error => {
     showBanner(error.message || '送件中心沒有啟動。');
 });
 </script>

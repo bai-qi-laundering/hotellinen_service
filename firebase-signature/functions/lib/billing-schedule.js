@@ -1,5 +1,7 @@
-// 結帳日只有兩種，取自 2026-10-31 的 inventory_config/finance_settlement_groups：
-// `25th` = 每月 25 日，`month` = 每月最後一天。沒有第三種結帳日。
+// 結帳日有三種：
+// `25th` = 每月 25 日，期間為上月 26 日～本月 25 日。
+// `month` = 每月最後一天，期間為當月 1 日～最後一天。
+// `1st` = 每月 1 日，期間為前一個曆月（上月 1 日～上月最後一天）。
 // 空白字串代表這筆設定明確不自動結帳，沿用財務頁既有規則。
 import { legacyDatePrefixes } from './logistics-items.js';
 import { canonicalHotelKeyword, settlementGroup } from './auto-close.js';
@@ -7,10 +9,10 @@ import { canonicalHotelKeyword, settlementGroup } from './auto-close.js';
 export const BILLING_TIME_ZONE = 'Asia/Taipei';
 export const BILLING_HOUR = 9;
 export const BILLING_MINUTE = 30;
-// 28–31 只為了讓 2 月與 30 天的月份仍能在「最後一天」啟動。
-// 不是 25 日、也不是該月最後一天時，函式在讀 Firestore 之前就結束。
-export const BILLING_CRON = '30 9 25,28,29,30,31 * *';
-export const KNOWN_BILLING_GROUPS = Object.freeze(['25th', 'month']);
+// 1 日是 1 號組。28–31 只為了讓 2 月與 30 天的月份仍能在「最後一天」啟動。
+// 不是 1 日、25 日，也不是該月最後一天時，函式在讀 Firestore 之前就結束。
+export const BILLING_CRON = '30 9 1,25,28,29,30,31 * *';
+export const KNOWN_BILLING_GROUPS = Object.freeze(['25th', 'month', '1st']);
 
 export function lastDayOfMonth(year, month) {
     return new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -26,6 +28,7 @@ export function billingGroupForDate(date) {
     if (month < 1 || month > 12) return null;
     const last = lastDayOfMonth(year, month);
     if (day < 1 || day > last) return null;
+    if (day === 1) return '1st';
     if (day === 25) return '25th';
     if (day === last) return 'month';
     return null;
@@ -73,13 +76,13 @@ export function settlementWarnings(baseNames, groups) {
     for (const [customer, raw] of Object.entries(groups || {})) {
         const value = String(raw ?? '');
         const canonical = canonicalHotelKeyword(customer);
-        if (value !== '25th' && value !== 'month' && value !== '') push({ type: 'unknown_day', customer: canonical, value });
+        if (!KNOWN_BILLING_GROUPS.includes(value) && value !== '') push({ type: 'unknown_day', customer: canonical, value });
         if (!names.has(canonical)) push({ type: 'not_in_template', customer: canonical, value });
     }
     for (const customer of names) {
         const value = String(settlementGroup(customer, groups) ?? '');
         if (value === '') push({ type: 'no_billing_day', customer, value });
-        else if (value !== '25th' && value !== 'month') push({ type: 'unknown_day', customer, value });
+        else if (!KNOWN_BILLING_GROUPS.includes(value)) push({ type: 'unknown_day', customer, value });
     }
     return warnings;
 }

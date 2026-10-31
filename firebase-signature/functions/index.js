@@ -7,7 +7,7 @@ import { taipeiDate } from './lib/auto-close.js';
 import { BILLING_CRON, BILLING_TIME_ZONE } from './lib/billing-schedule.js';
 import { handleBillingSchedule } from './lib/billing-run.js';
 
-if (BILLING_CRON !== '30 9 25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
+if (BILLING_CRON !== '30 9 1,25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
     throw new Error('結帳排程常數與部署字串不一致');
 }
 
@@ -20,7 +20,7 @@ const region = defineString('FUNCTION_REGION', { default: 'asia-east1' });
 // 簽收當下不產單。Cloud Scheduler 只在結帳日 09:30（台北）啟動；
 // 不是結帳日、或開關沒開時，函式直接結束，不讀 Firestore。
 export const autoStatementOnBillingDay = onSchedule({
-    schedule: '30 9 25,28,29,30,31 * *',
+    schedule: '30 9 1,25,28,29,30,31 * *',
     timeZone: 'Asia/Taipei',
     region,
     timeoutSeconds: 540,
