@@ -165,8 +165,28 @@ try {
     await waitFor(dispatch, '!!window.XLSX');
     await evaluate(dispatch, `[...document.querySelectorAll('button')].find(b => b.textContent.includes('確認送出')).click()`);
     await waitFor(dispatch, `document.getElementById('overlay').classList.contains('show') && document.body.innerText.includes('不會自動傳 LINE')`);
+    // 桌面 Chrome 的 canShare 對 xlsx 會回 true，但 share() 會丟 Permission denied。這裡故意讓分享失敗，電腦仍應只下載。
+    await evaluate(dispatch, `(() => {
+        window.__downloads = [];
+        window.__shares = [];
+        window.__alerts = [];
+        window.XLSX.writeFile = (wb, name) => { window.__downloads.push(String(name)); };
+        const deny = () => {
+            window.__shares.push('share');
+            return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+        };
+        Object.defineProperty(Navigator.prototype, 'canShare', { configurable: true, writable: true, value: () => true });
+        Object.defineProperty(Navigator.prototype, 'share', { configurable: true, writable: true, value: deny });
+        return 'ok';
+    })()`);
     await evaluate(dispatch, `document.getElementById('next').click()`);
     await waitFor(dispatch, `document.body.innerText.includes('我已用 LINE 寄出')`);
+    const desktopDelivery = JSON.parse(await evaluate(dispatch, `JSON.stringify({ downloads: window.__downloads || [], shares: window.__shares || [], alerts: window.__alerts || [] })`));
+    if (desktopDelivery.shares.length) throw new Error('電腦不該開啟分享：' + JSON.stringify(desktopDelivery));
+    if (!desktopDelivery.downloads.some(name => name.includes('驗證飯店') && name.endsWith('.xlsx'))) {
+        throw new Error('電腦沒有下載 Excel：' + JSON.stringify(desktopDelivery));
+    }
+    if (desktopDelivery.alerts.length) throw new Error('準備檔案不該跳錯誤：' + JSON.stringify(desktopDelivery.alerts));
     const mid = JSON.parse(await evaluate(dispatch, `localStorage.getItem('baiqi_statement_cases_v1')`));
     if (mid[id].state === 'sent' || mid[id].versions[0].sentAt) throw new Error('檔案準備好就被當成已寄出');
     await evaluate(dispatch, `document.getElementById('next').click()`);
@@ -175,6 +195,67 @@ try {
     if (!after[id].versions[0].sentAt) throw new Error('登記寄出沒有寫進清單');
     const errors = await evaluate(dispatch, `JSON.stringify(window.__errors || [])`);
     if (errors && errors !== '[]') throw new Error('送件頁錯誤：' + errors);
+
+    await evaluate(dispatch, `[...document.querySelectorAll('button')].find(b => b.textContent.includes('再次取得檔案')).click()`);
+    await waitFor(dispatch, `document.getElementById('overlay').classList.contains('show') && !!document.getElementById('format')`);
+    await evaluate(dispatch, `(() => {
+        sessionStorage.removeItem('baiqi_test_printed');
+        window.__alerts = [];
+        window.__shares = [];
+        window.print = () => { window.__printed = true; sessionStorage.setItem('baiqi_test_printed', '1'); };
+        document.getElementById('format').value = 'pdf';
+        document.getElementById('next').click();
+        return 'ok';
+    })()`);
+    await waitFor(dispatch, `sessionStorage.getItem('baiqi_test_printed') === '1' || (window.__alerts || []).length > 0`);
+    const pdfDelivery = JSON.parse(await evaluate(dispatch, `JSON.stringify({ printed: sessionStorage.getItem('baiqi_test_printed'), alerts: window.__alerts || [], shares: window.__shares || [] })`));
+    if (pdfDelivery.printed !== '1') throw new Error('PDF 沒有開啟列印：' + JSON.stringify(pdfDelivery));
+    if (pdfDelivery.alerts.length) throw new Error('PDF 不該跳錯誤：' + JSON.stringify(pdfDelivery.alerts));
+    if (pdfDelivery.shares.length) throw new Error('PDF 不該開啟分享：' + JSON.stringify(pdfDelivery.shares));
+
+    const mobileReport = await evaluate(dispatch, `(async () => {
+        const mod = await import('./statement-file-delivery.js?v=20261031-share-fix');
+        const file = new File(['pk'], '帳.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        async function scenario(name, shareImpl) {
+            const events = [];
+            let thrown = '';
+            try {
+                await mod.handoffStatementFile({
+                    format: 'xlsx',
+                    mobile: true,
+                    file,
+                    filename: '帳.xlsx',
+                    canShare: () => true,
+                    share(payload) {
+                        events.push('share:' + payload.files[0].name);
+                        return shareImpl();
+                    },
+                    download() { events.push('download'); },
+                });
+            } catch (error) {
+                thrown = String(error && (error.name + ' ' + error.message) || error);
+            }
+            return { name, events, thrown };
+        }
+        return [
+            await scenario('success', () => Promise.resolve()),
+            await scenario('denied', () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))),
+            await scenario('abort', () => Promise.reject(new DOMException('Share canceled', 'AbortError'))),
+        ];
+    })()`);
+    const byName = Object.fromEntries(mobileReport.map(item => [item.name, item]));
+    if (byName.success.thrown || byName.success.events.join(',') !== 'share:帳.xlsx') {
+        throw new Error('手機分享成功路徑不對：' + JSON.stringify(byName.success));
+    }
+    if (byName.denied.thrown || byName.denied.events.join(',') !== 'share:帳.xlsx,download') {
+        throw new Error('手機 NotAllowedError 應改下載：' + JSON.stringify(byName.denied));
+    }
+    if (byName.abort.thrown || byName.abort.events.join(',') !== 'share:帳.xlsx') {
+        throw new Error('手機取消分享不該下載或報錯：' + JSON.stringify(byName.abort));
+    }
+    if (await evaluate(dispatch, `import('./statement-file-delivery.js?v=20261031-share-fix').then(m => m.isPhoneShareDevice(navigator))`)) {
+        throw new Error('這台桌面 Chrome 不該被當成手機');
+    }
 
     const finance = await openPage(browser, `${base}/finance.html`);
     await waitFor(finance, `typeof window.generateOfficialInvoice === 'function' && !!document.getElementById('keywordFilter') && !!document.getElementById('settlementHotelSearch') && !!document.getElementById('ciLineRecipient')`);
