@@ -250,17 +250,20 @@ export function createFirestoreRepository(db, fns, storage) {
                 }
                 return sortCases(next);
             };
+            let snap;
             try {
-                const snap = await fns.getDocsFromServer(fns.collection(db, STATEMENT_COLLECTION));
-                const cases = snap.docs
-                    .map(row => ({ id: row.id, ...row.data() }))
-                    .filter(row => row.customerKey && Array.isArray(row.versions));
-                const visible = await overlay(cases);
-                rememberCache(storage, visible.filter(item => !item.cloudPending));
-                return { cases: visible, cloudError, fromCache: false };
+                snap = await fns.getDocsFromServer(fns.collection(db, STATEMENT_COLLECTION));
             } catch (error) {
                 return { cases: await overlay(readCache(storage)), cloudError: error, fromCache: true };
             }
+            const cases = snap.docs
+                .map(row => ({ id: row.id, ...row.data() }))
+                .filter(row => row.customerKey && Array.isArray(row.versions));
+            const visible = await overlay(cases);
+            let cacheError = null;
+            try { rememberCache(storage, visible.filter(item => !item.cloudPending)); }
+            catch (error) { cacheError = error; console.warn('帳單已從雲端讀取，但本機暫存失敗', error); }
+            return { cases: visible, cloudError, cacheError, fromCache: false };
         },
     };
 }
