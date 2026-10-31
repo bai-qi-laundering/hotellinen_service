@@ -22,24 +22,6 @@ export function periodFor(name,month,groups={}) {
  if(group==='month'||group==='1st')return {start:month+'-01',end:new Date(Date.UTC(y,m,0)).toISOString().slice(0,10)};
  return null;
 }
-function billingDue(group,period) {
- if(group!=='1st')return period.end;
- const [y,m]=period.end.split('-').map(Number);
- return new Date(Date.UTC(y,m,1)).toISOString().slice(0,10);
-}
-export function auditRows(names,cases,month,groups,today) {
- const rows=[];
- for(const name of new Set(names)) {
-  const group=resolvedGroup(name,groups);
-  const period=periodFor(name,month,groups);
-  if(!period){rows.push({name,status:'未設定結帳組別',invoice:'待確認'});continue;}
-  const due=billingDue(group,period);
-  const c=cases.find(c=>c.customerKey===name&&c.startDate===period.start&&c.endDate===period.end);
-  const v=c?.versions?.find(v=>Number(v.version)===Number(c.latestVersion));
-  rows.push({name,period,c,status:due>today?'未到結帳日':!c?'未產單':v?.sentAt?'已寄送':sentVersion(c)?'待重寄':'未寄送',invoice:due>today?'未到結帳日':invoiceState(c)});
- }
- return rows;
-}
 export function applyLedger(c,expected,action,payload,now) {
  const out=JSON.parse(JSON.stringify(c)),l=ledger(out);
  if(!l||l.pending||l.version!==Number(expected))throw Error('帳單已更新或尚未寄出，請先寄送最新版本並重新整理。');

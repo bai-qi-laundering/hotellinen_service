@@ -40,7 +40,10 @@ test('manual generation reaches publish when standalone finance has no old navig
     const { context, events } = fixture();
     await vm.runInContext('generateOfficialInvoice()', context);
     assert.deepEqual(events.find(e => Array.isArray(e) && e[0] === 'publish'), ['publish', 1234, 62]);
-    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[1].includes('已送進')));
+    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[1] === '已傳送對帳單到送件中心'));
+    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'alert' && String(e[1]).includes('已傳送對帳單到送件中心')));
+    assert.equal(context.document.getElementById('printArea').innerHTML, '');
+    assert.equal(context.document.body.style.background || '', '');
     assert.equal(events.filter(e => e === 'refresh').length, 1);
 });
 test('return from statement preview works without old navigation bar', () => {
@@ -52,5 +55,5 @@ test('failed publish displays failure and never reports successful delivery', as
     const { context, events } = fixture(new Error('permission-denied'));
     await vm.runInContext('generateOfficialInvoice()', context);
     assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[2] === true));
-    assert.equal(events.some(e => Array.isArray(e) && e[0] === 'status' && e[1].startsWith('已送進')), false);
+    assert.equal(events.some(e => Array.isArray(e) && e[0] === 'status' && String(e[1]).startsWith('已傳送對帳單到送件中心')), false);
 });

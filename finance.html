@@ -228,6 +228,7 @@ body { background: white; padding: 0; margin: 0; }
                 <button onclick="quickSelectGroup('1st')" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
                     <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 1號結帳飯店
                 </button>
+                <p class="text-sm text-violet-900 font-bold m-0">1 號與月底同一段曆月，次月 1 日才出帳。例如 11/1 產生 10/1–10/31，請把上面的日期調成這段再產生。</p>
                 <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
                     <span>☐</span> 清空所有勾選
                 </button>
@@ -317,6 +318,7 @@ body { background: white; padding: 0; margin: 0; }
                     📑 產生客戶對帳單
                 </button>
             </div>
+            <p id="statementSendNotice" role="status" class="text-sm font-bold text-emerald-800 m-0"></p>
         </div>
         <div class="overflow-x-auto max-h-[600px] custom-scroll relative">
             <table class="bank-table">
@@ -2468,7 +2470,7 @@ function buildInvoiceReport() {
     const rounded = Math.round(grandTotal);
     const afterRebate = rounded + managementFee.amount - rebate.amount;
     const tax = Math.round(afterRebate * 0.05);
-    return { comp: compLabel, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax, missing };
+    return { comp: compLabel, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax, missing, hotelCount: mergedCompanyNames.length || 1 };
 }
 
 function escapeReportHTML(value) {
@@ -2521,10 +2523,12 @@ function notifyDispatchRefresh() {
     } catch (err) { console.warn('送件中心刷新通知失敗', err); }
 }
 function setDispatchStatus(message, isError) {
-    const status = document.getElementById('dispatchStatus');
-    if (!status) return;
-    status.textContent = message || '';
-    status.className = 'text-sm font-bold max-w-xs m-0 ' + (isError ? 'text-red-700' : 'text-emerald-800');
+    for (const id of ['dispatchStatus', 'statementSendNotice']) {
+        const status = document.getElementById(id);
+        if (!status) continue;
+        status.textContent = message || '';
+        status.className = 'text-sm font-bold m-0 ' + (isError ? 'text-red-700' : 'text-emerald-800');
+    }
 }
 async function generateOfficialInvoice() {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
@@ -2547,26 +2551,26 @@ async function generateOfficialInvoice() {
     catch (err) { alert(err.message || String(err)); return; }
     if (!snapshot) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
     currentStatementSnapshot = snapshot;
-    document.getElementById('printArea').innerHTML = renderStatementHtml(snapshot, logisticsMasterItems);
     window.closeInvoiceModal();
-    document.querySelector('.app-container').classList.add('hidden');
-    document.body.style.background = 'white';
-    document.getElementById('printControls').classList.replace('hidden', 'flex');
+    const hotelCount = Number(report.hotelCount) || 1;
+    const countLabel = hotelCount > 1 ? `（${hotelCount} 間）` : '';
     setDispatchStatus('正在送進對帳單送件中心…', false);
     try {
         const result = await statementRepo.publish(snapshot);
-        setDispatchStatus(result.action === 'unchanged'
-            ? '送件中心已有同一份帳單，沒有重複新增。'
-            : '已送進對帳單送件中心。請切到「對帳單送件中心」核對後再寄出。', false);
+        const notice = result.action === 'unchanged'
+            ? `送件中心已有同一份帳單，沒有重複新增${countLabel}。`
+            : `已傳送對帳單到送件中心${countLabel}`;
+        setDispatchStatus(notice, false);
+        alert(notice + '。請到「對帳單送件中心」取得 Excel 或 PDF，再用 LINE 寄出。系統不會自動傳給客戶。');
         notifyDispatchRefresh();
     } catch (err) {
         console.error(err);
         setDispatchStatus(err.queued
             ? '雲端暫時沒寫入，已先留在這台電腦。打開送件中心會再補送。'
-            : '對帳單已產生，但沒有送進送件中心。', true);
+            : '對帳單沒有送進送件中心。', true);
         alert(err.queued
-            ? '對帳單已經產生。雲端送件中心暫時沒寫入，已先留在這台電腦，打開送件中心會再補送。'
-            : '對帳單已經產生，但沒有送進送件中心：' + (err.message || err));
+            ? '雲端送件中心暫時沒寫入，已先留在這台電腦，打開送件中心會再補送。'
+            : '沒有送進送件中心：' + (err.message || err));
         notifyDispatchRefresh();
     }
 }

@@ -46,6 +46,8 @@ const pinnedBillingGroups = [
  ['歐遊', '1st'],
  ['天慕', '25th'],
  ['鉑麗', 'month'],
+ ['鴨點棧', 'month'],
+ ['雅樂', 'month'],
  ['H2O', '25th'],
 ];
 export function pinnedBillingGroup(key) {
