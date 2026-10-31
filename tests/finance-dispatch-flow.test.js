@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../finance.html', import.meta.url), 'utf8');
+const dispatch = readFileSync(new URL('../statement-dispatch.html', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('async function generateOfficialInvoice()'), source.indexOf('\nfunction exportToExcel()'));
 const close = source.match(/window.closePreview = \(\) => \{[\s\S]*?\n\};/)[0];
 function fixture(error) {
@@ -56,4 +57,25 @@ test('failed publish displays failure and never reports successful delivery', as
     await vm.runInContext('generateOfficialInvoice()', context);
     assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[2] === true));
     assert.equal(events.some(e => Array.isArray(e) && e[0] === 'status' && String(e[1]).startsWith('已傳送對帳單到送件中心')), false);
+});
+
+test('傳送成功的綠字在按鈕列下面，不跟三個按鈕搶同一列', () => {
+    assert.match(source, /產生客戶對帳單[\s\S]{0,500}<\/button>\s*<\/div>\s*<\/div>\s*<p id="statementSendNotice"/);
+    assert.match(source, /notice\.className = 'text-sm font-bold mt-3 mb-0 '/);
+    assert.match(source, /sumGroupFigures\(firstAssigned \? \[a, b, c\] : \[a, b\]\)/);
+    assert.match(source, /xl:grid-cols-3/);
+});
+
+test('送件中心預覽與列印沿用舊對帳單版面，Excel 仍走同一份工作簿', () => {
+    assert.match(dispatch, /BaiqiGeorgiaDigits/);
+    assert.match(dispatch, /page-break-before:\s*always/);
+    assert.match(dispatch, /\.paper \.info-table td:first-child\{width:102px/);
+    assert.match(dispatch, /font-size:17px/);
+    assert.match(dispatch, /text-align:center/);
+    assert.equal(dispatch.includes('font-size:13px;margin:10px 0 16px'), false);
+    assert.match(dispatch, /buildStatementWorkbook/);
+    assert.match(source, /buildStatementWorkbook\(XLSX, snapshot, logisticsMasterItems\)/);
+    assert.match(dispatch, /dispatchHotelName/);
+    assert.equal(dispatch.includes('receivables.css'), false);
+    assert.equal(dispatch.includes('receivables-ui.js'), false);
 });

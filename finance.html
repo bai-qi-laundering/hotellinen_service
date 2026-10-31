@@ -181,8 +181,8 @@ body { background: white; padding: 0; margin: 0; }
 <body>
 
 <div class="app-container no-print">
-<div class="flex justify-between items-center mb-4 border-b border-gray-300 pb-4">
-<h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4 border-b border-gray-300 pb-4">
+<h1 class="text-2xl sm:text-3xl font-black text-gray-800 flex items-center gap-2 min-w-0">
 百麒國際股份有限公司 <span class="text-amber-700">💼</span> 多維財務結帳大腦
 </h1>
 <div class="flex items-center gap-2">
@@ -203,14 +203,14 @@ body { background: white; padding: 0; margin: 0; }
 <div id="sharedFilterSection" class="block">
     <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 w-full">
         <h3 class="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">📅 1. 選擇查詢區間</h3>
-        <div class="flex gap-4 max-w-2xl">
-            <div class="flex items-center gap-3 flex-1">
-                <span class="text-gray-600 font-bold">起始：</span>
-                <input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+        <div class="flex flex-wrap gap-4 max-w-2xl">
+            <div class="flex items-center gap-3 flex-1 min-w-[220px]">
+                <span class="text-gray-600 font-bold shrink-0">起始：</span>
+                <input type="date" id="startDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full min-w-0 outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
             </div>
-            <div class="flex items-center gap-3 flex-1">
-                <span class="text-gray-600 font-bold">結束：</span>
-                <input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
+            <div class="flex items-center gap-3 flex-1 min-w-[220px]">
+                <span class="text-gray-600 font-bold shrink-0">結束：</span>
+                <input type="date" id="endDate" class="bg-gray-50 border border-gray-300 p-2 rounded-lg font-bold text-gray-800 w-full min-w-0 outline-none focus:border-blue-500 cursor-pointer" onchange="fetchInitialHotels()">
             </div>
         </div>
     </div>
@@ -301,12 +301,13 @@ body { background: white; padding: 0; margin: 0; }
 <!-- ==================== 【系統 1：財務對帳單】 ==================== -->
 <div id="sysFinance" class="block">
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-10">
-        <div class="p-4 bg-gray-50 flex flex-col xl:flex-row justify-between items-start xl:items-center border-b border-gray-200 rounded-t-xl gap-4">
-            <div class="flex flex-col gap-1">
+        <div class="p-4 bg-gray-50 border-b border-gray-200 rounded-t-xl">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div class="flex flex-col gap-1 min-w-0">
                 <h3 class="font-black text-gray-800 text-xl flex items-center gap-2">💰 內部核對與對帳單產出</h3>
                 <span class="text-xs text-blue-600 font-bold">💡 直接修改某日單價，該日及往後沿用新價格，直到下次調價；以前的單價不變。修改後請按「批次儲存」。</span>
             </div>
-            <div class="flex flex-wrap gap-3">
+            <div class="flex flex-wrap gap-3 xl:justify-end">
                 <button onclick="loadFinanceData()" id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg shadow transition-colors disabled:opacity-50">
                     🔄 載入/更新明細
                 </button>
@@ -318,7 +319,8 @@ body { background: white; padding: 0; margin: 0; }
                     📑 產生客戶對帳單
                 </button>
             </div>
-            <p id="statementSendNotice" role="status" class="text-sm font-bold text-emerald-800 m-0"></p>
+            </div>
+            <p id="statementSendNotice" role="status" class="hidden text-sm font-bold text-emerald-800 mt-3 mb-0"></p>
         </div>
         <div class="overflow-x-auto max-h-[600px] custom-scroll relative">
             <table class="bank-table">
@@ -346,7 +348,7 @@ body { background: white; padding: 0; margin: 0; }
       <div class="flex flex-wrap items-end gap-4 justify-between">
         <div><label for="bossTargetMonth" class="block text-emerald-900 font-black mb-2">📅 業績結帳月份</label><input id="bossTargetMonth" type="month" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossMonth()"></div>
         <div><label for="bossCutoffDate" class="block text-emerald-900 font-black mb-2">📆 統計截至日期</label><input id="bossCutoffDate" type="date" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossPeriodHint()"><div class="text-xs text-slate-500 mt-1">可選當月 10／20 日；選月底代表完整結帳。</div></div>
-        <div id="bossPeriodHint" class="text-sm font-bold text-slate-700 leading-7 flex-1"></div>
+        <div id="bossPeriodHint" class="text-sm font-bold text-slate-700 leading-7 basis-full min-w-0"></div>
       </div>
       <details id="settlementGroupPanel" class="mt-4 border border-emerald-200 bg-emerald-50/50 rounded-xl p-4">
         <summary class="font-black text-emerald-900 cursor-pointer text-lg">⚙️ 飯店結帳日管理（點擊展開／收合）</summary>
@@ -356,7 +358,7 @@ body { background: white; padding: 0; margin: 0; }
           <button onclick="refreshSettlementHotels()" class="bg-white border border-emerald-400 px-4 py-2 rounded-lg font-bold text-emerald-800">重新整理本月有紀錄飯店</button>
           <button onclick="saveSettlementGroups()" class="bg-emerald-800 text-white px-4 py-2 rounded-lg font-black">💾 儲存全部設定</button>
         </div>
-        <div class="max-h-80 overflow-y-auto rounded-lg border bg-white"><table class="w-full text-sm"><thead class="sticky top-0 bg-emerald-900 text-white"><tr><th class="text-left p-3">飯店名稱</th><th class="p-3 text-left">結帳類型</th><th class="p-3 text-left">設定來源</th></tr></thead><tbody id="settlementGroupRows"><tr><td colspan="3" class="p-4 text-center">正在載入飯店設定…</td></tr></tbody></table></div>
+        <div class="max-h-80 overflow-auto rounded-lg border bg-white"><table class="w-full min-w-[720px] text-sm"><thead class="sticky top-0 bg-emerald-900 text-white"><tr><th class="text-left p-3">飯店名稱</th><th class="p-3 text-left">結帳類型</th><th class="p-3 text-left">設定來源</th></tr></thead><tbody id="settlementGroupRows"><tr><td colspan="3" class="p-4 text-center">正在載入飯店設定…</td></tr></tbody></table></div>
         <div class="mt-3 flex flex-wrap items-center gap-2"><input id="settlementManualHotel" placeholder="名單沒有的飯店可手動輸入完整主名稱" class="border rounded-lg p-2 flex-1 min-w-[220px]"><button onclick="addSettlementHotel()" class="rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 p-2 font-bold">＋ 新增飯店</button></div>
         <p id="settlementGroupStatus" class="text-sm font-bold text-emerald-800 mt-2" aria-live="polite"></p>
       </details>
@@ -364,14 +366,14 @@ body { background: white; padding: 0; margin: 0; }
     <div class="bg-gradient-to-br from-emerald-800 to-teal-900 rounded-2xl shadow-xl p-6 mb-8 text-white relative overflow-hidden">
         <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-white opacity-5 rounded-full blur-2xl"></div>
         
-        <div class="flex justify-between items-end border-b border-white/20 pb-5 mb-6 relative z-10">
-            <div>
+        <div class="flex flex-wrap justify-between items-end gap-4 border-b border-white/20 pb-5 mb-6 relative z-10">
+            <div class="min-w-0 flex-1 basis-full sm:basis-auto">
                 <h2 class="text-3xl font-black flex items-center gap-3 drop-shadow-md">
                     <span>📊</span> 業績戰情總覽
                 </h2>
-                <p class="text-emerald-100 mt-2 font-bold text-sm bg-black/20 inline-block px-3 py-1 rounded-full" id="bossDateRange">尚未計算</p>
+                <p class="text-emerald-100 mt-2 font-bold text-sm bg-black/20 inline-block max-w-full px-3 py-1 rounded-2xl leading-6 whitespace-normal" id="bossDateRange">尚未計算</p>
             </div>
-            <div class="flex gap-3">
+            <div class="flex flex-wrap gap-3">
                 <button onclick="loadBossData()" id="loadBossBtn" class="bg-emerald-500 hover:bg-emerald-400 text-white font-black px-6 py-3 rounded-lg shadow-lg transition-colors border border-emerald-400 flex items-center gap-2">
                     ▶ 一鍵載入兩組業績
                 </button>
@@ -383,11 +385,11 @@ body { background: white; padding: 0; margin: 0; }
 
         <div id="bossDashboardContent" class="hidden relative z-10">
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・未稅</p><p id="bossTotalUntaxed" class="text-3xl font-black">$0</p></div>
-                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">布巾洗滌管理費</p><p id="bossTotalFee" class="text-3xl font-black">$0</p></div>
-                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">客戶回饋</p><p id="bossTotalRebate" class="text-3xl font-black">$0</p></div>
-                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・營業稅（5%）</p><p id="bossTotalTax" class="text-3xl font-black">$0</p></div>
-                <div class="bg-white/20 border border-white/30 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">兩組合計・含稅應收</p><p id="bossTotalFinal" class="text-3xl font-black text-yellow-300">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p id="bossUntaxedCaption" class="text-emerald-100 font-bold text-sm">兩組合計・未稅</p><p id="bossTotalUntaxed" class="text-3xl font-black break-words">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">布巾洗滌管理費</p><p id="bossTotalFee" class="text-3xl font-black break-words">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p class="text-emerald-100 font-bold text-sm">客戶回饋</p><p id="bossTotalRebate" class="text-3xl font-black break-words">$0</p></div>
+                <div class="bg-white/10 border border-white/20 rounded-xl p-5"><p id="bossTaxCaption" class="text-emerald-100 font-bold text-sm">兩組合計・營業稅（5%）</p><p id="bossTotalTax" class="text-3xl font-black break-words">$0</p></div>
+                <div class="bg-white/20 border border-white/30 rounded-xl p-5"><p id="bossFinalCaption" class="text-emerald-100 font-bold text-sm">兩組合計・含稅應收</p><p id="bossTotalFinal" class="text-3xl font-black text-yellow-300 break-words">$0</p></div>
             </div>
             <p id="bossGroupNote" class="text-sm text-emerald-100 mb-4"></p>
             <div id="bossGroupsContainer" class="grid grid-cols-1 xl:grid-cols-2 gap-5"></div>
@@ -1894,9 +1896,13 @@ async function loadBossData() {
         currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), '1st':summarizeBossGroup(groups['1st']), startDate, endDate, periods };
         currentBossData = [...groups['25th'],...groups.month,...groups['1st']];
         const a = currentBossGroups['25th'], b = currentBossGroups.month, c = currentBossGroups['1st'];
-        const header = sumGroupFigures([a, b]);
         const firstAssigned = groups['1st'].length || Object.values(settlementGroups).includes('1st');
+        const header = sumGroupFigures(firstAssigned ? [a, b, c] : [a, b]);
+        const combinedLabel = firstAssigned ? '合計' : '兩組合計';
         document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}` + (firstAssigned ? `｜1號：${periods.monthGroup.start}～${periods.monthGroup.end}（次月1日出帳）` : '');
+        document.getElementById('bossUntaxedCaption').textContent = `${combinedLabel}・未稅`;
+        document.getElementById('bossTaxCaption').textContent = `${combinedLabel}・營業稅（5%）`;
+        document.getElementById('bossFinalCaption').textContent = `${combinedLabel}・含稅應收`;
         document.getElementById('bossTotalUntaxed').innerText = `$${header.untaxed.toLocaleString()}`;
         document.getElementById('bossTotalFee').innerText = `$${header.managementFee.toLocaleString()}`;
         document.getElementById('bossTotalRebate').innerText = `$${header.rebate.toLocaleString()}`;
@@ -1930,7 +1936,7 @@ async function loadBossData() {
             const range=key==='25th' ? periods['25th'] : periods.monthGroup;
             return `<section class="bg-white/10 border border-white/20 rounded-2xl p-5 min-w-0">
                 <h3 class="text-xl font-black mb-2 border-l-4 ${accent} pl-3">${label}</h3>
-                <p class="text-sm font-bold text-emerald-100 mb-4 bg-black/20 rounded-lg px-3 py-2 inline-block">📅 結帳統計區間：${e(range.start)} 至 ${e(range.end)}</p>
+                <p class="text-sm font-bold text-emerald-100 mb-4 bg-black/20 rounded-lg px-3 py-2 inline-block max-w-full whitespace-normal">📅 結帳統計區間：${e(range.start)} 至 ${e(range.end)}</p>
                 <div class="grid grid-cols-3 gap-2 mb-2 text-center">
                     <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">未稅</p><p class="font-black text-lg">$${g.untaxed.toLocaleString()}</p></div>
                     <div class="rounded-lg bg-black/20 p-3"><p class="text-xs text-emerald-100 mb-1">稅金 5%</p><p class="font-black text-lg">$${g.tax.toLocaleString()}</p></div>
@@ -1942,7 +1948,9 @@ async function loadBossData() {
                 </div><p class="font-bold mb-3 text-emerald-100">飯店應收（與對帳單同一公式）・${stores.length} 個部門</p>
                 <div class="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">${cards}</div></section>`;
         };
-        document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','月底結帳','border-sky-300') + (firstAssigned ? renderGroup('1st','1號結帳','border-violet-300') : '');
+        const bossGroupsContainer = document.getElementById('bossGroupsContainer');
+        bossGroupsContainer.className = firstAssigned ? 'grid grid-cols-1 xl:grid-cols-3 gap-5' : 'grid grid-cols-1 xl:grid-cols-2 gap-5';
+        bossGroupsContainer.innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','月底結帳','border-sky-300') + (firstAssigned ? renderGroup('1st','1號結帳','border-violet-300') : '');
         const notices = [];
         if (unmatched.size) notices.push(`⚠️ 以下 ${unmatched.size} 個飯店／部門有出貨紀錄，尚未指定25號、月底或1號結帳類型，因此未計入上方業績：${[...unmatched].sort().join('、')}`);
         const missingPrices = (a.missingPrices || 0) + (b.missingPrices || 0) + (c.missingPrices || 0);
@@ -2523,11 +2531,16 @@ function notifyDispatchRefresh() {
     } catch (err) { console.warn('送件中心刷新通知失敗', err); }
 }
 function setDispatchStatus(message, isError) {
-    for (const id of ['dispatchStatus', 'statementSendNotice']) {
-        const status = document.getElementById(id);
-        if (!status) continue;
-        status.textContent = message || '';
-        status.className = 'text-sm font-bold m-0 ' + (isError ? 'text-red-700' : 'text-emerald-800');
+    const tone = isError ? 'text-red-700' : 'text-emerald-800';
+    const dispatchStatus = document.getElementById('dispatchStatus');
+    if (dispatchStatus) {
+        dispatchStatus.textContent = message || '';
+        dispatchStatus.className = 'text-sm font-bold max-w-xs m-0 ' + tone;
+    }
+    const notice = document.getElementById('statementSendNotice');
+    if (notice) {
+        notice.textContent = message || '';
+        notice.className = 'text-sm font-bold mt-3 mb-0 ' + tone + (message ? '' : ' hidden');
     }
 }
 async function generateOfficialInvoice() {

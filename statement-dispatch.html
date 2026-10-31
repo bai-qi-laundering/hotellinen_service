@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <title>百麒｜對帳單送件中心</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
 :root{--bg:#f5f6f2;--ink:#24332f;--muted:#74827a;--line:#e1e7df;--green:#315e4c;--warm:#b78b55;--white:#fff}
@@ -53,24 +57,47 @@ p{line-height:1.6}
 .preview{position:fixed;inset:0;background:#edf0ed;z-index:20;display:none;flex-direction:column}
 .preview.show{display:flex}
 .preview-head{background:white;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 20px}
-.preview-head button{background:transparent;border:0;font-size:15px;font-weight:700;color:var(--green)}
-.paper{background:white;box-shadow:0 8px 35px #0001;margin:22px auto;padding:28px;width:min(820px,calc(100% - 24px))}
-.scroll{overflow:auto;flex:1}
+.preview-head button{background:transparent;border:0;font-size:15px;font-weight:700;color:var(--green);min-height:44px}
+.scroll{overflow:auto;flex:1;-webkit-overflow-scrolling:touch;container-type:inline-size}
 .foot{font-size:12px;color:#88948a;text-align:center;padding:8px 0 20px}
-.paper .invoice-header{display:flex;justify-content:space-between;gap:12px;border-bottom:2px solid #b69b68;padding-bottom:10px;margin-bottom:16px}
-.paper .invoice-title,.paper .report-heading{font-weight:900;color:#173c36}
-.paper .invoice-title{font-size:22px}
-.paper .info-boxes{display:flex;gap:12px;flex-wrap:wrap}
-.paper .info-box{flex:1;min-width:240px;border:1px solid #d8cdb6;border-radius:8px;overflow:hidden}
-.paper .info-box-title{background:#173c36;color:#fff;padding:8px 10px;font-weight:800}
-.paper table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0 16px}
-.paper th,.paper td{border:1px solid #d9dfd8;padding:7px 8px;text-align:left}
-.paper th{background:#173c36;color:#fff}
-.paper .report-section-title{font-size:16px;background:#f5f0e5;border-left:4px solid #b69b68;padding:8px 10px}
-.paper .report-totals{margin-left:auto;max-width:360px;background:#f8f5ed;border:1px solid #d8c9a8;border-radius:8px;padding:10px 12px}
-.paper .report-totals > div{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
-.paper .report-grand{border-top:1px solid #b69b68;font-size:18px;font-weight:900}
-.paper .report-department{margin-top:28px;padding-top:12px;border-top:1px solid var(--line)}
+@font-face{font-family:'BaiqiGeorgiaDigits';src:local('Georgia');unicode-range:U+0030-0039}
+/* 預覽與列印沿用結帳系統舊版對帳單的版面，不再用較窄的 13px 表格。 */
+.paper{box-sizing:border-box;width:210mm;max-width:none;margin:22px auto;padding:12mm;background:#fffefa;color:#293d38;box-shadow:0 8px 35px #0001}
+.paper .report-page{box-sizing:border-box;width:100%;padding:0;background:#fffefa;color:#293d38;font-family:'BaiqiGeorgiaDigits','Noto Serif TC','Source Han Serif TC','思源宋體','PMingLiU',serif;font-size:15px;font-weight:700;line-height:1.48}
+.paper .report-page,.paper .report-page *{font-family:'BaiqiGeorgiaDigits','Noto Serif TC','Source Han Serif TC','思源宋體','PMingLiU',serif;font-variant-numeric:lining-nums;text-rendering:optimizeLegibility}
+.paper .report-overview .invoice-header{margin-bottom:10px;padding-bottom:8px}
+.paper .report-overview .info-boxes{margin-bottom:8px;gap:10px}
+.paper .report-overview .info-box-title{padding:5px 10px}
+.paper .report-overview .info-table td{padding:4px 8px;font-size:14px;line-height:1.25}
+.paper .report-overview .report-section-title{padding:6px 10px;margin:9px 0 6px}
+.paper .report-overview .data-table{margin-bottom:10px}
+.paper .report-overview .report-totals{margin-top:10px;width:330px}
+.paper .report-overview .report-totals > div{font-size:15px}
+.paper .report-overview .report-totals .report-grand{font-size:20px}
+.paper .report-overview .data-table th{padding:7px 8px;font-size:16px}
+.paper .report-overview .data-table td{padding:6px 8px;font-size:16px;line-height:1.25}
+.paper .invoice-header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:2.5px solid #b69b68;padding:0 0 13px;margin:0 0 19px}
+.paper .invoice-title{font-size:27px;line-height:1.25;font-weight:900;letter-spacing:1.1px;color:#173c36}
+.paper .report-heading{font-size:22px;line-height:1.3;font-weight:900;letter-spacing:1px;color:#173c36;white-space:nowrap}
+.paper .report-dept-meta{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:0 0 17px;color:#50645d;font-size:15px}
+.paper .report-dept-meta b{font-size:20px;color:#173c36;font-weight:900}
+.paper .report-section-title{font-size:19px;line-height:1.35;letter-spacing:.5px;font-weight:900;color:#173c36;background:#f5f0e5;border-left:5px solid #b69b68;padding:10px 13px;margin:19px 0 11px}
+.paper .info-boxes{display:flex;gap:13px;margin-bottom:18px}
+.paper .info-box{flex:1;min-width:0;background:#fffefa;border:1px solid #d8cdb6;border-radius:7px;overflow:hidden}
+.paper .info-box-title{color:#fff;background:#173c36;padding:10px 12px;font-size:15px;font-weight:900;letter-spacing:.5px}
+.paper .info-table{width:100%;border-collapse:collapse;margin:0}
+.paper .info-table td{font-size:15px;padding:10px 11px;line-height:1.4;color:#293d38;border:0;border-bottom:1px solid #e9e3d8;text-align:left;overflow-wrap:anywhere}
+.paper .info-table td:first-child{width:102px;background:#f9f6ef;font-weight:900;color:#38564a;border-right:1px solid #e9e3d8}
+.paper .data-table,.paper .detail-table{width:100%;border-collapse:collapse;margin-bottom:15px;font-size:17px}
+.paper .data-table th,.paper .detail-table th{background:#173c36;color:#fff;border:1px solid #173c36;padding:12px 9px;font-size:17px;font-weight:900;line-height:1.4;text-align:center}
+.paper .data-table td,.paper .detail-table td{color:#243b33;border:1px solid #d9dfd8;padding:11px 9px;font-size:17px;line-height:1.45;font-weight:800;text-align:center}
+.paper tbody tr:nth-child(even):not(.total-row){background:#f8f8f2}
+.paper .total-row td{background:#eaf0e8;color:#173c36;font-size:15px;font-weight:900;border-top:2px solid #b69b68}
+.paper .monthly-table td:nth-child(n+2),.paper .detail-table td:first-child,.paper .detail-table td:nth-child(n+3),.paper .report-totals b{font-variant-numeric:tabular-nums lining-nums;letter-spacing:.2px}
+.paper .report-totals{box-sizing:border-box;margin:20px 0 0 auto;width:370px;max-width:100%;background:#f8f5ed;border:1px solid #d8c9a8;border-top:3px solid #b69b68;border-radius:7px;padding:13px 17px}
+.paper .report-totals > div{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:8px 0;font-size:16px}
+.paper .report-totals .report-grand{border-top:1.5px solid #b69b68;color:#173c36;font-size:21px;font-weight:900;padding-top:12px}
+.paper .report-department{margin-top:28px;padding-top:16px;border-top:1px dashed #d8cdb6}
 @media(max-width:720px){
  .wrap{padding:19px 16px}
  .head,.intro{align-items:flex-start;display:block}
@@ -79,14 +106,24 @@ p{line-height:1.6}
  .card{padding:19px}
  .amount{font-size:26px}
  .overlay{padding:12px}
- .paper{margin:12px auto;padding:16px}
+ .preview-head{align-items:flex-start;flex-wrap:wrap;padding:12px 14px}
+}
+@media(max-width:900px){
+ .paper{zoom:min(1, calc(100cqw / 210mm));margin:8px auto}
 }
 @media print{
- body *{visibility:hidden}
- #preview,#preview *{visibility:visible}
- #preview{display:block !important;position:absolute;inset:0;background:#fff}
- #preview .preview-head{display:none !important}
- .paper{box-shadow:none;margin:0;width:auto}
+ @page{size:A4 portrait;margin:0}
+ html,body{margin:0 !important;padding:0 !important;background:#fff !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+ body:has(#preview.show) header,body:has(#preview.show) main,body:has(#preview.show) .overlay{display:none !important}
+ #preview.show{display:block !important;position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;height:auto !important}
+ #preview.show .preview-head{display:none !important}
+ #preview.show .scroll{display:block !important;overflow:visible !important;height:auto !important}
+ #preview.show .paper{zoom:1 !important;box-shadow:none !important;margin:0 !important;width:auto !important;min-width:0 !important;max-width:none !important;padding:12mm !important;background:#fffefa !important}
+ #preview.show .paper .report-department{margin:0 !important;padding:0 !important;border:0 !important;break-before:page !important;page-break-before:always !important;break-inside:auto;page-break-inside:auto}
+ #preview.show .paper .report-page .monthly-table tr,#preview.show .paper .report-page .detail-table tr{page-break-inside:avoid;break-inside:avoid}
+ #preview.show .paper .data-table thead,#preview.show .paper .detail-table thead{display:table-header-group}
+ #preview.show .paper .invoice-header,#preview.show .paper .report-dept-meta,#preview.show .paper .report-section-title{break-after:avoid;page-break-after:avoid}
+ #preview.show .paper .report-totals{break-inside:avoid;page-break-inside:avoid}
 }
 </style>
 </head>
