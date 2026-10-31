@@ -154,6 +154,7 @@ import {
     statementFileBase,
 } from './statement-case.js?v=20261030-statement-dispatch';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 
 const params = new URLSearchParams(location.search);
 const localOnly = params.get('store') === 'local';
@@ -336,13 +337,23 @@ async function prepareAndContinue() {
     if (!name) { alert('請先填 LINE 收件名稱，同事才知道要傳給誰。'); return; }
     chosenFormat = $('format')?.value || 'xlsx';
     const expected = selected.latestVersion;
+    // 分享與列印都要留在這次點擊裡。先交出檔案，再等收件人寫入。
+    let handoff;
+    try { handoff = beginPrepareFile(selected, chosenFormat); }
+    catch (error) { handoff = Promise.reject(error); }
+    const handoffResult = handoff.then(
+        () => ({ ok: true }),
+        error => ({ ok: false, error }),
+    );
     busy = true;
     $('next').disabled = true;
     try {
-        try { await repo.saveRecipient(selected.id, name); }
+        const savePromise = repo.saveRecipient(selected.id, name);
+        try { await savePromise; }
         catch (error) { if (!error.queued) throw error; }
         selected.lineRecipient = name;
-        await prepareFile(selected, chosenFormat);
+        const delivered = await handoffResult;
+        if (!delivered.ok) throw delivered.error;
         if (selected.state === 'sent') {
             $('overlay').classList.remove('show');
             await reload();
@@ -371,25 +382,32 @@ function showSentConfirm(expectedVersion) {
     $('next').dataset.testid = 'mark-sent';
     $('next').onclick = () => markSent(expectedVersion);
 }
-async function prepareFile(item, format) {
+function beginPrepareFile(item, format) {
     const version = latestVersion(item);
     if (!version) throw new Error('找不到帳單內容。');
+    const mobile = isPhoneShareDevice(navigator);
     if (format === 'pdf') {
         showPreview(item);
-        window.print();
-        return;
+        return handoffStatementFile({
+            format: 'pdf',
+            mobile,
+            print: () => window.print(),
+        });
     }
     if (!window.XLSX) throw new Error('Excel 元件還沒載入，請稍後再試。');
     const workbook = buildStatementWorkbook(window.XLSX, version.snapshot);
     const filename = `${statementFileBase(version.snapshot)}.xlsx`;
     const bytes = window.XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     const file = new File([bytes], filename, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: filename }); }
-        catch (error) { if (error?.name !== 'AbortError') throw error; }
-        return;
-    }
-    window.XLSX.writeFile(workbook, filename);
+    return handoffStatementFile({
+        format: 'xlsx',
+        mobile,
+        file,
+        filename,
+        download: () => window.XLSX.writeFile(workbook, filename),
+        share: typeof navigator.share === 'function' ? data => navigator.share(data) : undefined,
+        canShare: typeof navigator.canShare === 'function' ? data => navigator.canShare(data) : undefined,
+    });
 }
 async function markSent(expectedVersion) {
     if (!selected || busy) return;
