@@ -199,7 +199,7 @@ import {
     statementFileBase,
     dispatchHotelName,
 } from './statement-case.js?v=20261031-logistics-name';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261101-parallel-read';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261101-cache-fix';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261101-search';
 
@@ -554,6 +554,7 @@ async function reload() {
             console.error('送件中心雲端讀取失敗', result.cloudError);
             showBanner(`雲端暫時讀不到，現在顯示這台裝置暫存的清單。${detail} 請重新整理；若仍有問題，請提供此訊息。`);
         }
+        else if (result.cacheError) showBanner('已成功讀取雲端帳單，但這台裝置的暫存空間不足或無法使用；離線時可能無法查看最新資料。');
         else if (cases.some(item => item.cloudPending)) showBanner('有帳單還在補送雲端，其他電腦暫時看不到。請稍後按重新整理。');
         else showBanner('');
         render();
