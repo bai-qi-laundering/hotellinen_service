@@ -11,6 +11,7 @@ const root=document.getElementById('receivables');
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const PAYMENT_CONFIG=[{"name":"洲際","issuer":"百麒國際","method":"transfer","order":3,"taxId":"91097496","title":"遠洋投資(股)公司高雄分公司"},{"name":"然一","issuer":"百麒國際","method":"transfer","order":4,"taxId":"59269713","title":"御盟酒店(股)公司灣區分公司"},{"name":"然一-客衣","issuer":"百麒國際","method":"transfer","order":5,"taxId":"59269713","title":"御盟酒店(股)公司灣區分公司"},{"name":"驛館","issuer":"百麒國際","method":"transfer","order":6,"taxId":"92165561","title":"御盟國際驛館(股)公司高雄營業所"},{"name":"驛館-餐廳","issuer":"百麒國際","method":"transfer","order":7,"taxId":"92165561","title":"御盟國際驛館(股)公司高雄營業所"},{"name":"H2O","issuer":"百麒國際","method":"transfer","order":8,"taxId":"24978226","title":"水京棧國際酒店(股)公司"},{"name":"萊特薇庭","issuer":"百麒國際","method":"transfer","order":9,"taxId":"51519007","title":"新薇(股)公司"},{"name":"良站前","issuer":"百麒國際","method":"cheque","order":10,"taxId":"27696636","title":"長揚建設(股)公司"},{"name":"良西+良一","issuer":"百麒國際","method":"cheque","order":11,"taxId":"53589534","title":"碧港良居商旅(股)公司"},{"name":"英迪格","issuer":"百麒國際","method":"transfer","order":12,"taxId":"83603127","title":"頭等艙飯店有限公司英迪格分公司"},{"name":"富野","issuer":"百麒國際","method":"transfer","order":13,"taxId":"54534755","title":"富野大飯店(股)公司高雄分公司"},{"name":"帕鉑","issuer":"百麒國際","method":"transfer","order":14,"taxId":"59234476","title":"承崗開發(股)公司"},{"name":"候工所","issuer":"百麒國際","method":"transfer","order":15,"taxId":"94169640","title":"承崗開發(股)公司高雄港分公司"},{"name":"承億藝術","issuer":"百麒國際","method":"transfer","order":16,"taxId":"","title":""},{"name":"天子閤","issuer":"百麒國際","method":"cheque","order":17,"taxId":"54204229","title":"欣城資產開發(股)公司"},{"name":"塩旅","issuer":"百麒國際","method":"cheque","order":18,"taxId":"83154466","title":"泊思餐旅管理顧問有限公司"},{"name":"日航","issuer":"百麒國際","method":"transfer","order":19,"taxId":"94196668","title":"大和飯店管理顧問(股)公司"},{"name":"好地方","issuer":"百麒國際","method":"transfer","order":20,"taxId":"54214520","title":"好地方三多(股)公司"},{"name":"好地方六合館","issuer":"百麒國際","method":"transfer","order":21,"taxId":"89164743","title":"好地方六合(股)公司"},{"name":"文旅","issuer":"百麒國際","method":"transfer","order":22,"taxId":"54196261","title":"好地方飯店(股)公司"},{"name":"文旅七賢館","issuer":"百麒國際","method":"transfer","order":23,"taxId":"93781043","title":"高雄旅居文旅(股)公司七賢分公司"},{"name":"文旅一心館","issuer":"百麒國際","method":"transfer","order":24,"taxId":"90464037","title":"高雄旅居文旅(股)公司"},{"name":"捷中正","issuer":"百麒國際","method":"cheque","order":25,"taxId":"53678682","title":"悅寶企業(股)公司高雄中正分公司"},{"name":"捷站前","issuer":"百麒國際","method":"cheque","order":26,"taxId":"24796632","title":"悅寶企業(股)公司高雄站前分公司"},{"name":"鈞怡","issuer":"百麒國際","method":"cheque","order":27,"taxId":"59256463","title":"鈞晟(股)公司"},{"name":"宮賞","issuer":"百麒國際","method":"cheque","order":28,"taxId":"29025389","title":"宮賞國際(股)公司"},{"name":"家和","issuer":"百麒國際","method":"cheque","order":29,"taxId":"22061748","title":"鈞統興業有限公司"},{"name":"秝芯","issuer":"百麒國際","method":"cheque","order":30,"taxId":"79808746","title":"秝芯旅店"},{"name":"秝二","issuer":"百麒國際","method":"cheque","order":31,"taxId":"42803537","title":"秝芯旅店(股)公司"},{"name":"比歐","issuer":"百麒國際","method":"transfer","order":32,"taxId":"54638055","title":"比歐旅館事業有限公司"},{"name":"河畔","issuer":"百麒國際","method":"transfer","order":33,"taxId":"59701112","title":"河畔文旅(股)公司"},{"name":"駱駝","issuer":"百麒國際","method":"transfer","order":34,"taxId":"54192434","title":"駱駝旅棧(股)公司"},{"name":"媚力泊","issuer":"百麒國際","method":"cheque","order":35,"taxId":"24685592","title":"光力開發實業有限公司"},{"name":"頭等艙","issuer":"百麒國際","method":"transfer","order":36,"taxId":"42989392","title":"頭等艙飯店有限公司高雄站前分公司"},{"name":"喜達絲","issuer":"百麒國際","method":"transfer","order":37,"taxId":"53236645","title":"全球商旅有限公司"},{"name":"癮室","issuer":"百麒國際","method":"transfer","order":38,"taxId":"80664084","title":"癮室(股)公司"},{"name":"鴨點棧-華夏","issuer":"百麒國際","method":"transfer","order":39,"taxId":"62163056","title":"高禾鴨有限公司"},{"name":"鴨點棧-明誠","issuer":"百麒國際","method":"transfer","order":40,"taxId":"83788047","title":"鴨點棧有限公司"},{"name":"禾寓","issuer":"百麒國際","method":"transfer","order":41,"taxId":"60390153","title":"禾寓餐飲有限公司"},{"name":"高廬","issuer":"百麒國際","method":"transfer","order":42,"taxId":"82682741","title":"高廬餐飲小吃館"},{"name":"禾鮨","issuer":"百麒國際","method":"transfer","order":43,"taxId":"93512646","title":"禾餐飲有限公司"},{"name":"鼎王-七賢店","issuer":"百麒國際","method":"transfer","order":44,"taxId":"53550600","title":"鼎王國際餐飲股份有限公司高雄七賢分公司"},{"name":"鼎王-富國店","issuer":"百麒國際","method":"transfer","order":45,"taxId":"53738226","title":"鼎王國際餐飲股份有限公司高雄富國分公司"},{"name":"無老鍋","issuer":"百麒國際","method":"transfer","order":46,"taxId":"94221603","title":"鼎王國際餐飲股份有限公司無老鍋高雄苓雅分公司"},{"name":"歐遊","issuer":"百麒國際","method":"transfer","order":47,"taxId":"28903562","title":"歐遊國際(股)公司高雄分公司"},{"name":"承億","issuer":"百麒","method":"transfer","order":49,"taxId":"90373873","title":"承億酒店(股)公司"},{"name":"花季","issuer":"百麒","method":"cheque","order":50,"taxId":"28596678","title":"花季飯店事業(股)公司大崗山分公司"},{"name":"巨蛋","issuer":"百富","method":"cheque","order":52,"taxId":"53902289","title":"裕力開發有限公司"},{"name":"老新","issuer":"日聖","method":"cheque","order":54,"taxId":"24667567","title":"老新餐飲有限公司"},{"name":"永心","issuer":"日聖","method":"cheque","order":55,"taxId":"72185131","title":"永心鳳茶有限公司同盟營業所"},{"name":"福客來","issuer":"日聖","method":"transfer","order":56,"taxId":"28616647","title":"福客來中餐廳有限公司"},{"name":"林森","issuer":"日聖","method":"transfer","order":57,"taxId":"28306262","title":"南北樓餐飲事業有限公司"},{"name":"建工","issuer":"日聖","method":"transfer","order":58,"taxId":"53232649","title":"逢友園餐廳有限公司"},{"name":"雅樂十刻","issuer":"日聖","method":"transfer","order":59,"taxId":"60589437","title":"十刻好時光有限公司"},{"name":"雅樂廚苑","issuer":"日聖","method":"transfer","order":60,"taxId":"71456851","title":"怡廚商號"}];
+PAYMENT_CONFIG.push({name:'鉑麗',issuer:'未設定開票公司',method:'transfer',order:9998,taxId:'',title:'',settlement:'月底'});
 const ISSUER_ORDER=['百麒國際','百麒','百富','日聖','未設定開票公司'];
 const normalizeName=s=>String(s||'').normalize('NFKC').replace(/[\s\-－＋+／/()（）]/g,'').toLowerCase();
 function customerConfig(c){
@@ -28,11 +29,31 @@ function billingMonth(now=new Date()){
  const date=new Date(Date.UTC(parts.year,parts.month-1-(parts.day<=24?1:0),1));
  return date.getUTCFullYear()+'-'+String(date.getUTCMonth()+1).padStart(2,'0');
 }
-root.innerHTML=`<h2>貨款登記</h2><p>金額沿用已寄送的對帳單。</p><div class="ledger-tools"><label>月份 <input id="ledger-month" type="month" value="${billingMonth()}"></label><input id="ledger-search" placeholder="搜尋飯店" aria-label="搜尋飯店"><select id="ledger-filter" aria-label="篩選"><option value="">全部</option><option>待重寄</option><option>未開票</option><option>開票後有變</option></select><button id="ledger-refresh" type="button">重新整理</button></div><p id="ledger-message" role="status"></p><div id="ledger-list"></div><dialog id="ledger-dialog"><form id="ledger-form"><h2 id="ledger-title"></h2><div id="ledger-fields"></div><p id="ledger-error" role="alert"></p><footer><button type="button" id="ledger-cancel">返回</button><button id="ledger-save">儲存</button></footer></form></dialog>`;
+root.innerHTML=`<h2>貨款登記</h2><p>金額沿用已寄送的對帳單，單位：新臺幣元。</p><div class="ledger-tools"><label>月份 <input id="ledger-month" type="month" value="${billingMonth()}"></label><input id="ledger-search" placeholder="搜尋飯店" aria-label="搜尋飯店"><select id="ledger-filter" aria-label="篩選"><option value="">全部</option><option>待重寄</option><option>未開票</option><option>開票後有變</option></select><button id="ledger-refresh" type="button">重新整理</button></div><div class="ledger-summary" aria-label="本月已寄送帳單統計"><div><span>未開立發票</span><strong id="ledger-uninvoiced">—</strong><span>間</span></div><div><span>未收到款項</span><strong id="ledger-unpaid">—</strong><span>間</span></div></div><p id="ledger-message" role="status"></p><div id="ledger-list"></div><dialog id="ledger-dialog"><form id="ledger-form"><h2 id="ledger-title"></h2><div id="ledger-fields"></div><p id="ledger-error" role="alert"></p><footer><button type="button" id="ledger-cancel">返回</button><button id="ledger-save">儲存</button></footer></form></dialog>`;
 const $=id=>document.getElementById('ledger-'+id);
 async function timeout(p){let t;try{return await Promise.race([p,new Promise((_,r)=>t=setTimeout(()=>r(Error('雲端讀取逾時，請重試。')),20000))]);}finally{clearTimeout(t);}}
+const amountText=n=>Number(n||0).toLocaleString('zh-TW',{maximumFractionDigits:2});
+function settlementLabel(c){
+ const day=Number(String(c.endDate||'').slice(-2));
+ if(normalizeName(c.customerKey)===normalizeName('鉑麗'))return '月底';
+ const last=new Date(Date.UTC(Number(c.endDate.slice(0,4)),Number(c.endDate.slice(5,7)),0)).getUTCDate();
+ return day===last?'月底':day+'號';
+}
+function renderSummary(){
+ const month=$('month').value,entries=cases.filter(c=>c.endDate?.startsWith(month)&&ledger(c));
+ const uninvoiced=new Set(),unpaid=new Set();
+ for(const c of entries){
+  const l=ledger(c),key=normalizeName(c.customerKey||c.customerName||c.id);
+  if(invoiceState(c)==='未開票'&&!c.invoiceNumber)uninvoiced.add(key);
+  const received=Number(c.collectionRecord?.receivedAmount)||0;
+  if(Math.round((l.amount-received)*100)>0)unpaid.add(key);
+ }
+ $('uninvoiced').textContent=uninvoiced.size;
+ $('unpaid').textContent=unpaid.size;
+}
 function render(){
  if(!available)return;
+ renderSummary();
  const month=$('month').value,q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
  const rows=cases.filter(c=>c.endDate?.startsWith(month)&&ledger(c)).map(c=>({name:c.customerKey||c.customerName,c,period:{start:c.startDate,end:c.endDate},status:ledger(c).pending?'待重寄':'已寄送',invoice:invoiceState(c)})).filter(r=>[r.name,r.c?.customerKey,r.c?.customerName].some(n=>String(n||'').toLowerCase().includes(q))&&(!filter||r.status===filter||r.invoice===filter));
  rows.forEach(r=>{r.config=customerConfig(r.c);});
@@ -40,17 +61,19 @@ function render(){
   const companyRank=r=>{const index=ISSUER_ORDER.indexOf(r.config.issuer);return index<0?ISSUER_ORDER.length:index;};
   return companyRank(a)-companyRank(b)||a.config.issuer.localeCompare(b.config.issuer,'zh-TW')||Number(a.c.endDate.slice(-2))-Number(b.c.endDate.slice(-2))||a.config.order-b.config.order||a.name.localeCompare(b.name,'zh-TW')||a.c.id.localeCompare(b.c.id);
  });
+ const totals=rows.reduce((sum,r)=>{const l=ledger(r.c);sum.net+=Number(l.snapshot.totals.afterRebate)||0;sum.tax+=Number(l.snapshot.totals.tax)||0;sum.gross+=l.amount;return sum;},{net:0,tax:0,gross:0});
+ const footer='<tfoot><tr><th colspan="4">結算總金額</th><td class="ledger-money">'+amountText(totals.net)+'</td><td class="ledger-money">'+amountText(totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(totals.gross)+'</strong></td><td colspan="6"></td></tr></tfoot>';
  let previousIssuer='';
- $('list').innerHTML=rows.length?'<div class="ledger-table-scroll"><table class="ledger-table"><thead><tr>'+['客戶','開立發票','付款','未稅','稅金','含稅','入帳日','入帳金額','到期日','票號','銀行','分行'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>{
+ $('list').innerHTML=rows.length?'<div class="ledger-table-scroll"><table class="ledger-table"><colgroup><col style="width:76px"><col style="width:190px"><col style="width:132px"><col style="width:70px"><col style="width:108px"><col style="width:100px"><col style="width:108px"><col style="width:142px"><col style="width:110px"><col style="width:142px"><col style="width:120px"><col style="width:100px"><col style="width:210px"></colgroup><thead><tr>'+['結帳日','客戶','開立發票','付款','未稅','稅金','含稅','入帳日','入帳金額','到期日','票號','銀行','分行'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>{
  const l=ledger(r.c),v=r.c.collectionRecord||{},disabled=l.pending?'disabled':'';
  const field=(key,type='text')=>'<input data-field="'+key+'" type="'+type+'" value="'+esc(v[key]??'')+'" aria-label="'+esc(r.name+' '+({receivedDate:'入帳日',receivedAmount:'入帳金額',dueDate:'支票到期日',chequeNumber:'支票號碼',bank:'銀行',branch:'分行'}[key]||key))+'" '+(type==='number'?'min="0" step="0.01" ':'')+disabled+'>';
  const invoice=l.invoice?.number||r.c.invoiceNumber||'';
  const title=l.snapshot.profile?.name||r.config.title||r.c.customerName||'';
- const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="12">'+esc(r.config.issuer)+'</th></tr>':'';
+ const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="13">'+esc(r.config.issuer)+'</th></tr>':'';
  previousIssuer=r.config.issuer;
  const invoiceCell=invoice?'<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">'+esc(invoice)+'</span>':'<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="先在平台開票，再登記發票號碼">開立發票</button>';
- return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+formatCardAmount(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+formatCardAmount(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+formatCardAmount(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><small class="ledger-row-status" role="status"></small></td></tr>';
- }).join('')+'</tbody></table></div>':'<p>此條件沒有紀錄。</p>';
+ return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><small class="ledger-row-status" role="status"></small></td></tr>';
+ }).join('')+'</tbody>'+footer+'</table></div>':'<p>此條件沒有紀錄。</p>';
  $('list').querySelectorAll('[data-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.invoice,'invoice'));
  $('list').querySelectorAll('[data-collection]').forEach(b=>b.onclick=()=>saveCollection(b));
 }
@@ -67,13 +90,13 @@ async function saveCollection(button){
    saved=applyLedger({id,...snap.data()},l.version,'collection',payload,new Date().toISOString());
    tx.set(ref,saved);
   });
-  cases=cases.map(item=>item.id===id?saved:item);status.textContent='已儲存';
+  cases=cases.map(item=>item.id===id?saved:item);status.textContent='已儲存';renderSummary();
  }catch(error){status.textContent=error.message||'儲存失敗，請重試';}
  finally{button.disabled=false;}
 }
 async function reload(){
  if(new URLSearchParams(location.search).get('store')==='local'){ $('message').textContent='本機檢查模式：不讀寫正式貨款資料。';return; }
- const token=++sequence;available=false;$('list').textContent='讀取中…';$('message').textContent='';
+ const token=++sequence;available=false;$('uninvoiced').textContent='—';$('unpaid').textContent='—';$('list').textContent='讀取中…';$('message').textContent='';
  try{
  const result=await timeout(repo.list({skipFlush:true,month:$('month').value}));
  if(token!==sequence)return;
