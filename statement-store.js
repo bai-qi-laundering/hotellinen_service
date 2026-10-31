@@ -213,11 +213,14 @@ export function createFirestoreRepository(db, fns, storage) {
             saveOutbox(remain);
             return remain;
         },
-        async list() {
+        async list({ skipFlush = false } = {}) {
             let remain = emptyOutbox();
             let cloudError = null;
-            try { remain = await this.flush(); }
-            catch (error) { cloudError = error; }
+            if (skipFlush) remain = outbox();
+            else {
+                try { remain = await this.flush(); }
+                catch (error) { cloudError = error; }
+            }
             const overlay = async cases => {
                 let next = cases.map(item => ({ ...item, cloudPending: false }));
                 for (const item of remain.publishes) {
