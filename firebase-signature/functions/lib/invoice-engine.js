@@ -1,10 +1,9 @@
-// Pricing functions copied verbatim from finance.html 37c5ab8d570c43ed9f8d68930d2e4051e575ec57.
-// Re-sync this adapter when the finance formulas change; parity is covered by tests.
+// Pricing formulas shared with finance.html. Parity is covered by tests.
 import { snapshotFromParts } from './statement-case.js';
+import { catalogPrice, datedPrice, unitPriceForRecord } from './price-catalog.js';
 export function createInvoiceEngine(options) {
 const { logisticsMasterItems, pricingRules, effectivePriceRules, sheetPrices, customPrices, sheetClients, rawLogisticsData } = options;
 const MERGE_ALL_KEY = '__MERGE_ALL_SELECTED__';
-const roundHolidayPrice = n => Math.round((Number(n) + Number.EPSILON) * 10) / 10;
 function getLogisticsItemSortIndex(hotelName, itemName) {
     let expectedOrder = logisticsMasterItems.filter(d => d.hotel === hotelName).map(d => d.item);
     if (expectedOrder.length === 0) expectedOrder = [...new Set(logisticsMasterItems.map(d => d.item))];
@@ -42,43 +41,18 @@ function managementFeeForReport(company, records) {
   return {percent:Number(rule.percent)||0, amount:Math.round(base * (Number(rule.percent)||0) / 100), base};
 }
 
-function baseRecordPrice(r) {
-  if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
-  return Number(getPrice(r.hotel,r.item,r.date)) || 0;
+function priceCatalog() {
+  return { rules: effectivePriceRules, customPrices, sheetPrices };
 }
-
-function reportRecordPrice(r) {
-  const effective = datedPriceFor(r.hotel,r.item,r.date);
-  if (effective !== null) {
-    const holiday=activeHolidayRule(r.parentCompany,r.date);
-    return holiday ? roundHolidayPrice(effective*(1+holiday.percent/100)) : effective;
-  }
-  if (r.manualPriceOverride) return Number(r.currentPrice !== undefined ? r.currentPrice : r.savedPrice) || 0;
-  const original = baseRecordPrice(r);
-  const rule = activeHolidayRule(r.parentCompany, r.date);
-  return rule ? roundHolidayPrice(original * (1 + rule.percent / 100)) : original;
-}
-
 function datedPriceFor(hotel, item, date) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-    const key = `${hotel}_${item}`;
-    const rule = effectivePriceRules.filter(x => x.key===key && x.start<=date)
-      .sort((a,b)=>b.start.localeCompare(a.start))[0];
-    return rule ? Number(rule.price) : null;
+  return datedPrice(effectivePriceRules, hotel, item, date);
 }
-
 function getPrice(hotelName, item, date=null) {
-    const dated=datedPriceFor(hotelName,item,date);
-    if (dated !== null) return dated;
-    let exactKey = `${hotelName}_${item}`;
-    if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
-    if (sheetPrices[exactKey] !== undefined) return sheetPrices[exactKey];
-
-    let unifiedKey = `${hotelName}_統一折扣`;
-    if (customPrices[unifiedKey] !== undefined && customPrices[unifiedKey] !== "") return Number(customPrices[unifiedKey]);
-    if (sheetPrices[unifiedKey] !== undefined) return sheetPrices[unifiedKey];
-
-    return null;
+  return catalogPrice({ hotel: hotelName, item, date, ...priceCatalog() }).price;
+}
+function reportRecordPrice(r) {
+  const holiday = activeHolidayRule(r.parentCompany, r.date);
+  return unitPriceForRecord(r, priceCatalog(), holiday ? holiday.percent : 0);
 }
 
 function distinctShipmentRows(records) {
@@ -119,6 +93,9 @@ function buildInvoiceReport(targetVal) {
         const name = r.hotel;
         if (!depts[name]) depts[name] = { records: [], summary: {}, total: 0 };
         const price = reportRecordPrice(r);
+        if (price === null || !Number.isFinite(price)) {
+            throw new Error(`單價尚未取得（${r.hotel} ${r.date} ${r.item}）。已停止產生對帳單，避免以 0 元出帳。`);
+        }
         const qty = Number(r.qty) || 0;
         const amount = qty * price;
         depts[name].records.push({ docId: r.docId, rowId: r.rowId, date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
