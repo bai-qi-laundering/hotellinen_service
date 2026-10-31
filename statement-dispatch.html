@@ -199,7 +199,7 @@ import {
     statementFileBase,
     dispatchHotelName,
 } from './statement-case.js?v=20261031-logistics-name';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261101-cache-fix';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261101-month-query';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261101-search';
 
@@ -218,6 +218,7 @@ let repoDb = null;
 let repoFs = null;
 let firebaseApp = null;
 let pendingRead = null;
+let pendingMonth = null;
 let readGeneration = 0;
 let hasLoaded = false;
 let syncStarted = false;
@@ -270,6 +271,8 @@ async function setup() {
         doc: fsMod.doc,
         runTransaction: fsMod.runTransaction,
         collection: fsMod.collection,
+        query: fsMod.query,
+        where: fsMod.where,
         getDocsFromServer: fsMod.getDocsFromServer,
     }, localStorage);
     (async () => { try {
@@ -529,14 +532,16 @@ async function markSent(expectedVersion) {
 async function reload() {
     if (!repo) return;
     $('refresh').disabled = true;
+    const generation = ++readGeneration;
     try {
-        if (!pendingRead) {
-            const read = repo.cloud ? repo.list({ skipFlush: true }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
+        const selectedMonth = $('filterMonth').value;
+        if (!pendingRead || pendingMonth !== selectedMonth) {
+            pendingMonth = selectedMonth;
+            const read = repo.cloud ? repo.list({ skipFlush: true, month: selectedMonth }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
             pendingRead = read;
             read.finally(() => { if (pendingRead === read) pendingRead = null; }).catch(() => {});
         }
         const currentRead = pendingRead;
-        const generation = ++readGeneration;
         let result;
         try {
             result = await withTimeout(currentRead, 15000, '雲端讀取超過 15 秒，尚未確認是否有帳單。請檢查網路後按重新整理。');
@@ -561,27 +566,29 @@ async function reload() {
         if (repo.cloud && !result.fromCache && !syncStarted) {
             syncStarted = true;
             repo.flush().then(remain => {
-                if (!remain.publishes.length && !remain.registers.length && !remain.recipients.length) reload();
+                if (!remain.publishes.length && !remain.registers.length && !remain.recipients.length && cases.some(item => item.cloudPending)) reload();
             }).catch(error => console.warn('待同步資料補送失敗', error));
         }
     } catch (error) {
+        if (generation !== readGeneration) return;
         showBanner(error.message || '送件清單讀取失敗。');
         if (!hasLoaded) $('cards').textContent = '尚未完成讀取，無法確認帳單是否存在。';
         else render();
     } finally {
-        $('refresh').disabled = false;
+        if (generation === readGeneration) $('refresh').disabled = false;
     }
 }
 function money(value) {
     return `$${Number(value || 0).toLocaleString('zh-TW')}`;
 }
 $('cancel').onclick = () => $('overlay').classList.remove('show');
-$('filterMonth').addEventListener('input', render);
+$('filterMonth').addEventListener('input', () => { hasLoaded = false; render(); reload(); });
 $('filterHotel').addEventListener('input', render);
 $('clearSearch').onclick = () => {
+    const changedMonth = !!$('filterMonth').value;
     $('filterMonth').value = '';
     $('filterHotel').value = '';
-    render();
+    if (changedMonth) { hasLoaded = false; render(); reload(); } else render();
 };
 $('closePreview').onclick = closePreview;
 $('printStatement').onclick = () => window.print();
