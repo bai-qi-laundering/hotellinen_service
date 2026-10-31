@@ -215,34 +215,12 @@ body { background: white; padding: 0; margin: 0; }
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div class="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-100">
-            <h3 class="font-bold text-orange-800 mb-4 border-b border-orange-200 pb-2">2. 快速載入群組名單：</h3>
-            <div class="flex flex-col gap-3">
-                <button onclick="quickSelectGroup('25th')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
-                </button>
-                <button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 月底結帳飯店
-                </button>
-                <button onclick="quickSelectGroup('1st')" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 1號結帳飯店
-                </button>
-                <p class="text-sm text-violet-900 font-bold m-0">1 號與月底同一段曆月，次月 1 日才出帳。例如 11/1 產生 10/1–10/31，請把上面的日期調成這段再產生。</p>
-                <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
-                    <span>☐</span> 清空所有勾選
-                </button>
-            </div>
-        </div>
-
-        <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 flex flex-col">
-            <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">3. 關鍵字過濾 (自訂選單)：</h3>
-            <div class="flex flex-col gap-3 flex-1">
-                <input type="text" id="keywordFilter" oncompositionstart="setHotelKeywordComposing(true)" oncompositionend="setHotelKeywordComposing(false)" oninput="filterCheckboxes(event)" onkeyup="filterCheckboxes(event)" placeholder="輸入關鍵字 (例: 泊)..." class="w-full p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm">
-                <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center gap-2 justify-center w-full mt-auto">
-                    <span class="bg-white/20 p-1 rounded text-xs">☑️</span> 全選下方目前顯示的飯店
-                </button>
-            </div>
+    <div class="bg-blue-50 p-5 rounded-xl shadow-sm border border-blue-100 mb-6">
+        <h3 class="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">2. 搜尋及選擇飯店：</h3>
+        <div class="flex flex-wrap gap-3">
+            <input type="text" id="keywordFilter" oncompositionstart="setHotelKeywordComposing(true)" oncompositionend="setHotelKeywordComposing(false)" oninput="filterCheckboxes(event)" onkeyup="filterCheckboxes(event)" placeholder="輸入飯店關鍵字..." class="p-2.5 border border-blue-300 rounded-lg outline-none focus:border-blue-600 font-bold text-blue-900 shadow-sm flex-1 min-w-[180px]">
+            <button onclick="selectAllVisible()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">全選目前顯示的飯店</button>
+            <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg">清空所有勾選</button>
         </div>
     </div>
 
