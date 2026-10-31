@@ -185,8 +185,12 @@ body { background: white; padding: 0; margin: 0; }
 <h1 class="text-3xl font-black text-gray-800 flex items-center gap-2">
 百麒國際股份有限公司 <span class="text-amber-700">💼</span> 多維財務結帳大腦
 </h1>
+<div class="flex items-center gap-2">
 <div id="syncStatus" class="text-sm font-bold text-gray-500 bg-gray-200 px-3 py-1 rounded-full shadow-sm">⏳ 尚未同步大腦資料</div>
+<button type="button" id="retryPriceBtn" onclick="retryPriceCatalog()" class="hidden bg-red-700 hover:bg-red-800 text-white text-sm font-bold px-3 py-1 rounded-full">重試讀取價格</button>
 </div>
+</div>
+<div id="priceLoadAlert" class="hidden mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800" role="alert"></div>
 
 <!-- ★ 系統分頁切換 (三大系統) -->
 <div class="flex gap-2 sm:gap-4 border-b border-gray-300 mb-6 overflow-x-auto custom-scroll pb-1">
@@ -519,6 +523,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot } from './logistics-items.js?v=20261019-same-names';
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261030-statement-dispatch';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
+import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 
 const firebaseConfig = {
@@ -550,7 +555,7 @@ const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 
 // 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
 const LOCAL_CACHE_KEYS = {
-    financeMaster: 'baiqi_finance_master_v2',
+    financeMaster: 'baiqi_finance_master_v3',
     pricingRules: 'baiqi_pricing_rules_v2',
     itemOrder: 'baiqi_item_order_v2'
 };
@@ -609,7 +614,6 @@ let pricingRules = {holidays:[], rebates:[], managementFees:[]};
 const cachedPricingRules = readLocalJson(LOCAL_CACHE_KEYS.pricingRules);
 if (cachedPricingRules?.data) pricingRules = cachedPricingRules.data;
 let pricingRulesPending = null, pricingRulesReady = false;
-const roundHolidayPrice = n => Math.round((Number(n) + Number.EPSILON) * 10) / 10;
 function activeHolidayRule(company, date) {
   return pricingRules.holidays.find(r => r.hotel === company && date >= r.start && date <= r.end) || null;
 }
@@ -622,7 +626,9 @@ function rebateForReport(company, records) {
   if (!rule) return {percent:0, amount:0, base:0};
   const eligible = records.reduce((sum,r) => {
     if ((rule.start && r.date < rule.start) || (rule.end && r.date > rule.end)) return sum;
-    return sum + (Number(r.qty)||0) * reportRecordPrice(r);
+    const price = reportRecordPrice(r);
+    if (price === null) return sum;
+    return sum + (Number(r.qty)||0) * price;
   },0);
   const amount = Math.round(eligible * rule.percent / 100);
   return {percent:rule.percent, amount, base:eligible};
@@ -632,24 +638,18 @@ function managementFeeForReport(company, records) {
   if (!rule) return {percent:0, amount:0, base:0};
   const base = records.reduce((sum,r) => {
     if ((rule.start && r.date < rule.start) || (rule.end && r.date > rule.end)) return sum;
-    return sum + (Number(r.qty)||0) * reportRecordPrice(r);
+    const price = reportRecordPrice(r);
+    if (price === null) return sum;
+    return sum + (Number(r.qty)||0) * price;
   }, 0);
   return {percent:Number(rule.percent)||0, amount:Math.round(base * (Number(rule.percent)||0) / 100), base};
 }
-function baseRecordPrice(r) {
-  if (r.savedPrice !== undefined && r.savedPrice !== null && r.savedPrice !== '') return Number(r.savedPrice) || 0;
-  return Number(getPrice(r.hotel,r.item,r.date)) || 0;
+function priceCatalog() {
+  return { rules: effectivePriceRules, customPrices, sheetPrices };
 }
 function reportRecordPrice(r) {
-  const effective = datedPriceFor(r.hotel,r.item,r.date);
-  if (effective !== null) {
-    const holiday=activeHolidayRule(r.parentCompany,r.date);
-    return holiday ? roundHolidayPrice(effective*(1+holiday.percent/100)) : effective;
-  }
-  if (r.manualPriceOverride) return Number(r.currentPrice !== undefined ? r.currentPrice : r.savedPrice) || 0;
-  const original = baseRecordPrice(r);
-  const rule = activeHolidayRule(r.parentCompany, r.date);
-  return rule ? roundHolidayPrice(original * (1 + rule.percent / 100)) : original;
+  const holiday = activeHolidayRule(r.parentCompany, r.date);
+  return unitPriceForRecord(r, priceCatalog(), holiday ? holiday.percent : 0);
 }
 async function ensurePricingRules(force=false) {
   if (pricingRulesReady && !force) return;
@@ -813,21 +813,33 @@ let effectivePriceRules = [];
 let effectivePricesPending = null;
 let pendingEffectivePrices = new Map();
 function datedPriceFor(hotel, item, date) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-    const key = `${hotel}_${item}`;
-    const rule = effectivePriceRules.filter(x => x.key===key && x.start<=date)
-      .sort((a,b)=>b.start.localeCompare(a.start))[0];
-    return rule ? Number(rule.price) : null;
+    return datedPrice(effectivePriceRules, hotel, item, date);
 }
 async function ensureEffectivePrices(force=false) {
     if (effectivePricesPending) return effectivePricesPending;
     if (!force && effectivePricesReady) return;
     effectivePricesPending = (async()=>{
-        const snap=await getDoc(EFFECTIVE_PRICE_REF);
-        effectivePriceRules=snap.exists() && Array.isArray(snap.data().rules) ? snap.data().rules : [];
-        effectivePricesReady=true;
+        const snap = await attemptWithBackoff(
+            () => withTimeout(getDoc(EFFECTIVE_PRICE_REF), 8000, 'Firebase 生效價格'),
+            { attempts: 3, delayMs: 800, onRetry: (n, total) => setFinanceSyncStatus(`🔄 Firebase 生效價格重試 ${n}/${total - 1}…`, 'blue') }
+        );
+        const rules = snap.exists() && Array.isArray(snap.data().rules) ? snap.data().rules : [];
+        if (rules.length) {
+            effectivePriceRules = rules;
+            persistPriceCatalog();
+        }
+        effectivePricesReady = true;
+        if (!priceCatalogDegraded) setPriceAlert('', false, false);
     })();
-    try { await effectivePricesPending; } finally { effectivePricesPending=null; }
+    try { await effectivePricesPending; }
+    catch (err) {
+        const kept = effectivePriceRules.length > 0;
+        setPriceAlert(kept
+            ? `Firebase 生效價格連線失敗（${err.message}）。已沿用上次成功的價格，沒有改以 0 元計算。`
+            : `Firebase 生效價格讀取失敗（${err.message}）。尚不能確認單價，請按重試。`, true, true);
+        console.warn('Firebase 生效價格讀取失敗', err);
+    }
+    finally { effectivePricesPending=null; }
 }
 let effectivePricesReady=false;
 function newPriceStart(record) {
@@ -1263,7 +1275,11 @@ function refreshFinancePriceWarnings() {
 
 
 function financeSelectionTotals() {
- const raw=rawLogisticsData.reduce((sum,r)=>sum+(Number(r.qty)||0)*reportRecordPrice(r),0);
+ const raw=rawLogisticsData.reduce((sum,r)=>{
+  const price=reportRecordPrice(r);
+  if (price === null) return sum;
+  return sum+(Number(r.qty)||0)*price;
+ },0);
  const rounded=Math.round(raw);
  const grouped=new Map();
  rawLogisticsData.forEach(r=>{if(!grouped.has(r.parentCompany))grouped.set(r.parentCompany,[]);grouped.get(r.parentCompany).push(r);});
@@ -1330,13 +1346,46 @@ function recalculateFinanceUI() {
 let financeMasterFetchedAt = 0;
 let financeMasterPending = null;
 const cachedFinanceMaster = readLocalJson(LOCAL_CACHE_KEYS.financeMaster);
-if (cachedFinanceMaster?.sheetPrices && cachedFinanceMaster?.sheetClients) {
-    sheetPrices = cachedFinanceMaster.sheetPrices;
-    sheetClients = cachedFinanceMaster.sheetClients;
-    customPrices = cachedFinanceMaster.customPrices || {};
-    financeMasterFetchedAt = cachedFinanceMaster.at || 0;
+if (cachedFinanceMaster) {
+    if (cachedFinanceMaster.sheetPrices) sheetPrices = cachedFinanceMaster.sheetPrices;
+    if (cachedFinanceMaster.sheetClients) sheetClients = cachedFinanceMaster.sheetClients;
+    if (cachedFinanceMaster.customPrices && Object.keys(cachedFinanceMaster.customPrices).length) customPrices = cachedFinanceMaster.customPrices;
+    if (Array.isArray(cachedFinanceMaster.effectivePriceRules) && cachedFinanceMaster.effectivePriceRules.length) effectivePriceRules = cachedFinanceMaster.effectivePriceRules;
+    if (priceCatalogReady()) financeMasterFetchedAt = cachedFinanceMaster.at || 0;
     setTimeout(() => { try { refreshInvoiceCompanyOptions(); } catch(e) {} }, 0);
 }
+let priceCatalogDegraded = false;
+function priceCatalogReady() {
+    return Object.keys(customPrices || {}).length > 0
+        || (effectivePriceRules || []).length > 0
+        || Object.values(sheetPrices || {}).some(price => Number(price) > 0);
+}
+function persistPriceCatalog() {
+    const merged = mergePriceCatalog(readLocalJson(LOCAL_CACHE_KEYS.financeMaster) || {}, {
+        sheetPrices, customPrices, effectivePriceRules, sheetClients
+    });
+    sheetPrices = merged.sheetPrices;
+    customPrices = merged.customPrices;
+    effectivePriceRules = merged.effectivePriceRules;
+    sheetClients = merged.sheetClients;
+    writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, { at: Date.now(), ...merged });
+}
+function setPriceAlert(text, showRetry=false, degraded=false) {
+    priceCatalogDegraded = degraded;
+    const alert = document.getElementById('priceLoadAlert');
+    const button = document.getElementById('retryPriceBtn');
+    if (alert) {
+        alert.textContent = text || '';
+        alert.classList.toggle('hidden', !text);
+    }
+    if (button) button.classList.toggle('hidden', !showRetry);
+}
+window.retryPriceCatalog = async function() {
+    setPriceAlert('正在重新讀取 Firebase 與價目表…', false, false);
+    setFinanceSyncStatus('🔄 正在重新讀取價格…', 'blue');
+    await Promise.all([syncMasterDataFromSheet(true), ensureEffectivePrices(true)]);
+    if ((rawLogisticsData || []).length) await loadFinanceData();
+};
 function setFinanceSyncStatus(text, mode='gray') {
     const el = document.getElementById('syncStatus');
     if (!el) return;
@@ -1351,9 +1400,8 @@ function setFinanceSyncStatus(text, mode='gray') {
     el.className = classes[mode] || classes.gray;
 }
 async function syncMasterDataFromSheet(force=false) {
-    const hasCachedMaster = Object.keys(sheetPrices).length > 0 || Object.keys(sheetClients).length > 0;
-    if (!force && financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS) {
-        if (hasCachedMaster) setFinanceSyncStatus('✅ 大腦資料已就緒（快取）', 'green');
+    if (!force && financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS && priceCatalogReady()) {
+        setFinanceSyncStatus('✅ 價格資料已就緒（快取）', 'green');
         return;
     }
     if (financeMasterPending) return financeMasterPending;
@@ -1361,75 +1409,71 @@ async function syncMasterDataFromSheet(force=false) {
     try { return await financeMasterPending; }
     finally { financeMasterPending = null; }
 }
+async function readSheetPrices() {
+    const res = await fetch(`${GAS_API_URL}?action=getFinanceMasterData`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`價目表 HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || '價目表回傳失敗');
+    return json;
+}
+async function readFirebaseCustomPrices() {
+    const snap = await withTimeout(getDoc(doc(db, 'inventory_config', 'custom_prices')), 8000, 'Firebase 自訂價格');
+    const prices = snap.exists() ? snap.data().prices : null;
+    if (!prices || typeof prices !== 'object' || Array.isArray(prices) || !Object.keys(prices).length) {
+        throw new Error('Firebase 自訂價格是空的');
+    }
+    return prices;
+}
 async function fetchFinanceMasterData() {
 if(!GAS_API_URL || GAS_API_URL.includes("在此貼上")) {
 setFinanceSyncStatus('⚠️ 未設定 API 網址', 'red');
+setPriceAlert('尚未設定價目表網址，無法讀取單價。', false, true);
 return;
 }
-try {
-setFinanceSyncStatus('🔄 正在同步試算表資料...', 'blue');
-const [res, priceDocResult] = await Promise.all([
-withTimeout(fetch(`${GAS_API_URL}?action=getFinanceMasterData`), 7000, '價目表同步'),
-withTimeout(getDoc(doc(db, 'inventory_config', 'custom_prices')), 6000, '自訂價格').catch(err => { console.warn('載入自訂價格失敗', err); return null; })
+setFinanceSyncStatus('🔄 正在讀取價目表與 Firebase 價格...', 'blue');
+const [sheetResult, customResult] = await Promise.allSettled([
+    attemptWithBackoff(() => readSheetPrices(), { attempts: 3, delayMs: 1000, onRetry: (n, total) => setFinanceSyncStatus(`🔄 價目表連線逾時，正在重試 ${n}/${total - 1}…`, 'blue') }),
+    attemptWithBackoff(() => readFirebaseCustomPrices(), { attempts: 3, delayMs: 800, onRetry: (n, total) => setFinanceSyncStatus(`🔄 Firebase 價格連線逾時，正在重試 ${n}/${total - 1}…`, 'blue') })
 ]);
-const json = await res.json();
-if(json.success) {
-sheetPrices = {};
-if(json.prices) {
-    json.prices.forEach((row, index) => {
-        if(index === 0) return;
-        let hotelKeyword = String(row[0]).trim();
-        let deptKeyword = String(row[1] || "").trim();
-        let item = String(row[2]).trim();
-        let price = Number(row[3]) || 0;
-        
-        let combinedHotel = hotelKeyword;
-        if (deptKeyword && deptKeyword !== hotelKeyword) {
-            combinedHotel += ` ${deptKeyword}`;
-        }
-        
-        if (combinedHotel && item) {
-            sheetPrices[`${combinedHotel}_${item}`] = price;
-        }
-    });
-}
-
-if (Array.isArray(json.clients) && json.clients.length) {
-    const clients = parseFinanceClientRows(json.clients);
-    if (Object.keys(clients).length) sheetClients = clients;
-}
-
-if (priceDocResult && priceDocResult.exists() && priceDocResult.data().prices) customPrices = priceDocResult.data().prices;
-
-refreshInvoiceCompanyOptions();
-
-financeMasterFetchedAt = Date.now();
-writeLocalJson(LOCAL_CACHE_KEYS.financeMaster, {at:financeMasterFetchedAt, sheetPrices, sheetClients, customPrices});
-renderPricingRules();
-setFinanceSyncStatus(Object.keys(sheetClients).length ? '✅ 大腦資料同步完成（含客戶資料）' : '⚠️ 價目表已同步，但客戶抬頭資料尚未取得', Object.keys(sheetClients).length ? 'green' : 'amber');
-} else throw new Error(json.error);
-} catch(e) {
-if (Object.keys(sheetPrices).length || Object.keys(sheetClients).length) {
-  setFinanceSyncStatus('⚡ 使用上次成功快取', 'amber');
-  console.warn('試算表遠端同步失敗，沿用快取：', e);
+const problems = [];
+if (sheetResult.status === 'fulfilled') {
+    const json = sheetResult.value;
+    const parsed = sheetPricesFromRows(json.prices);
+    if (Object.keys(parsed).length) sheetPrices = parsed;
+    if (Array.isArray(json.clients) && json.clients.length) {
+        const clients = parseFinanceClientRows(json.clients);
+        if (Object.keys(clients).length) sheetClients = clients;
+    }
 } else {
-  setFinanceSyncStatus('❌ 試算表同步失敗', 'red');
+    problems.push(`價目表：${sheetResult.reason?.message || '讀取失敗'}`);
+    console.warn('價目表讀取失敗，沿用上次成功的資料', sheetResult.reason);
 }
+if (customResult.status === 'fulfilled') customPrices = customResult.value;
+else {
+    problems.push(`Firebase 自訂價格：${customResult.reason?.message || '讀取失敗'}`);
+    console.warn('Firebase 自訂價格讀取失敗，沿用上次成功的資料', customResult.reason);
+}
+refreshInvoiceCompanyOptions();
+if (priceCatalogReady()) {
+    financeMasterFetchedAt = Date.now();
+    persistPriceCatalog();
+}
+renderPricingRules();
+const counts = `Firebase ${Object.keys(customPrices).length} 筆、試算表 ${Object.keys(sheetPrices).length} 筆`;
+if (problems.length && priceCatalogReady()) {
+    setFinanceSyncStatus('⚡ 使用上次成功的價格', 'amber');
+    setPriceAlert(`${problems.join('；')}。已沿用上次成功的價格（${counts}），沒有改以 0 元計算。`, true, true);
+} else if (problems.length) {
+    setFinanceSyncStatus('❌ 價格讀取失敗', 'red');
+    setPriceAlert(`${problems.join('；')}。單價尚未取得，請按重試。這次不會用 0 元出帳。`, true, true);
+} else {
+    setFinanceSyncStatus(Object.keys(sheetClients).length ? `✅ 價格已讀取（${counts}）` : `⚠️ 價格已讀取（${counts}），客戶抬頭尚未取得`, Object.keys(sheetClients).length ? 'green' : 'amber');
+    if (!priceCatalogDegraded) setPriceAlert('', false, false);
 }
 }
 
 function getPrice(hotelName, item, date=null) {
-    const dated=datedPriceFor(hotelName,item,date);
-    if (dated !== null) return dated;
-    let exactKey = `${hotelName}_${item}`;
-    if (customPrices[exactKey] !== undefined && customPrices[exactKey] !== "") return Number(customPrices[exactKey]);
-    if (sheetPrices[exactKey] !== undefined) return sheetPrices[exactKey];
-
-    let unifiedKey = `${hotelName}_統一折扣`;
-    if (customPrices[unifiedKey] !== undefined && customPrices[unifiedKey] !== "") return Number(customPrices[unifiedKey]);
-    if (sheetPrices[unifiedKey] !== undefined) return sheetPrices[unifiedKey];
-
-    return null;
+    return catalogPrice({ hotel: hotelName, item, date, rules: effectivePriceRules, customPrices, sheetPrices }).price;
 }
 
 function showToast(msg = "資料已自動儲存更新！") {
@@ -1601,11 +1645,13 @@ async function fetchRecordsForSelectedHotels() {
     
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
-    const [uniqueDocs] = await Promise.all([getLogisticsDocsForPeriod(startDate, endDate, true),ensureEffectivePrices()]);
-    const optionalSync = [syncMasterDataFromSheet(), ensurePricingRules(), ensureLogisticsItemOrder()];
-    Promise.allSettled(optionalSync).then(results => {
-        if (results.some(r=>r.status==='rejected')) console.warn('部分設定背景同步失敗，已沿用快取。', results);
-    });
+    const [uniqueDocs] = await Promise.all([
+        getLogisticsDocsForPeriod(startDate, endDate, true),
+        ensureEffectivePrices(),
+        syncMasterDataFromSheet(),
+        ensurePricingRules().catch(err => { console.warn('春節／回饋設定稍後再試', err); }),
+        ensureLogisticsItemOrder().catch(err => { console.warn('品項排序稍後再試', err); })
+    ]);
 
     const selectedSet = new Set(selectedHotels);
     let results = [];
@@ -1684,7 +1730,7 @@ async function loadFinanceData() {
             let lastDate = ""; let deptSubtotal = 0;
             records.forEach(r => {
                 let price = reportRecordPrice(r);
-                let priceVal = price !== null ? price : "";
+                let priceVal = price === null ? "" : price;
                 r.currentPrice = priceVal;
                 r.autoHolidayRule = activeHolidayRule(r.parentCompany,r.date); 
 
@@ -1699,7 +1745,7 @@ async function loadFinanceData() {
                 
                 let subtotalDisplay = "";
                 if (price === null || price === "") {
-                    subtotalDisplay = `<span class="text-red-500 text-xs font-bold">請輸入單價</span>`;
+                    subtotalDisplay = `<span class="text-red-700 text-xs font-bold">價格未取得</span>`;
                 } else {
                     let subtotal = r.qty * price;
                     deptSubtotal += subtotal; 
@@ -1736,6 +1782,8 @@ async function loadFinanceData() {
 
         tbody.innerHTML = html;
         refreshFinancePriceWarnings();
+        const missingPrices = rawLogisticsData.filter(r => reportRecordPrice(r) === null).length;
+        if (missingPrices) setPriceAlert(`有 ${missingPrices} 筆單價尚未取得。這些列沒有用 0 元計算，請按「重試讀取價格」。`, true, true);
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="5" class="text-red-500 font-bold text-center py-10">${e.message}</td></tr>`;
     } finally {
@@ -1762,16 +1810,22 @@ function bossPricingRules(rows) {
 function summarizeBossGroup(records) {
     const stores = {};
     const storeParents = {};
+    const pricedRecords = [];
+    let missingPrices = 0;
     records.forEach(r => {
-        const amount = r.qty * bossRecordPrice(r);
+        const price = bossRecordPrice(r);
+        if (price === null) { missingPrices++; return; }
+        const amount = r.qty * price;
+        pricedRecords.push(r);
         stores[r.hotel] = (stores[r.hotel] || 0) + amount;
         storeParents[r.hotel] = r.parentCompany || r.hotel;
     });
-    const priced = sumCustomerReceivables(records, bossRecordPrice, bossPricingRules);
+    const priced = sumCustomerReceivables(pricedRecords, bossRecordPrice, bossPricingRules);
     return {
         records, stores, storeParents, customers: priced.customers,
         untaxed: priced.untaxed, tax: priced.tax, final: priced.final,
         managementFee: priced.managementFee, rebate: priced.rebate, afterRebate: priced.afterRebate,
+        missingPrices,
     };
 }
 function sortedBossStores(group) {
@@ -1865,6 +1919,8 @@ async function loadBossData() {
         document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','1號／月底結帳','border-sky-300');
         const notices = [];
         if (unmatched.size) notices.push(`⚠️ 以下 ${unmatched.size} 個飯店／部門有出貨紀錄，尚未指定25號或月底結帳類型，因此未計入上方兩組業績：${[...unmatched].sort().join('、')}`);
+        const missingPrices = (a.missingPrices || 0) + (b.missingPrices || 0);
+        if (missingPrices) notices.push(`有 ${missingPrices} 筆找不到單價，沒有用 0 元計入。請按「重試讀取價格」。`);
         document.getElementById('bossGroupNote').textContent = notices.join('｜') || '已依各組不同結帳區間統計。飯店類型可在上方「飯店結帳日管理」設定。';
         emptyState.classList.add('hidden'); content.classList.remove('hidden'); exportBtn.classList.remove('hidden');
     } catch (err) {
@@ -2331,10 +2387,15 @@ function buildInvoiceReport() {
 
     const depts = {};
     let grandTotal = 0;
+    const missing = [];
     matches.forEach(r => {
         const name = r.hotel;
-        if (!depts[name]) depts[name] = { records: [], summary: {}, total: 0 };
         const price = reportRecordPrice(r);
+        if (price === null || !Number.isFinite(price)) {
+            missing.push(`${r.hotel} ${r.date} ${r.item}`);
+            return;
+        }
+        if (!depts[name]) depts[name] = { records: [], summary: {}, total: 0 };
         const qty = Number(r.qty) || 0;
         const amount = qty * price;
         depts[name].records.push({ docId: r.docId, rowId: r.rowId, date: r.date, item: r.item, qty, price, amt: amount, receiptOrder: r.receiptOrder });
@@ -2374,7 +2435,7 @@ function buildInvoiceReport() {
     const rounded = Math.round(grandTotal);
     const afterRebate = rounded + managementFee.amount - rebate.amount;
     const tax = Math.round(afterRebate * 0.05);
-    return { comp: compLabel, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax };
+    return { comp: compLabel, depts, grandTotal, rounded, managementFee, rebate, afterRebate, tax, missing };
 }
 
 function escapeReportHTML(value) {
@@ -2444,6 +2505,11 @@ async function generateOfficialInvoice() {
     }
     const report = buildInvoiceReport();
     if (!report.comp) { alert('請選擇請款對象！'); return; }
+    if (report.missing?.length) {
+        alert('有單價尚未取得，已停止產生對帳單，避免以 0 元出帳：\n' + report.missing.slice(0, 8).join('\n'));
+        setPriceAlert(`有 ${report.missing.length} 筆單價尚未取得，對帳單沒有產生。`, true, true);
+        return;
+    }
     if (!Object.keys(report.depts).length) { alert('該客戶無可產生對帳單的出貨明細！'); return; }
     let snapshot;
     try { snapshot = collectStatementSnapshot(report); }
@@ -2496,15 +2562,15 @@ if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～
 
 try {
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
-await Promise.all([ensurePricingRules(), ensureEffectivePrices()]);
-if (!Object.keys(sheetPrices || {}).length) {
-    try { await syncMasterDataFromSheet(); } catch (err) { console.warn('司機業績價目表同步失敗，沿用現有資料', err); }
-} else {
-    void syncMasterDataFromSheet().catch(console.warn);
-}
+await Promise.all([
+    ensurePricingRules().catch(err => console.warn('春節／回饋設定稍後再試', err)),
+    ensureEffectivePrices(),
+    syncMasterDataFromSheet()
+]);
 
 currentDriverStats = {};
 currentUnassignedStats = { totalAmt: 0, details: [] };
+let missingDriverPrices = 0;
 
 uniqueDocs.forEach(docSnap => {
 const d = docSnap.data();
@@ -2525,6 +2591,7 @@ let price = reportRecordPrice({
     parentCompany: d.hotelKeyword || hotelName,
     savedPrice: item.price, manualPriceOverride: !!item.manualFinancePrice
 });
+if (price === null || !Number.isFinite(price)) { missingDriverPrices++; return; }
 let amt = actual * price;
 let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };
 if (driverName) {
@@ -2540,6 +2607,7 @@ currentUnassignedStats.details.push(detailObj);
 }
 });
 
+if (missingDriverPrices) setPriceAlert(`司機業績有 ${missingDriverPrices} 筆單價尚未取得，沒有用 0 元計算。請按「重試讀取價格」。`, true, true);
 renderDriverCards();
 } catch (e) {
 alert("計算失敗: " + e.message);

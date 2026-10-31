@@ -4,6 +4,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineString, defineBoolean } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import { signatureAdded, recordDate, taipeiDate, closingPeriod, customerOf, rowsForPeriod, commitOnce, createInvoiceEngine, caseDocumentId } from './lib/auto-close.js';
+import { attemptWithBackoff, sheetPricesFromRows } from './lib/price-catalog.js';
 import { legacyDatePrefixes } from './lib/logistics-items.js';
 initializeApp();
 const db=getFirestore();
@@ -30,10 +31,13 @@ export const autoStatementOnSignature=onDocumentWritten({
   const url=new URL(masterUrl.value());
   if(url.protocol!=='https:' || url.hostname!=='script.google.com') throw new Error('FINANCE_MASTER_URL 必須是既有 Apps Script HTTPS 網址');
   url.searchParams.set('action','getFinanceMasterData');
-  const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
-  if(!response.ok) throw new Error('財務主資料 HTTP '+response.status);
-  const master=await response.json();
-  if(!master.success || !Array.isArray(master.prices) || !Array.isArray(master.clients)) throw new Error('財務主資料不完整');
+  const master=await attemptWithBackoff(async()=>{
+   const response=await fetch(url,{signal:AbortSignal.timeout(20000)});
+   if(!response.ok) throw new Error('財務主資料 HTTP '+response.status);
+   const body=await response.json();
+   if(!body.success || !Array.isArray(body.prices) || !Array.isArray(body.clients)) throw new Error('財務主資料不完整');
+   return body;
+  },{attempts:3,delayMs:1000});
   const [pricing,effective,custom,template]=await Promise.all([
    config('finance_annual_pricing'),config('finance_effective_prices'),config('custom_prices'),config('master_template')
   ]);
@@ -43,11 +47,7 @@ export const autoStatementOnSignature=onDocumentWritten({
   const docs=new Map();
   for(const snap of await Promise.all(queries.map(q=>q.get()))) snap.forEach(d=>docs.set(d.id,{id:d.id,data:d.data()}));
   const rawLogisticsData=rowsForPeriod([...docs.values()],customer,period.startDate,period.endDate);
-  const sheetPrices={};
-  master.prices.slice(1).forEach(row=>{
-   const h=String(row[0]).trim(), dept=String(row[1]||'').trim(),item=String(row[2]).trim();
-   sheetPrices[(dept && dept!==h?h+' '+dept:h)+'_'+item]=Number(row[3])||0;
-  });
+  const sheetPrices=sheetPricesFromRows(master.prices);
   const options={rawLogisticsData,sheetPrices,customPrices:custom.prices||{},sheetClients:{},
    logisticsMasterItems:template.items,effectivePriceRules:effective.rules||[],
    pricingRules:{holidays:pricing.holidays||[],rebates:pricing.rebates||[],managementFees:pricing.managementFees||[]}};

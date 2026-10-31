@@ -2,6 +2,7 @@
 import { legacyDatePrefixes } from './logistics-items.js';
 import { caseDocumentId, publishSnapshot } from './statement-case.js';
 import { closingPeriod, customerOf, rowsForPeriod, recordDate, taipeiDate, createInvoiceEngine } from './firebase-signature/functions/lib/auto-close.js';
+import { attemptWithBackoff, sheetPricesFromRows } from './firebase-signature/functions/lib/price-catalog.js';
 
 export const ACTIVE_FROM = '2026-10-30';
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec';
@@ -54,11 +55,13 @@ export function createSignatureStatementClient(db,fns,storage,{
   return [...all.values()];
  }
  async function loadMaster() {
-  const response=await fetchFn(masterUrl+'?action=getFinanceMasterData',{signal:AbortSignal.timeout(15000)});
-  if(!response.ok)throw new Error('財務資料讀取失敗 HTTP '+response.status);
-  const data=await response.json();
-  if(!data.success||!Array.isArray(data.prices)||!Array.isArray(data.clients))throw new Error('財務價目或客戶資料不完整');
-  return data;
+  return attemptWithBackoff(async()=>{
+   const response=await fetchFn(masterUrl+'?action=getFinanceMasterData',{signal:AbortSignal.timeout(20000)});
+   if(!response.ok)throw new Error('財務資料讀取失敗 HTTP '+response.status);
+   const data=await response.json();
+   if(!data.success||!Array.isArray(data.prices)||!Array.isArray(data.clients))throw new Error('財務價目或客戶資料不完整');
+   return data;
+  },{attempts:3,delayMs:500});
  }
  async function execute(hotel,selectedDate) {
   if(!hotel)return {created:0,existing:0};
@@ -88,11 +91,7 @@ export function createSignatureStatementClient(db,fns,storage,{
     if(!template.items?.length)throw new Error('缺少財務品項排序設定');
     const documents=await readPeriod(period.startDate,period.endDate);
     const rawLogisticsData=rowsForPeriod(documents,customer,period.startDate,period.endDate);
-    const sheetPrices={};
-    master.prices.slice(1).forEach(row=>{
-     const h=String(row[0]).trim(),dept=String(row[1]||'').trim(),item=String(row[2]).trim();
-     sheetPrices[(dept&&dept!==h?h+' '+dept:h)+'_'+item]=Number(row[3])||0;
-    });
+    const sheetPrices=sheetPricesFromRows(master.prices);
     const options={rawLogisticsData,sheetPrices,sheetClients:{},customPrices:custom.prices||{},
      logisticsMasterItems:template.items,effectivePriceRules:effective.rules||[],
      pricingRules:{holidays:pricing.holidays||[],rebates:pricing.rebates||[],managementFees:pricing.managementFees||[]}};
