@@ -1,0 +1,38 @@
+#receivables{background:#fff;border:1px solid #dfe7e0;border-radius:16px;padding:20px;margin:20px 0;color:#25362f;font-family:-apple-system,BlinkMacSystemFont,'Microsoft JhengHei',sans-serif}#receivables p{line-height:1.6}#receivables .ledger-tools{display:flex;flex-wrap:wrap;gap:10px}#receivables input,#receivables select,#receivables button{font:inherit;padding:11px;border:1px solid #cdd9d0;border-radius:8px;max-width:100%;background:white;color:#315e4c}#receivables button{cursor:pointer;font-weight:700}#receivables button:disabled{opacity:.45;cursor:default}.ledger-row{border-top:1px solid #e1e7df;padding:16px 0}.ledger-row h3{margin:4px 0}.ledger-row p{margin:6px 0;font-size:14px}#receivables dialog{border:0;border-radius:16px;width:min(560px,94vw);max-height:85dvh;overflow:auto;padding:20px}#receivables dialog::backdrop{background:#17251b99}#receivables dialog label{display:block;margin:14px 0}#receivables dialog footer{position:sticky;bottom:0;background:white;padding:12px 0;display:flex;justify-content:flex-end;gap:10px}#ledger-error{color:#9b382c}
+
+.copy-intro{font-size:12px;color:var(--muted);line-height:1.8;margin:12px 0}
+.copy-intro strong{color:var(--gold);font-weight:600}
+.copy-scroll{overflow-x:auto;border:1px solid #dddccc;border-radius:8px;background:white;-webkit-overflow-scrolling:touch}
+.copy-invoice{min-width:690px;padding:24px;color:#343d40;font-family:Georgia,'Noto Serif TC','Microsoft JhengHei',serif}
+.copy-invoice b{color:#2587ba;font-weight:600}
+.copy-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:21px}
+.copy-heading h3{font-size:22px;margin:0;letter-spacing:3px}
+.copy-heading span{font-size:10px;color:#8b9189}
+.copy-meta{display:flex;justify-content:space-between;gap:16px;margin:12px 0;font-size:14px;align-items:center}
+.copy-taxid{display:inline-flex}
+.copy-taxid b{border:1px solid #76847e;width:25px;text-align:center;margin-right:-1px;font-size:19px}
+.copy-invoice table{border-collapse:collapse;width:100%;table-layout:fixed}
+.copy-invoice td,.copy-invoice th{border:1px solid #717f77;padding:9px 7px;line-height:1.4;font-weight:500}
+.copy-invoice th{font-size:15px;letter-spacing:2px}
+.copy-item td{font-size:16px}
+.copy-item td:nth-child(2){text-align:center}
+.copy-amount{text-align:right;font-variant-numeric:tabular-nums}
+.copy-amount b{font-size:22px;white-space:nowrap}
+.copy-blank{height:34px}
+.copy-diagonal{background:linear-gradient(135deg,transparent calc(50% - .5px),#76847e 50%,transparent calc(50% + .8px))}
+.copy-remark{font-size:12px!important;text-align:center;color:#8d968e}
+.copy-stamp{padding:0!important;text-align:center;background:#f0f5f7;vertical-align:top}
+.copy-stamp div{font-size:10px;padding:8px 3px;border-bottom:1px solid #717f77;background:white}
+.copy-stamp strong{display:block;font-size:27px;line-height:1.8;color:#537d98;margin-top:23px}
+.copy-tax{text-align:center;font-size:12px}
+.copy-tax b{font-size:20px}
+.copy-chinese{display:table-cell!important}
+.copy-chinese span{font-size:10px;line-height:1.25;display:inline-block;vertical-align:middle;margin-right:14px}
+.copy-chinese b{font-size:19px;letter-spacing:1px;vertical-align:middle}
+.copy-footnote{font-size:10px;color:#8a9389;margin-top:10px}
+.copy-mobile-hint{display:none;font-size:11px;color:var(--muted);margin:7px 0}
+.copy-summary{font-size:12px;color:var(--muted);margin:6px 0 14px}
+.copy-mobile-hint{display:block}
+.copy-invoice{padding:16px}
+.copy-intro{font-size:11px}
+#receivables dialog{width:min(960px,94vw)}

@@ -89,6 +89,7 @@ p{line-height:1.6}
  .paper{box-shadow:none;margin:0;width:auto}
 }
 </style>
+<link rel="stylesheet" href="./receivables.css?v=20261031">
 </head>
 <body>
 <header>
@@ -102,6 +103,7 @@ p{line-height:1.6}
  </div>
 </header>
 <main class="wrap">
+ <section id="receivables" data-mode="audit"></section>
  <div class="intro">
   <div>
    <h2 style="font-size:19px;margin-bottom:5px">待處理帳單</h2>
@@ -395,6 +397,8 @@ async function markSent(expectedVersion) {
     $('next').disabled = true;
     try {
         await repo.register(selected.id, expectedVersion, chosenFormat, new Date().toISOString());
+        window.dispatchEvent(new Event("baiqi-sent-registered"));
+        window.parent.postMessage({type:"baiqi-ledger-updated"},location.origin);
         $('overlay').classList.remove('show');
         await reload();
     } catch (error) {
@@ -447,11 +451,13 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('message', event => {
     if (event.origin !== location.origin) return;
-    if (event.data?.type === 'baiqi-refresh-statements') reload();
+    if (['baiqi-refresh-statements','baiqi-ledger-updated'].includes(event.data?.type)) reload();
 });
 setup().then(reload).catch(error => {
     showBanner(error.message || '送件中心沒有啟動。');
 });
 </script>
+<script type="module" src="./receivables-ui.js?v=20261031"></script>
 </body>
 </html>
+
