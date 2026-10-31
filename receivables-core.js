@@ -25,7 +25,22 @@ export function periodFor(name,month,groups={}) {
 export function applyLedger(c,expected,action,payload,now) {
  const out=JSON.parse(JSON.stringify(c)),l=ledger(out);
  if(!l||l.pending||l.version!==Number(expected))throw Error('帳單已更新或尚未寄出，請先寄送最新版本並重新整理。');
- if(action==='confirm')out.paymentConfirmation={version:l.version,at:now};
+ if(action==='collection'){
+  const allowed=['issuer','paymentMethod','receivedDate','receivedAmount','dueDate','chequeNumber','bank','branch','reconciliationRequired'];
+  const details={...(out.collectionRecord||{})};
+  for(const key of allowed) if(Object.prototype.hasOwnProperty.call(payload,key)) details[key]=String(payload[key]??'').trim();
+  if(!['','transfer','cheque'].includes(details.paymentMethod||''))throw Error('請選擇匯款或支票。');
+  if(!['','yes','no'].includes(details.reconciliationRequired||''))throw Error('對帳設定不正確。');
+  for(const key of ['receivedDate','dueDate']) if(details[key]&&!/^\d{4}-\d{2}-\d{2}$/.test(details[key]))throw Error('日期格式不正確。');
+  if(details.receivedAmount==null)details.receivedAmount='';
+  if(details.receivedAmount!==''){
+   const amount=Number(details.receivedAmount);
+   if(!Number.isFinite(amount)||amount<0)throw Error('入帳金額需為零或正數。');
+   details.receivedAmount=amount;
+  }
+  details.updatedAt=now;out.collectionRecord=details;
+ }
+ else if(action==='confirm')out.paymentConfirmation={version:l.version,at:now};
  else if(action==='invoice') {
   if(!l.confirmed)throw Error('請先確認已收到飯店確認通知。');
   const number=String(payload.number||'').trim().toUpperCase();
