@@ -511,7 +511,12 @@ async function reload() {
         const result = repo.cloud ? await repo.list() : { cases: await repo.list(), cloudError: null, fromCache: false };
         cases = result.cases || [];
         if (localOnly) showBanner('這是只看這台電腦的檢查模式，不是正式送件清單。');
-        else if (result.fromCache) showBanner('雲端暫時讀不到。現在先顯示這台電腦留著的清單，請按重新整理。');
+        else if (result.fromCache) {
+            const code = String(result.cloudError?.code || '').replace(/^firestore\//, '');
+            const detail = code === 'permission-denied' ? '雲端拒絕讀取（權限不足）。' : code === 'unavailable' ? '無法連線到雲端。' : code ? `錯誤代碼：${code}。` : '無法確認失敗原因。';
+            console.error('送件中心雲端讀取失敗', result.cloudError);
+            showBanner(`雲端暫時讀不到，現在顯示這台裝置暫存的清單。${detail} 請重新整理；若仍有問題，請提供此訊息。`);
+        }
         else if (cases.some(item => item.cloudPending)) showBanner('有帳單還在補送雲端，其他電腦暫時看不到。請稍後按重新整理。');
         else showBanner('');
         render();
