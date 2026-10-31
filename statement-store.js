@@ -39,8 +39,10 @@ export function isLogicError(error) {
     return /內容不完整|已經有更新|找不到|先不要登記|沒有這份/.test(String(error?.message || error || ''));
 }
 
-function rememberCache(storage, cases) {
+function rememberCache(storage, cases, month = '') {
+    const previous = month ? readJson(storage, CASE_CACHE_KEY, {}) : {};
     const map = {};
+    if (month && previous && typeof previous === 'object') Object.entries(previous).forEach(([id, item]) => { if (String(item?.endDate || '').slice(0, 7) !== month) map[id] = item; });
     cases.forEach(item => { if (item?.id) map[item.id] = item; });
     writeJson(storage, CASE_CACHE_KEY, map);
 }
@@ -213,7 +215,7 @@ export function createFirestoreRepository(db, fns, storage) {
             saveOutbox(remain);
             return remain;
         },
-        async list({ skipFlush = false } = {}) {
+        async list({ skipFlush = false, month = '' } = {}) {
             let remain = emptyOutbox();
             let cloudError = null;
             if (skipFlush) remain = outbox();
@@ -252,7 +254,12 @@ export function createFirestoreRepository(db, fns, storage) {
             };
             let snap;
             try {
-                snap = await fns.getDocsFromServer(fns.collection(db, STATEMENT_COLLECTION));
+                const collectionRef = fns.collection(db, STATEMENT_COLLECTION);
+                if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('結帳月份格式不正確');
+                const target = month
+                    ? fns.query(collectionRef, fns.where('endDate', '>=', month + '-01'), fns.where('endDate', '<', month + '-32'))
+                    : collectionRef;
+                snap = await fns.getDocsFromServer(target);
             } catch (error) {
                 return { cases: await overlay(readCache(storage)), cloudError: error, fromCache: true };
             }
@@ -261,7 +268,7 @@ export function createFirestoreRepository(db, fns, storage) {
                 .filter(row => row.customerKey && Array.isArray(row.versions));
             const visible = await overlay(cases);
             let cacheError = null;
-            try { rememberCache(storage, visible.filter(item => !item.cloudPending)); }
+            try { rememberCache(storage, visible.filter(item => !item.cloudPending), month); }
             catch (error) { cacheError = error; console.warn('帳單已從雲端讀取，但本機暫存失敗', error); }
             return { cases: visible, cloudError, cacheError, fromCache: false };
         },
