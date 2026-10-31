@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test special-parser.test.js special-shipdate.test.js special-flow.test.js special-time.test.js special-inventory.test.js line-webhook/parser-parity.test.js statement-case.test.js rewash.test.js receivable.test.js price-catalog.test.js",
-    "test:signature-statements": "node --test tests/signature-statement-client.test.js firebase-signature/functions/test/auto-close.test.js"
+    "test": "node --test special-parser.test.js special-shipdate.test.js special-flow.test.js special-time.test.js special-inventory.test.js line-webhook/parser-parity.test.js statement-case.test.js rewash.test.js receivable.test.js price-catalog.test.js firebase-signature/functions/test/billing-schedule.test.js",
+    "test:signature-statements": "node --test tests/signature-statement-client.test.js firebase-signature/functions/test/auto-close.test.js firebase-signature/functions/test/billing-schedule.test.js"
   }
 }

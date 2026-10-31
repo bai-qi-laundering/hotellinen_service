@@ -213,7 +213,7 @@ function render() {
         empty.dataset.testid = 'dispatch-empty';
         empty.textContent = cases.length
             ? '這個分類目前沒有帳單。'
-            : '還沒有對帳單。請到「結帳戰情系統」產生對帳單，完成後會出現在這裡。';
+            : '還沒有對帳單。結帳日早上 09:30 會自動產生；也可以到「結帳戰情系統」手動產生。完成後會出現在這裡。';
         cards.append(empty);
         return;
     }
@@ -265,6 +265,8 @@ function render() {
         const note = document.createElement('div');
         note.className = 'note';
         const notes = [];
+        const unsignedReceipts = Number(item.autoGeneration?.unsignedReceiptCount) || 0;
+        if (unsignedReceipts > 0) notes.push(`產生時有 ${unsignedReceipts} 張簽收單還沒簽名，金額仍含這些出貨。之後補簽名不會自動改這份帳單；要更新請到結帳戰情系統手動產生新版本。`);
         if (item.cloudPending) notes.push('這份還在補送雲端，其他電腦暫時看不到。請按重新整理。');
         if (older.length) notes.push(`上一版 V${older[older.length - 1].version} 已於 ${taipeiStamp(older[older.length - 1].sentAt)} 登記寄出。`);
         if (item.state === 'needs_review') notes.push('這份以前已開過票。新內容不能蓋掉舊帳，請先跟老闆確認差異，不要直接寄出。');
