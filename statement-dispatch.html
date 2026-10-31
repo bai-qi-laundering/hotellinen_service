@@ -217,6 +217,22 @@ let unsentDashboard = null;
 let repoDb = null;
 let repoFs = null;
 let firebaseApp = null;
+let pendingRead = null;
+let hasLoaded = false;
+function defaultBillingMonth(now = new Date()) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(now).filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+    const date = new Date(Date.UTC(parts.year, parts.month - 1 - (parts.day <= 24 ? 1 : 0), 1));
+    return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0');
+}
+$('filterMonth').value = defaultBillingMonth();
+function withTimeout(promise, ms, message) {
+    let timer;
+    return Promise.race([promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+    })]).finally(() => clearTimeout(timer));
+}
 
 function taipeiStamp(iso) {
     if (!iso) return '';
@@ -255,7 +271,7 @@ async function setup() {
         getDocsFromServer: fsMod.getDocsFromServer,
     }, localStorage);
     try {
-        const template = await fsMod.getDoc(fsMod.doc(db, 'inventory_config', 'master_template'));
+        const template = await withTimeout(fsMod.getDoc(fsMod.doc(db, 'inventory_config', 'master_template')), 8000, '品項設定讀取逾時');
         itemTemplate = template.exists() ? (template.data().items || []) : [];
     } catch (error) {
         console.warn('品項順序暫用帳單原本的順序', error);
@@ -276,6 +292,10 @@ function render() {
     const list = visibleCases();
     const cards = $('cards');
     cards.replaceChildren();
+    if (!hasLoaded) {
+        cards.textContent = '正在讀取送件帳單，請稍候…';
+        return;
+    }
     if (!list.length) {
         const empty = document.createElement('div');
         empty.className = 'empty';
@@ -508,8 +528,13 @@ async function reload() {
     if (!repo) return;
     $('refresh').disabled = true;
     try {
-        const result = repo.cloud ? await repo.list() : { cases: await repo.list(), cloudError: null, fromCache: false };
+        if (!pendingRead) {
+            pendingRead = (repo.cloud ? repo.list() : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false })))
+                .finally(() => { pendingRead = null; });
+        }
+        const result = await withTimeout(pendingRead, 15000, '雲端讀取超過 15 秒，尚未確認是否有帳單。請檢查網路後按重新整理。');
         cases = result.cases || [];
+        hasLoaded = true;
         if (localOnly) showBanner('這是只看這台電腦的檢查模式，不是正式送件清單。');
         else if (result.fromCache) {
             const code = String(result.cloudError?.code || '').replace(/^firestore\//, '');
@@ -522,7 +547,8 @@ async function reload() {
         render();
     } catch (error) {
         showBanner(error.message || '送件清單讀取失敗。');
-        render();
+        if (!hasLoaded) $('cards').textContent = '尚未完成讀取，無法確認帳單是否存在。';
+        else render();
     } finally {
         $('refresh').disabled = false;
     }
@@ -561,6 +587,7 @@ window.addEventListener('message', event => {
     if (event.origin !== location.origin) return;
     if (['baiqi-refresh-statements','baiqi-ledger-updated'].includes(event.data?.type)) reload();
 });
+render();
 setup().then(() => {
     if (!localOnly && repo?.cloud) {
         unsentDashboard = mountUnsentDashboard($('unsent-dashboard'), {
