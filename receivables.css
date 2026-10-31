@@ -38,3 +38,21 @@
 #receivables dialog{width:min(960px,94vw)}
 
 #ledger-list{max-height:55vh;overflow:auto;padding-right:8px}#receivables[data-mode="payments"] #ledger-list{max-height:none}
+
+/* Monthly collections table; horizontally scrollable on iPhone/iPad. */
+#receivables .ledger-table-scroll{overflow:auto;max-height:72vh;border:1px solid #cdd9d0;border-radius:10px;-webkit-overflow-scrolling:touch}
+#receivables .ledger-table{border-collapse:separate;border-spacing:0;min-width:2300px;width:100%;font-size:14px}
+#receivables .ledger-table th{position:sticky;top:0;z-index:3;background:#315e4c;color:white;white-space:nowrap;padding:13px 10px;text-align:left}
+#receivables .ledger-table td{border-right:1px solid #e0e6df;border-bottom:1px solid #e0e6df;padding:10px;vertical-align:top;background:#fff;min-width:130px}
+#receivables .ledger-table tr:nth-child(even) td{background:#f6f8f4}
+#receivables .ledger-table th:first-child,#receivables .ledger-table td:first-child{position:sticky;left:0;min-width:145px;width:145px;z-index:2;box-sizing:border-box}
+#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){position:sticky;left:145px;min-width:200px;width:200px;z-index:2;box-shadow:3px 0 4px #0001}
+#receivables .ledger-table th:nth-child(-n+2){z-index:4;background:#315e4c}
+#receivables .ledger-table small{display:block;font-size:12px;line-height:1.6;color:#68796e;margin:5px 0}
+#receivables .ledger-table input,#receivables .ledger-table select{width:100%;min-width:120px;padding:9px;box-sizing:border-box}
+#receivables .ledger-table button{font-size:12px;padding:8px;margin-top:8px;white-space:nowrap}
+#receivables .ledger-table .ledger-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#receivables .ledger-invoice-number{display:block;white-space:nowrap;font-weight:700}
+#receivables .ledger-pending td{background:#fff8e8!important}
+#receivables .ledger-row-status{min-height:20px}
+@media(max-width:600px){#receivables{padding:12px;margin:8px 0}#receivables .ledger-table th:first-child,#receivables .ledger-table td:first-child{position:static}#receivables .ledger-table th:nth-child(2),#receivables .ledger-table td:nth-child(2){position:static}}
