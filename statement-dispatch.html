@@ -139,7 +139,6 @@ p{line-height:1.6}
   </div>
   <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
    <div class="live">正式送件清單</div>
-   <button class="btn" id="einvoiceTest" type="button">測試電子發票連線</button>
   </div>
  </div>
 </header>
@@ -153,6 +152,11 @@ p{line-height:1.6}
   <button class="btn" id="refresh" type="button">重新整理</button>
  </div>
  <div id="banner" class="banner" hidden></div>
+ <div class="filters" style="align-items:end;flex-wrap:wrap">
+  <label>結帳月份 <input id="filterMonth" type="month" aria-label="搜尋結帳月份"></label>
+  <label>飯店 <input id="filterHotel" type="search" placeholder="搜尋飯店名稱" aria-label="搜尋飯店名稱"></label>
+  <button class="filter" id="clearSearch" type="button">清除搜尋</button>
+ </div>
  <div class="filters">
   <button class="filter active" data-filter="all" type="button">全部</button>
   <button class="filter" data-filter="pending" type="button">待寄送</button>
@@ -260,7 +264,14 @@ async function setup() {
     }
 }
 function visibleCases() {
-    return cases.filter(item => activeFilter === 'all' || item.state === activeFilter);
+    const month = $('filterMonth').value;
+    const hotel = $('filterHotel').value.trim().toLocaleLowerCase();
+    return cases.filter(item => {
+        const stateMatches = activeFilter === 'all' || item.state === activeFilter;
+        const monthMatches = !month || String(item.endDate || '').slice(0, 7) === month;
+        const hotelMatches = !hotel || dispatchHotelName(item).toLocaleLowerCase().includes(hotel);
+        return stateMatches && monthMatches && hotelMatches;
+    });
 }
 function render() {
     const list = visibleCases();
@@ -271,7 +282,7 @@ function render() {
         empty.className = 'empty';
         empty.dataset.testid = 'dispatch-empty';
         empty.textContent = cases.length
-            ? '這個分類目前沒有帳單。'
+            ? '找不到符合條件的帳單，請調整月份、飯店或狀態。'
             : '還沒有對帳單。結帳日早上 09:30 會自動產生；也可以到「結帳戰情系統」手動產生。完成後會出現在這裡。';
         cards.append(empty);
         return;
@@ -322,28 +333,7 @@ function render() {
         send.textContent = item.state === 'needs_review' ? '先不要寄' : item.state === 'sent' ? '再次取得檔案' : '確認送出';
         send.disabled = item.state === 'needs_review';
         send.onclick = () => showSend(item);
-        const invoiceBtn = document.createElement('button');
-        invoiceBtn.type = 'button';
-        invoiceBtn.className = 'btn wide';
-        if (invoicedThisVersion) {
-            invoiceBtn.disabled = true;
-            invoiceBtn.textContent = `已開立 ${item.invoiceNumber || item.invoiceRecord?.number || ''}`.trim();
-        } else if (activeInvoice) {
-            invoiceBtn.disabled = true;
-            invoiceBtn.textContent = '請先作廢上一版發票';
-        } else {
-            invoiceBtn.textContent = '開立發票';
-            invoiceBtn.onclick = () => showInvoice(item);
-        }
-        actions.append(preview, send, invoiceBtn);
-        if (activeInvoice && item.provider === 'universalec') {
-            const voidBtn = document.createElement('button');
-            voidBtn.type = 'button';
-            voidBtn.className = 'btn wide';
-            voidBtn.textContent = '作廢發票';
-            voidBtn.onclick = () => showVoid(item);
-            actions.append(voidBtn);
-        }
+        actions.append(preview, send);
         const note = document.createElement('div');
         note.className = 'note';
         const notes = [];
@@ -653,18 +643,12 @@ async function confirmVoid(item, version) {
 }
 
 $('cancel').onclick = () => $('overlay').classList.remove('show');
-$('einvoiceTest').onclick = async () => {
-    const button = $('einvoiceTest');
-    button.disabled = true;
-    try {
-        const call = await staffCallable('testEInvoiceConnection');
-        const data = (await call({})).data || {};
-        alert(data.ok ? `電子發票連線成功。${data.message || ''} ${data.time || ''}`.trim() : '電子發票連線失敗。');
-    } catch (error) {
-        alert(callableMessage(error));
-    } finally {
-        button.disabled = false;
-    }
+$('filterMonth').addEventListener('input', render);
+$('filterHotel').addEventListener('input', render);
+$('clearSearch').onclick = () => {
+    $('filterMonth').value = '';
+    $('filterHotel').value = '';
+    render();
 };
 $('closePreview').onclick = closePreview;
 $('printStatement').onclick = () => window.print();
