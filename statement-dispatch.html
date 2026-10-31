@@ -199,7 +199,7 @@ import {
     statementFileBase,
     dispatchHotelName,
 } from './statement-case.js?v=20261031-logistics-name';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261101-parallel-read';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261101-search';
 
@@ -219,6 +219,7 @@ let repoFs = null;
 let firebaseApp = null;
 let pendingRead = null;
 let hasLoaded = false;
+let syncStarted = false;
 function defaultBillingMonth(now = new Date()) {
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit'
@@ -270,13 +271,13 @@ async function setup() {
         collection: fsMod.collection,
         getDocsFromServer: fsMod.getDocsFromServer,
     }, localStorage);
-    try {
+    (async () => { try {
         const template = await withTimeout(fsMod.getDoc(fsMod.doc(db, 'inventory_config', 'master_template')), 8000, '品項設定讀取逾時');
         itemTemplate = template.exists() ? (template.data().items || []) : [];
     } catch (error) {
         console.warn('品項順序暫用帳單原本的順序', error);
         itemTemplate = [];
-    }
+    } })();
 }
 function visibleCases() {
     const month = $('filterMonth').value;
@@ -529,7 +530,7 @@ async function reload() {
     $('refresh').disabled = true;
     try {
         if (!pendingRead) {
-            pendingRead = (repo.cloud ? repo.list() : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false })))
+            pendingRead = (repo.cloud ? repo.list({ skipFlush: true }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false })))
                 .finally(() => { pendingRead = null; });
         }
         const result = await withTimeout(pendingRead, 15000, '雲端讀取超過 15 秒，尚未確認是否有帳單。請檢查網路後按重新整理。');
@@ -545,6 +546,12 @@ async function reload() {
         else if (cases.some(item => item.cloudPending)) showBanner('有帳單還在補送雲端，其他電腦暫時看不到。請稍後按重新整理。');
         else showBanner('');
         render();
+        if (repo.cloud && !result.fromCache && !syncStarted) {
+            syncStarted = true;
+            repo.flush().then(remain => {
+                if (!remain.publishes.length && !remain.registers.length && !remain.recipients.length) reload();
+            }).catch(error => console.warn('待同步資料補送失敗', error));
+        }
     } catch (error) {
         showBanner(error.message || '送件清單讀取失敗。');
         if (!hasLoaded) $('cards').textContent = '尚未完成讀取，無法確認帳單是否存在。';
