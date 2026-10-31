@@ -68,3 +68,8 @@
 #receivables .ledger-table .ledger-customer small{margin:4px 0 0;font-size:11px;max-width:220px;white-space:normal}
 #receivables .ledger-table .ledger-customer strong{font-size:15px}
 #receivables .ledger-table button{margin-top:0}
+
+#receivables .ledger-table td:last-child{min-width:220px}
+#receivables .ledger-table td:last-child input{width:140px;min-width:0;display:inline-block;vertical-align:middle}
+#receivables .ledger-table td:last-child button{display:inline-block;margin-left:6px;vertical-align:middle}
+#receivables .ledger-table .ledger-row-status{min-height:0;margin:2px 0 0;line-height:1.3}
