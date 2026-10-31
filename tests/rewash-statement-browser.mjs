@@ -202,7 +202,7 @@ try {
     await evaluate(dispatch, `localStorage.setItem('baiqi_statement_cases_v1', ${JSON.stringify(JSON.stringify({ [id]: stored }))})`);
     try { await evaluate(dispatch, 'location.reload()'); } catch { /* reload ends this call */ }
     await new Promise(resolve => setTimeout(resolve, 500));
-    await waitFor(dispatch, `document.body.innerText.includes('驛館股份有限公司') && document.body.innerText.includes('待寄送')`);
+    await waitFor(dispatch, `document.querySelector('.hotel')?.textContent === '驛館' && document.body.innerText.includes('待寄送')`);
     const listText = await evaluate(dispatch, 'document.body.innerText');
     if (listText.includes('回洗') || listText.includes('羽毛被')) throw new Error('送件清單仍顯示回洗');
     const listShot = await shot(dispatch, 'dispatch-list.png');

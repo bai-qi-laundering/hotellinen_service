@@ -17,6 +17,8 @@ test('closing dates include both endpoints, month end and leap year; saved group
  assert.deepEqual(closingPeriod('日航','2028-02-29'),{startDate:'2028-02-01',endDate:'2028-02-29'});
  assert.equal(closingPeriod('富野','2026-10-25',{富野:'month'}),null);
  assert.equal(closingPeriod('富野','2026-10-25',{富野:''}),null);
+ assert.deepEqual(closingPeriod('文旅','2026-11-01',{文旅:'1st'}),{startDate:'2026-10-01',endDate:'2026-10-31'});
+ assert.equal(closingPeriod('文旅','2026-10-31',{文旅:'1st'}),null);
  assert.equal(taipeiDate('2026-10-24T16:00:00Z'),'2026-10-25');
 });
 test('receipt rows match finance quantity fallback, deletion, rewashes, customer scope and period boundaries',()=>{

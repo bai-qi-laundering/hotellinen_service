@@ -223,7 +223,10 @@ body { background: white; padding: 0; margin: 0; }
                     <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 25號結帳飯店
                 </button>
                 <button onclick="quickSelectGroup('endOfMonth')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
-                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 1號/月底結帳飯店
+                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 月底結帳飯店
+                </button>
+                <button onclick="quickSelectGroup('1st')" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2">
+                    <span class="bg-white/20 p-1 rounded">☑️</span> 一鍵全選 1號結帳飯店
                 </button>
                 <button onclick="quickSelectGroup('clear')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg shadow-sm text-left flex items-center gap-2 border border-gray-300 mt-2">
                     <span>☐</span> 清空所有勾選
@@ -336,6 +339,7 @@ body { background: white; padding: 0; margin: 0; }
 
 <!-- ==================== 【系統 2：老闆業績戰情室】 ==================== -->
 <div id="sysBoss" class="hidden">
+    <div id="unsentDashboardHost" class="mb-5"></div>
     <div class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-5 mb-5 no-print">
       <div class="flex flex-wrap items-end gap-4 justify-between">
         <div><label for="bossTargetMonth" class="block text-emerald-900 font-black mb-2">📅 業績結帳月份</label><input id="bossTargetMonth" type="month" class="border-2 border-emerald-300 rounded-lg p-2 text-emerald-900 font-bold" onchange="updateBossMonth()"></div>
@@ -519,12 +523,14 @@ body { background: white; padding: 0; margin: 0; }
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, getDocFromServer, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261031-item-order';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
+import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261031-unsent';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -858,25 +864,14 @@ function queueEffectivePrice(record,hotel,price) {
 let pendingUpdatesArray = [];
 let customPricesDirty = false;
 
-const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
-const groupEndOfMonth = ["捷站前", "捷中正", "歐遊", "鈞怡", "宮賞", "家和", "秝二", "秝芯", "比歐", "駱駝", "喜達絲", "好六" , "媚力泊" , "巨蛋" , "老新" , "永心" , "福客來", "林森", "福客來", "建工", "鴨點棧明誠", "高廬", "頭等艙", "河畔", "好地方", "文旅", "文七", "文一", "禾鮨", "禾寓", "日航", "鼎王", "鴨點棧華夏", "鉑麗"];
 const settlementAliases = { '天幕': '天慕' };
 
 const SETTLEMENT_REF = doc(db, 'inventory_config', 'finance_settlement_groups');
 let settlementGroups = {}, settlementGroupsReady = false, settlementGroupsPending = null;
 let settlementActiveHotels = new Set(), settlementActiveMonth = "", settlementHotelsLoading = false;
 const settlementExtraHotels = new Set();
-function settlementSuggestion(hotel) {
-  if (group25th.some(kw => hotel.includes(kw))) return '25th';
-  if (groupEndOfMonth.some(kw => hotel.includes(kw))) return 'month';
-  return '';
-}
 function settlementGroupOf(hotel) {
-  if (Object.prototype.hasOwnProperty.call(settlementGroups,hotel)) return settlementGroups[hotel];
-  for (const [alias, canonical] of Object.entries(settlementAliases)) {
-    if (canonical === hotel && Object.prototype.hasOwnProperty.call(settlementGroups, alias)) return settlementGroups[alias];
-  }
-  return settlementSuggestion(hotel);
+  return settlementGroup(hotel, settlementGroups);
 }
 async function ensureSettlementGroups(force=false) {
   if (settlementGroupsReady && !force) return;
@@ -891,18 +886,22 @@ async function ensureSettlementGroups(force=false) {
   try { await settlementGroupsPending; } finally { settlementGroupsPending=null; }
 }
 function settlementHotels() {
-  const names=new Set([...Object.keys(sheetClients), ...uniqueCompanies, ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName||r.hotel||'').trim()), ...Object.keys(settlementGroups), ...settlementExtraHotels]);
+  const names=new Set([...Object.keys(sheetClients), ...uniqueCompanies, ...rawLogisticsData.map(r=>r.parentCompany), ...logisticsMasterItems.map(r=>String(r.baseName||r.hotel||'').trim()), ...Object.keys(settlementGroups), ...settlementExtraHotels, 'H2O 西餐']);
   return [...names].map(x=>String(x||'').trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-TW'));
 }
 function renderSettlementGroups() {
   const body=document.getElementById('settlementGroupRows');if(!body)return;
   const esc=escapeReportHTML;
   const periodKey=`${document.getElementById('bossTargetMonth')?.value}|${document.getElementById('bossCutoffDate')?.value}`;
-  const names=settlementHotels().filter(h => settlementExtraHotels.has(h) || (settlementActiveMonth === periodKey && settlementActiveHotels.has(h)));
+  const names=settlementHotels().filter(h => h === 'H2O 西餐' || settlementExtraHotels.has(h) || (settlementActiveMonth === periodKey && settlementActiveHotels.has(h)));
+  if (!names.includes('H2O 西餐')) names.push('H2O 西餐');
   body.innerHTML=names.length ? names.map(h=>{
     const saved=Object.prototype.hasOwnProperty.call(settlementGroups,h);
-    const value=saved?settlementGroups[h]:settlementSuggestion(h);
-    return `<tr class="settlement-hotel-row border-b" data-hotel="${esc(h)}"><td class="p-2 font-bold">${esc(h)}</td><td class="p-2"><select class="settlement-choice border rounded p-2 w-full" data-hotel="${esc(h)}"><option value="" ${!value?'selected':''}>未分類（不計入兩組）</option><option value="25th" ${value==='25th'?'selected':''}>25 號（上月 26 日～當月 25 日）</option><option value="month" ${value==='month'?'selected':''}>月底／1 號（當月 1 日～月底）</option></select></td><td class="p-2 text-slate-500">${saved?'已儲存':'舊名單建議，尚未儲存'}</td></tr>`;
+    const stored=saved?settlementGroups[h]:undefined;
+    const value=settlementGroupOf(h);
+    const west=h.includes('H2O') && h.includes('西餐');
+    const source=west?'與 H2O 同一張對帳單':!saved?'舊名單建議，尚未儲存':stored===value?'已儲存':'已改為固定結帳日，請再按儲存';
+    return `<tr class="settlement-hotel-row border-b" data-hotel="${esc(h)}"><td class="p-2 font-bold">${esc(h)}</td><td class="p-2"><select class="settlement-choice border rounded p-2 w-full" data-hotel="${esc(h)}"><option value="" ${!value?'selected':''}>未設定結帳日（不自動產生對帳單）</option><option value="25th" ${value==='25th'?'selected':''}>25 號（上月 26 日～當月 25 日）</option><option value="month" ${value==='month'?'selected':''}>月底（當月 1 日～月底）</option><option value="1st" ${value==='1st'?'selected':''}>1 號（上個曆月，每月 1 日結帳）</option></select></td><td class="p-2 text-slate-500">${source}</td></tr>`;
   }).join('') : '<tr><td colspan="3" class="p-4 text-center">本月份沒有實收出貨紀錄的飯店。可切換月份，或手動新增。</td></tr>';
   filterSettlementHotelRows();
 }
@@ -952,7 +951,8 @@ window.saveSettlementGroups=async()=>{
       if (!Object.prototype.hasOwnProperty.call(updated, alias)) continue;
       const aliasGroup = updated[alias];
       const canonicalGroup = updated[canonical];
-      if ((canonicalGroup !== '25th' && canonicalGroup !== 'month') && (aliasGroup === '25th' || aliasGroup === 'month')) updated[canonical] = aliasGroup;
+      const knownGroups = ['25th', 'month', '1st'];
+      if (!knownGroups.includes(canonicalGroup) && knownGroups.includes(aliasGroup)) updated[canonical] = aliasGroup;
       delete updated[alias];
     }
     await setDoc(SETTLEMENT_REF,{groups:updated,updatedAt:new Date().toISOString()});
@@ -988,7 +988,7 @@ window.updateBossPeriodHint=()=>{
   const el=document.getElementById('bossPeriodHint');
   try{
     const p=getBossPeriods();
-    el.textContent=`${p.partial?'暫估業績（截至 '+p.cutoff+'）':'完整結帳'}｜25號：${p['25th'].start} ～ ${p['25th'].end}｜月底／1號：${p.monthGroup.start} ～ ${p.monthGroup.end}`;
+    el.textContent=`${p.partial?'暫估業績（截至 '+p.cutoff+'）':'完整結帳'}｜25號：${p['25th'].start} ～ ${p['25th'].end}｜月底：${p.monthGroup.start} ～ ${p.monthGroup.end}｜1號：與月底同一曆月，於次月 1 日結帳`;
   } catch(e){el.textContent=e.message;}
   if (document.getElementById('settlementGroupPanel')?.open) refreshSettlementHotels();
 };
@@ -1060,6 +1060,7 @@ window.switchSysTab = function(tab) {
         document.getElementById('sysBoss').classList.remove('hidden');
         document.getElementById('sharedFilterSection').classList.add('hidden');
         activeBtn.classList.add('border-emerald-600', 'text-emerald-700');
+        ensureUnsentDashboard();
     } else if (tab === 'driver') {
         document.getElementById('sysDriver').classList.remove('hidden');
         document.getElementById('sharedFilterSection').classList.add('hidden');
@@ -1625,8 +1626,17 @@ document.querySelectorAll('.cb-label').forEach(lbl => { if (lbl.style.display !=
 function quickSelectGroup(type) {
 const checkboxes = document.querySelectorAll('.hotel-cb');
 if (type === 'clear') { checkboxes.forEach(cb => cb.checked = false); return; }
+const wanted = type === '25th' ? '25th' : type === '1st' ? '1st' : 'month';
 checkboxes.forEach(cb => cb.checked = false);
-checkboxes.forEach(cb => { const hotel=[...settlementHotels()].sort((a,b)=>b.length-a.length).find(n=>cb.value===n||cb.value.startsWith(n+' '))||cb.value; if (settlementGroupOf(hotel)===(type==='25th'?'25th':'month')) cb.checked=true; });
+checkboxes.forEach(cb => { const hotel=[...settlementHotels()].sort((a,b)=>b.length-a.length).find(n=>cb.value===n||cb.value.startsWith(n+' '))||cb.value; if (settlementGroupOf(hotel)===wanted) cb.checked=true; });
+}
+let unsentDashboard = null;
+function ensureUnsentDashboard() {
+  if (unsentDashboard) return;
+  unsentDashboard = mountUnsentDashboard(document.getElementById('unsentDashboardHost'), {
+    db,
+    fs: { doc, getDocFromServer, collection, query, where, getDocsFromServer },
+  });
 }
 
 function distinctShipmentRows(records) {
@@ -1857,7 +1867,7 @@ async function loadBossData() {
         const periods=getBossPeriods();
         const startDate=periods.queryStart, endDate=periods.queryEnd;
         const [, , , docs] = await Promise.all([syncMasterDataFromSheet(), ensurePricingRules(), ensureSettlementGroups(), getLogisticsDocsForPeriod(startDate,endDate,true),ensureEffectivePrices()]);
-        const groups = {'25th':[], month:[]};
+        const groups = {'25th':[], month:[], '1st':[]};
         const unmatched = new Set();
         docs.forEach(docSnap => {
             const d = docSnap.data();
@@ -1869,7 +1879,7 @@ async function loadBossData() {
             if (fullName.includes('回洗') || (d.deptName || '').includes('回洗')) return;
             const key = classifyBossGroup(hotel);
             const hasValid = billingReceiptItems(d).some(item => resolveItemBillingQty(item) > 0 && !String(item.itemName).includes('回洗'));
-            if (!key) { if (hasValid) unmatched.add(fullName); return; }
+            if (!key || !groups[key]) { if (hasValid) unmatched.add(fullName); return; }
             const groupPeriod = key==='25th' ? periods['25th'] : periods.monthGroup;
             if (date < groupPeriod.start || date > groupPeriod.end) return;
             billingReceiptItems(d).forEach((item,idx) => {
@@ -1879,11 +1889,12 @@ async function loadBossData() {
                     receiptOrder:idx, savedPrice:item.price, manualPriceOverride:!!item.manualFinancePrice});
             });
         });
-        currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), startDate, endDate, periods };
-        currentBossData = [...groups['25th'],...groups.month];
-        const a = currentBossGroups['25th'], b = currentBossGroups.month;
+        currentBossGroups = { '25th':summarizeBossGroup(groups['25th']), month:summarizeBossGroup(groups.month), '1st':summarizeBossGroup(groups['1st']), startDate, endDate, periods };
+        currentBossData = [...groups['25th'],...groups.month,...groups['1st']];
+        const a = currentBossGroups['25th'], b = currentBossGroups.month, c = currentBossGroups['1st'];
         const header = sumGroupFigures([a, b]);
-        document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}`;
+        const firstAssigned = groups['1st'].length || Object.values(settlementGroups).includes('1st');
+        document.getElementById('bossDateRange').innerText = `${periods.month} ${periods.partial?'暫估業績・截至 '+periods.cutoff:'完整結帳'}｜25號：${periods['25th'].start}～${periods['25th'].end}｜月底：${periods.monthGroup.start}～${periods.monthGroup.end}` + (firstAssigned ? `｜1號：${periods.monthGroup.start}～${periods.monthGroup.end}（次月1日出帳）` : '');
         document.getElementById('bossTotalUntaxed').innerText = `$${header.untaxed.toLocaleString()}`;
         document.getElementById('bossTotalFee').innerText = `$${header.managementFee.toLocaleString()}`;
         document.getElementById('bossTotalRebate').innerText = `$${header.rebate.toLocaleString()}`;
@@ -1929,10 +1940,10 @@ async function loadBossData() {
                 </div><p class="font-bold mb-3 text-emerald-100">飯店應收（與對帳單同一公式）・${stores.length} 個部門</p>
                 <div class="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">${cards}</div></section>`;
         };
-        document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','1號／月底結帳','border-sky-300');
+        document.getElementById('bossGroupsContainer').innerHTML = renderGroup('25th','25號結帳','border-amber-300') + renderGroup('month','月底結帳','border-sky-300') + (firstAssigned ? renderGroup('1st','1號結帳','border-violet-300') : '');
         const notices = [];
-        if (unmatched.size) notices.push(`⚠️ 以下 ${unmatched.size} 個飯店／部門有出貨紀錄，尚未指定25號或月底結帳類型，因此未計入上方兩組業績：${[...unmatched].sort().join('、')}`);
-        const missingPrices = (a.missingPrices || 0) + (b.missingPrices || 0);
+        if (unmatched.size) notices.push(`⚠️ 以下 ${unmatched.size} 個飯店／部門有出貨紀錄，尚未指定25號、月底或1號結帳類型，因此未計入上方業績：${[...unmatched].sort().join('、')}`);
+        const missingPrices = (a.missingPrices || 0) + (b.missingPrices || 0) + (c.missingPrices || 0);
         if (missingPrices) notices.push(`有 ${missingPrices} 筆找不到單價，沒有用 0 元計入。請按「重試讀取價格」。`);
         document.getElementById('bossGroupNote').textContent = notices.join('｜') || '已依各組不同結帳區間統計。飯店類型可在上方「飯店結帳日管理」設定。';
         emptyState.classList.add('hidden'); content.classList.remove('hidden'); exportBtn.classList.remove('hidden');
@@ -1951,7 +1962,8 @@ async function exportBossExcel() {
         await Promise.all([ensurePricingRules(), ensureSettlementGroups(), syncMasterDataFromSheet()]);
         const wb = XLSX.utils.book_new();
         const {periods} = currentBossGroups;
-        const a = currentBossGroups['25th'], b = currentBossGroups.month;
+        const a = currentBossGroups['25th'], b = currentBossGroups.month, c = currentBossGroups['1st'] || { untaxed: 0, tax: 0, final: 0, afterRebate: 0, rebate: 0, managementFee: 0, customers: [] };
+        const firstActive = (c.customers || []).length > 0;
 
         const fmtDate = (str) => {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(String(str||''))) return str || '';
@@ -1979,7 +1991,7 @@ async function exportBossExcel() {
             return { month: monthValue, cutoff, partial: cutoff < fullEndMonth, '25th': { start: start25, end: end25 }, monthGroup: { start: startMonth, end: cutoff }, queryStart: start25, queryEnd: cutoff };
         };
         const summarizeDocsForPeriods = (docs, p) => {
-            const groups = { '25th': [], month: [] };
+            const groups = { '25th': [], month: [], '1st': [] };
             docs.forEach(docSnap => {
                 const d = docSnap.data();
                 if (d.manualDeletedReceipt) return;
@@ -1989,7 +2001,7 @@ async function exportBossExcel() {
                 const fullName = d.deptName && d.deptName !== d.hotelKeyword ? `${hotel} ${d.deptName}` : hotel;
                 if (fullName.includes('回洗') || String(d.deptName || '').includes('回洗')) return;
                 const key = classifyBossGroup(hotel);
-                if (!key) return;
+                if (!key || !groups[key]) return;
                 const gp = key === '25th' ? p['25th'] : p.monthGroup;
                 if (date < gp.start || date > gp.end) return;
                 billingReceiptItems(d).forEach((item, idx) => {
@@ -2009,12 +2021,12 @@ async function exportBossExcel() {
                     });
                 });
             });
-            return { '25th': summarizeBossGroup(groups['25th']), month: summarizeBossGroup(groups.month) };
+            return { '25th': summarizeBossGroup(groups['25th']), month: summarizeBossGroup(groups.month), '1st': summarizeBossGroup(groups['1st']) };
         };
 
         const currentAdj = {
-            rebateLines: [...adjustmentLines(a).rebateLines, ...adjustmentLines(b).rebateLines],
-            managementFeeLines: [...adjustmentLines(a).managementFeeLines, ...adjustmentLines(b).managementFeeLines],
+            rebateLines: [...adjustmentLines(a).rebateLines, ...adjustmentLines(b).rebateLines, ...(firstActive ? adjustmentLines(c).rebateLines : [])],
+            managementFeeLines: [...adjustmentLines(a).managementFeeLines, ...adjustmentLines(b).managementFeeLines, ...(firstActive ? adjustmentLines(c).managementFeeLines : [])],
         };
 
         const currentMonthDate = new Date(Number(periods.month.slice(0,4)), Number(periods.month.slice(5,7)) - 1, 1);
@@ -2023,7 +2035,7 @@ async function exportBossExcel() {
         const prevPeriods = buildPeriodsForMonth(prevMonth);
         const prevDocs = await getLogisticsDocsForPeriod(prevPeriods.queryStart, prevPeriods.queryEnd);
         const prevGroups = summarizeDocsForPeriods(prevDocs, prevPeriods);
-        const prevPayable = prevGroups['25th'].final + prevGroups.month.final;
+        const prevPayable = prevGroups['25th'].final + prevGroups.month.final + (prevGroups['1st']?.final || 0);
 
         const compareWs = XLSX.utils.aoa_to_sheet([]);
         const numFmt = '#,##0.0;[Red]-#,##0.0;–';
@@ -2055,21 +2067,22 @@ async function exportBossExcel() {
         for(let c=1;c<=7;c++) set(1,c,c===1?'百麒國際股份有限公司｜客戶別業績對照表':'',cellStyle(green,true,'FFFFFF','center',19));
         [[2,1,'結帳月份'],[2,2,periods.month],[2,4,'統計狀態'],[2,5,periods.partial?'暫估，截至 '+periods.cutoff:'完整結帳'],
          [3,1,'25號結帳區間'],[3,2,`${periods['25th'].start} ～ ${periods['25th'].end}`],
-         [3,4,'月底／1號區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4,ink,'left',12)));
+         [3,4,'月底區間'],[3,5,`${periods.monthGroup.start} ～ ${periods.monthGroup.end}`]].forEach(([r,c,v])=>set(r,c,v,cellStyle('FFFFFF',c===1||c===4,ink,'left',12)));
 
         const summaryLines = [
             {label:`${fmtDate(periods['25th'].start)}-${fmtDate(periods['25th'].end)}未稅`, value:a.untaxed, fill:yellow, color:'000000', bold:true},
             {label:`${fmtDate(periods.monthGroup.start)}-${fmtDate(periods.monthGroup.end)}未稅`, value:b.untaxed, fill:yellow, color:'000000', bold:true},
-            {label:'兩組未稅合計', value:a.untaxed + b.untaxed, fill:yellow, color:'000000', bold:true}
+            ...(firstActive ? [{label:`${fmtDate(periods.monthGroup.start)}-${fmtDate(periods.monthGroup.end)} 1號未稅`, value:c.untaxed, fill:yellow, color:'000000', bold:true}] : []),
+            {label:firstActive ? '未稅合計' : '兩組未稅合計', value:a.untaxed + b.untaxed + (firstActive ? c.untaxed : 0), fill:yellow, color:'000000', bold:true}
         ];
         currentAdj.rebateLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
         currentAdj.managementFeeLines.forEach(line => summaryLines.push({label:line.label, value:line.amount, fill:blueGrey, color:'FF0000', bold:true}));
-        summaryLines.push({label:'調整後未稅', value:a.afterRebate + b.afterRebate, fill:yellow, color:'000000', bold:true});
-        summaryLines.push({label:'營業稅（5%）', value:a.tax + b.tax, fill:yellow, color:'000000', bold:true});
-        summaryLines.push({label:'含稅應收', value:a.final + b.final, fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'調整後未稅', value:a.afterRebate + b.afterRebate + (firstActive ? c.afterRebate : 0), fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'營業稅（5%）', value:a.tax + b.tax + (firstActive ? c.tax : 0), fill:yellow, color:'000000', bold:true});
+        summaryLines.push({label:'含稅應收', value:a.final + b.final + (firstActive ? c.final : 0), fill:yellow, color:'000000', bold:true});
         summaryLines.push({label:'', value:'', fill:'FFFFFF', color:ink, bold:false});
         summaryLines.push({label:`${fmtDate(prevPeriods.monthGroup.end)}含稅應收`, value:prevPayable, fill:yellow, color:'000000', bold:true});
-        summaryLines.push({label:'差額', value:(a.final + b.final) - prevPayable, fill:lavender, color:'FF0000', bold:true});
+        summaryLines.push({label:'差額', value:(a.final + b.final + (firstActive ? c.final : 0)) - prevPayable, fill:lavender, color:'FF0000', bold:true});
 
         let row = 5;
         summaryLines.forEach((line) => {
@@ -2084,7 +2097,7 @@ async function exportBossExcel() {
             {s:{r:sectionRow-1,c:0},e:{r:sectionRow-1,c:2}},
             {s:{r:sectionRow-1,c:4},e:{r:sectionRow-1,c:6}}
         );
-        [1,2,3,5,6,7].forEach(c=>set(sectionRow,c,c===1?'25號結帳':c===5?'1號／月底結帳':'',cellStyle(green,true,'FFFFFF','center',15)));
+        [1,2,3,5,6,7].forEach(c=>set(sectionRow,c,c===1?'25號結帳':c===5?'月底結帳':'',cellStyle(green,true,'FFFFFF','center',15)));
         const headRow = sectionRow + 1;
         set(headRow,1,'飯店／部門',cellStyle(beige,true,ink,'center',12));
         set(headRow,2,'銷貨淨額（未稅）',cellStyle(beige,true,ink,'center',12));
@@ -2119,7 +2132,14 @@ async function exportBossExcel() {
         }
 
         const dataStart = headRow + 1;
-        const endA = createSideRows(a,1,dataStart), endB = createSideRows(b,5,dataStart);
+        const endA = createSideRows(a,1,dataStart);
+        let endB = createSideRows(b,5,dataStart);
+        if (firstActive) {
+            set(endB,5,'1號結帳',cellStyle(green,true,'FFFFFF','left',13));
+            set(endB,6,'',cellStyle(green,true,'FFFFFF','left',13));
+            set(endB,7,'',cellStyle(green,true,'FFFFFF','left',13));
+            endB = createSideRows(c,5,endB + 1);
+        }
         const totalRow = Math.max(endA,endB) + 1;
         [1,5].forEach((c)=>{
             const g=c===1?a:b;
@@ -2135,10 +2155,10 @@ async function exportBossExcel() {
             set(totalRow+4,c+1,g.final,cellStyle(green,true,'FFFFFF','right',13));
         });
         const overallRow = totalRow + 6;
-        set(overallRow,1,'兩組未稅合計',cellStyle(pale,true,ink,'left',12));
-        set(overallRow,2,a.untaxed + b.untaxed,cellStyle(pale,true,ink,'right',12),numFmt);
-        set(overallRow,5,'兩組合計含稅應收',cellStyle(pale,true,ink,'left',12));
-        set(overallRow,6,a.final + b.final,cellStyle(pale,true,ink,'right',12),numFmt);
+        set(overallRow,1,firstActive ? '未稅合計' : '兩組未稅合計',cellStyle(pale,true,ink,'left',12));
+        set(overallRow,2,a.untaxed + b.untaxed + (firstActive ? c.untaxed : 0),cellStyle(pale,true,ink,'right',12),numFmt);
+        set(overallRow,5,firstActive ? '合計含稅應收' : '兩組合計含稅應收',cellStyle(pale,true,ink,'left',12));
+        set(overallRow,6,a.final + b.final + (firstActive ? c.final : 0),cellStyle(pale,true,ink,'right',12),numFmt);
 
         compareWs['!cols']=[{wch:27},{wch:19},{wch:18},{wch:3},{wch:27},{wch:19},{wch:18}];
         compareWs['!rows']=Array.from({length:overallRow},(_,i)=>({hpt:i===0?38:(i+1)===sectionRow?29:(i+1)===headRow?28:23}));

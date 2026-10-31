@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { caseDocumentId, rowsForPeriod, settlementGroup } from '../lib/auto-close.js';
+import { caseDocumentId, closingPeriod, rowsForPeriod, settlementGroup } from '../lib/auto-close.js';
 import {
     BILLING_CRON,
     BILLING_TIME_ZONE,
@@ -15,7 +15,11 @@ import { handleBillingSchedule, runBillingDay } from '../lib/billing-run.js';
 
 const MASTER = 'https://script.google.com/macros/s/test/exec';
 
-test('billing days are the 25th and the real last day, including February', () => {
+test('billing days are the 1st, the 25th and the real last day, including February', () => {
+    assert.equal(billingGroupForDate('2026-10-01'), '1st');
+    assert.equal(billingGroupForDate('2026-11-01'), '1st');
+    assert.equal(billingGroupForDate('2026-02-01'), '1st');
+    assert.equal(billingGroupForDate('2026-10-02'), null);
     assert.equal(billingGroupForDate('2026-10-25'), '25th');
     assert.equal(billingGroupForDate('2026-10-31'), 'month');
     assert.equal(billingGroupForDate('2026-10-30'), null);
@@ -26,8 +30,10 @@ test('billing days are the 25th and the real last day, including February', () =
     assert.equal(billingGroupForDate('2028-02-29'), 'month');
     assert.equal(shouldReadFirestore({ date: '2026-10-25', enabled: false }), false);
     assert.equal(shouldReadFirestore({ date: '2026-10-28', enabled: true }), false);
+    assert.equal(shouldReadFirestore({ date: '2026-11-02', enabled: true }), false);
+    assert.equal(shouldReadFirestore({ date: '2026-11-01', enabled: true }), true);
     assert.equal(shouldReadFirestore({ date: '2026-10-25', enabled: true }), true);
-    assert.equal(BILLING_CRON, '30 9 25,28,29,30,31 * *');
+    assert.equal(BILLING_CRON, '30 9 1,25,28,29,30,31 * *');
     assert.equal(BILLING_TIME_ZONE, 'Asia/Taipei');
 });
 
@@ -40,6 +46,13 @@ test('due hotels follow the group for today, including a saved name missing from
     assert.ok(warnings.some(item => item.type === 'not_in_template' && item.customer === '天慕'));
     assert.ok(warnings.some(item => item.type === 'no_billing_day' && item.customer === '富野'));
     assert.ok(warnings.some(item => item.type === 'no_billing_day' && item.customer === '麥當勞'));
+    const firstGroup = { 文旅: '1st', 新店: '15' };
+    assert.equal(settlementWarnings(['文旅', '新店'], firstGroup).some(item => item.customer === '文旅' && item.type === 'unknown_day'), false);
+    assert.deepEqual(dueHotelKeywords(['文旅', '新店'], firstGroup, '1st'), ['文旅']);
+    assert.deepEqual(closingPeriod('文旅', '2026-11-01', firstGroup), { startDate: '2026-10-01', endDate: '2026-10-31' });
+    assert.equal(closingPeriod('文旅', '2026-11-02', firstGroup), null);
+    assert.deepEqual(closingPeriod('文旅', '2026-03-01', { 文旅: '1st' }), { startDate: '2026-02-01', endDate: '2026-02-28' });
+    assert.deepEqual(closingPeriod('文旅', '2028-03-01', { 文旅: '1st' }), { startDate: '2028-02-01', endDate: '2028-02-29' });
 });
 
 test('period queries stay inside one hotel and do not rescan a padded month', () => {
@@ -277,6 +290,67 @@ test('month-end splits 鼎王 by department from one hotel query and still drops
     assert.equal(result.results.find(item => item.customer === '鼎王 回洗').status, 'skipped_empty');
 });
 
+test('the 1st bills the previous calendar month, including 鼎王 departments, and skips other groups', async () => {
+    const db = fakeDb({
+        docs: baseDocs(
+            { 鼎王: '1st', 富野: '25th', 麥當勞: '' },
+            [
+                { baseName: '鼎王', hotel: '鼎王 七賢', item: '床單' },
+                { baseName: '富野', hotel: '富野 房務', item: '床單' },
+                { baseName: '麥當勞', hotel: '麥當勞 房務', item: '薯條' },
+            ],
+        ),
+        receipts: [
+            { id: 'october', data: { date: '2026-10-15', hotelKeyword: '鼎王', deptName: '七賢', items: [{ itemName: '床單', actualQty: 2, price: 10 }] } },
+            { id: 'november', data: { date: '2026-11-01', hotelKeyword: '鼎王', deptName: '七賢', items: [{ itemName: '床單', actualQty: 9, price: 10 }] } },
+            { id: 'other', data: { date: '2026-10-15', hotelKeyword: '富野', deptName: '房務', items: [{ itemName: '床單', actualQty: 5, price: 10 }] } },
+        ],
+    });
+    const http = masterFetch([['鼎王 七賢', '鼎王七賢店', '12345678', '聯絡人']]);
+    const quiet = await handleBillingSchedule({ date: '2026-11-02', enabled: true, db, masterUrl: MASTER, fetchFn: async () => { throw new Error('不該抓價'); } });
+    assert.equal(quiet.status, 'noop');
+    assert.equal(db.gets(), 0);
+    const result = await runBillingDay({ db, date: '2026-11-01', masterUrl: MASTER, fetchFn: http.fetchFn, logger: { warn() {}, info() {} }, backoffMs: 0 });
+    assert.equal(result.billingGroup, '1st');
+    assert.equal(result.failures.length, 0);
+    const bills = casesOf(db);
+    assert.equal(bills.length, 1);
+    assert.equal(bills[0].customerKey, '鼎王 七賢');
+    assert.equal(bills[0].startDate, '2026-10-01');
+    assert.equal(bills[0].endDate, '2026-10-31');
+    assert.equal(bills[0].versions[0].snapshot.totals.grandTotal, 20);
+    const hotels = db.queries.map(filters => filters.find(filter => filter.field === 'hotelKeyword')?.value);
+    assert.ok(hotels.includes('鼎王'));
+    assert.ok(!hotels.includes('富野'));
+    assert.ok(!hotels.includes('麥當勞'));
+});
+
+test('歐遊 and 捷中正 bill on the 1st, not again at month end', () => {
+    assert.equal(settlementGroup('歐遊', {}), '1st');
+    assert.equal(settlementGroup('捷中正', {}), '1st');
+    assert.equal(settlementGroup('歐遊', { 歐遊: 'month' }), '1st');
+    assert.equal(settlementGroup('捷中正', { 捷中正: '25th' }), '1st');
+    assert.equal(settlementGroup('歐遊 房務', { 歐遊: 'month' }), '1st');
+    assert.equal(settlementGroup('捷中正 特處', {}), '1st');
+    assert.equal(settlementGroup('捷站前', {}), 'month');
+    assert.equal(settlementGroup('比歐', {}), 'month');
+    assert.equal(settlementGroup('鉑麗', {}), 'month');
+    assert.equal(settlementGroup('歐遊', { 歐遊: '' }), '1st');
+    assert.equal(settlementGroup('H2O 西餐', { 'H2O 西餐': 'month' }), '25th');
+    assert.equal(settlementGroup('H2O西餐', {}), '25th');
+    assert.equal(settlementGroup('H2O', { H2O: 'month' }), '25th');
+    assert.equal(settlementGroup('H2O 房務', {}), '25th');
+    assert.equal(settlementGroup('天慕', { 天幕: '1st' }), '25th');
+    assert.equal(settlementGroup('天幕', {}), '25th');
+    assert.equal(settlementGroup('鉑麗', { 鉑麗: '25th' }), 'month');
+    assert.deepEqual(dueHotelKeywords(['H2O', 'H2O 西餐', '鉑麗'], { 'H2O 西餐': 'month', H2O: 'month', 鉑麗: '25th' }, '25th'), ['H2O']);
+    assert.deepEqual(dueHotelKeywords(['H2O', 'H2O 西餐', '鉑麗'], { 'H2O 西餐': 'month', H2O: 'month', 鉑麗: '25th' }, 'month'), ['鉑麗']);
+    assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前', '鉑麗'], { 歐遊: 'month', 捷中正: '25th' }, 'month'), ['捷站前', '鉑麗']);
+    assert.deepEqual(dueHotelKeywords(['歐遊', '捷中正', '捷站前'], { 歐遊: 'month', 捷中正: 'month' }, '1st'), ['捷中正', '歐遊']);
+    assert.equal(closingPeriod('歐遊', '2026-10-31', { 歐遊: 'month' }), null);
+    assert.deepEqual(closingPeriod('捷中正', '2026-11-01', { 捷中正: 'month' }), { startDate: '2026-10-01', endDate: '2026-10-31' });
+});
+
 test('天慕 inherits the saved 天幕 group, 鉑麗 closes at month end, and H2O 西餐 stays on the H2O bill', () => {
     assert.equal(settlementGroup('天慕', { 天幕: '25th' }), '25th');
     assert.equal(settlementGroup('鉑麗', {}), 'month');
@@ -294,7 +368,7 @@ test('the sign page no longer starts statement generation', () => {
     const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
     assert.equal(html.includes('tryAutoStatement'), false);
     assert.equal(html.includes('signature-statement-client'), false);
-    assert.match(index, /30 9 25,28,29,30,31 \* \*/);
+    assert.equal(index.match(/30 9 1,25,28,29,30,31 \* \*/g).length, 2);
     assert.match(index, /Asia\/Taipei/);
     assert.equal(index.includes('onDocumentWritten'), false);
 });
