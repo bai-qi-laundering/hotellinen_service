@@ -218,6 +218,7 @@ let repoDb = null;
 let repoFs = null;
 let firebaseApp = null;
 let pendingRead = null;
+let readGeneration = 0;
 let hasLoaded = false;
 let syncStarted = false;
 function defaultBillingMonth(now = new Date()) {
@@ -530,10 +531,20 @@ async function reload() {
     $('refresh').disabled = true;
     try {
         if (!pendingRead) {
-            pendingRead = (repo.cloud ? repo.list({ skipFlush: true }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false })))
-                .finally(() => { pendingRead = null; });
+            const read = repo.cloud ? repo.list({ skipFlush: true }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
+            pendingRead = read;
+            read.finally(() => { if (pendingRead === read) pendingRead = null; }).catch(() => {});
         }
-        const result = await withTimeout(pendingRead, 15000, '雲端讀取超過 15 秒，尚未確認是否有帳單。請檢查網路後按重新整理。');
+        const currentRead = pendingRead;
+        const generation = ++readGeneration;
+        let result;
+        try {
+            result = await withTimeout(currentRead, 15000, '雲端讀取超過 15 秒，尚未確認是否有帳單。請檢查網路後按重新整理。');
+        } catch (error) {
+            if (pendingRead === currentRead) pendingRead = null;
+            throw error;
+        }
+        if (generation !== readGeneration) return;
         cases = result.cases || [];
         hasLoaded = true;
         if (localOnly) showBanner('這是只看這台電腦的檢查模式，不是正式送件清單。');
