@@ -3,12 +3,29 @@
 // 發票看同一份案件的 invoiceStatus／invoiceRecord／invoicedVersion（貨款登記）。
 // 不聽即時更新，也不掃整份對帳單或出貨紀錄。
 
-import { canonicalHotelKeyword, settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
+import { settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
 
+// Display aliases must resolve to the same immutable statement customer key.
+const BOARD_ALIASES = Object.freeze({
+ '文旅一心館':'文一','文旅七賢館':'文七','好地方六合館':'好六',
+ '日航休閒中心':'日航','巨蛋一般':'巨蛋','塩旅':'泊思行旅',
+ '鼎王-七賢店':'鼎王 七賢','鼎王-富國店':'鼎王 富國','無老鍋':'鼎王 無老鍋',
+ '雅樂 十刻':'雅樂十刻','雅樂 廚苑':'雅樂廚苑',
+ '鴨點棧-明誠':'鴨點棧明誠','鴨點棧-華夏':'鴨點棧華夏',
+});
+export function boardHotelKey(name) {
+ const key=String(name||'').normalize('NFKC').trim().replace(/\s+/g,' ');
+ return statementHotelKey(BOARD_ALIASES[key]||key);
+}
 const DEPARTMENT_PARENTS = new Set(['鼎王']);
 
 export function settlementGroupOf(hotel, groups = {}) {
-    return settlementGroup(hotel, groups);
+    const canonical=boardHotelKey(hotel), normalized={};
+    for(const [name,value] of Object.entries(groups)) {
+        const key=boardHotelKey(name);
+        if(!Object.hasOwn(normalized,key)||name===key)normalized[key]=value;
+    }
+    return settlementGroup(canonical, normalized);
 }
 
 export const BILLING_GROUP_ORDER = Object.freeze(['25th', 'month', '1st']);
@@ -120,9 +137,10 @@ function byName(left, right) {
 function rosterParents(baseNames, groups) {
     const names = new Set();
     for (const name of [...(baseNames || []), ...Object.keys(groups || {})]) {
-        const key = statementHotelKey(name);
+        const key = boardHotelKey(name);
         if (key && !key.includes('回洗')) names.add(key);
     }
+    if (names.has('雅樂十刻') || names.has('雅樂廚苑')) names.delete('雅樂');
     return [...names].sort(byName);
 }
 
@@ -130,13 +148,13 @@ function customersFor(parent, items, cases, period) {
     if (!DEPARTMENT_PARENTS.has(parent)) return [parent];
     const names = new Set();
     for (const item of items || []) {
-        const base = canonicalHotelKeyword(item?.baseName);
-        const hotel = String(item?.hotel || '').trim();
+        const base = boardHotelKey(item?.baseName);
+        const hotel = boardHotelKey(item?.hotel);
         if (base !== parent || !hotel || hotel === parent || hotel.includes('回洗')) continue;
         names.add(hotel);
     }
     for (const row of cases || []) {
-        const key = String(row?.customerKey || '').trim();
+        const key = boardHotelKey(row?.customerKey);
         if (!key.startsWith(`${parent} `) || key.includes('回洗')) continue;
         if (row.startDate === period.start && row.endDate === period.end) names.add(key);
     }
@@ -144,7 +162,8 @@ function customersFor(parent, items, cases, period) {
 }
 
 function findCase(cases, name, period) {
-    return (cases || []).find(row => row?.customerKey === name && row.startDate === period.start && row.endDate === period.end) || null;
+    return (cases || []).filter(row => boardHotelKey(row?.customerKey) === boardHotelKey(name) && row.startDate === period.start && row.endDate === period.end)
+        .sort((a,b)=>Number(b.customerKey===name)-Number(a.customerKey===name)||String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0] || null;
 }
 
 function parentOf(name, parents) {
@@ -161,6 +180,7 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
     const unset = [];
     const unsupported = [];
     const addRow = (group, name, doc) => {
+        name = boardHotelKey(name);
         const key = `${group}\n${name}`;
         if (seen.has(key)) return;
         seen.add(key);
@@ -190,13 +210,13 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
     }
     for (const row of cases || []) {
         const rawName = String(row?.customerKey || '').trim();
-        const name = statementHotelKey(rawName);
-        if (!name || name.includes('回洗') || name !== rawName) continue;
+        const name = boardHotelKey(rawName);
+        if (!name || name.includes('回洗') || (name.includes('+') && name!=='良西+良一')) continue;
         const parent = parentOf(name, parents);
         const group = parent ? settlementGroupOf(parent, groups) : settlementGroupOf(name, groups);
         const period = periods[group];
         if (!period || row.startDate !== period.start || row.endDate !== period.end) continue;
-        addRow(group, name, row);
+        addRow(group, name, findCase(cases, name, period));
     }
     const groupsOut = BILLING_GROUP_ORDER.map(id => {
         const list = rows[id].sort(byName);
@@ -302,7 +322,7 @@ export function renderUnsentBoard(board, onRefresh) {
     head.className = 'baiqi-unsent-head';
     const titles = document.createElement('div');
     const heading = document.createElement('h2');
-    heading.textContent = '未送對帳單・未開發票';
+    heading.textContent = '未送對帳單';
     const lead = document.createElement('p');
     lead.className = 'baiqi-unsent-lead';
     lead.textContent = `統計日 ${slash(board.today)}（台北）。各組只看最近一個已經到結帳日的區間，下一期還沒結的不算。點卡片可看飯店。`;
@@ -317,7 +337,7 @@ export function renderUnsentBoard(board, onRefresh) {
     grid.className = 'baiqi-unsent-grid';
     for (const group of board.groups) {
         const card = document.createElement('details');
-        card.className = 'baiqi-unsent-card ' + (group.unsentCount || group.uninvoicedCount ? 'alert' : 'ok');
+        card.className = 'baiqi-unsent-card ' + (group.unsentCount ? 'alert' : 'ok');
         const summary = document.createElement('summary');
         const kicker = document.createElement('div');
         kicker.className = 'baiqi-unsent-kicker';
@@ -325,9 +345,6 @@ export function renderUnsentBoard(board, onRefresh) {
         const unsent = document.createElement('div');
         unsent.className = 'baiqi-unsent-count';
         unsent.textContent = countLine(group.unsentCount, '本期都已送出', '還有 N 間未送');
-        const invoice = document.createElement('div');
-        invoice.className = 'baiqi-unsent-count second';
-        invoice.textContent = countLine(group.uninvoicedCount, '本期都已開發票', '還有 N 間未開發票');
         const period = document.createElement('div');
         period.className = 'baiqi-unsent-period';
         const periodBits = [formatBoardPeriod(group.period)];
@@ -337,7 +354,7 @@ export function renderUnsentBoard(board, onRefresh) {
         const tap = document.createElement('div');
         tap.className = 'baiqi-unsent-tap';
         tap.textContent = '點一下展開飯店';
-        summary.append(kicker, unsent, invoice, period);
+        summary.append(kicker, unsent, period);
         if (group.id === '1st' && group.upcoming) {
             const upcoming = document.createElement('div');
             upcoming.className = 'baiqi-unsent-period';
@@ -351,11 +368,7 @@ export function renderUnsentBoard(board, onRefresh) {
         sendTitle.textContent = '未送';
         const sendBlock = document.createElement('div');
         sendBlock.append(sendTitle, nameList(group.unsent, 'sendLabel', '這組本期都已送出'));
-        const invoiceTitle = document.createElement('h3');
-        invoiceTitle.textContent = '未開發票';
-        const invoiceBlock = document.createElement('div');
-        invoiceBlock.append(invoiceTitle, nameList(group.uninvoiced, 'invoiceLabel', '這組本期都已開發票'));
-        body.append(sendBlock, invoiceBlock);
+        body.append(sendBlock);
         card.append(summary, body);
         grid.append(card);
     }
@@ -371,7 +384,7 @@ export function renderUnsentBoard(board, onRefresh) {
     }
     const foot = document.createElement('p');
     foot.className = 'baiqi-unsent-foot';
-    foot.textContent = '未送是指最新一版還沒按「我已寄出」（含尚未產生、已產生未送、新版待重寄）。未開發票是指這一版還沒有發票紀錄。可到「貨款登記」登錄手開的發票號碼。';
+    foot.textContent = '未送是指最新一版還沒按「我已寄出」（含尚未產生、已產生未送、新版待重寄）。新舊飯店名稱以同一出帳對象統計，不重複計算。';
     root.append(foot);
     return root;
 }
@@ -381,7 +394,7 @@ function messageBoard(text, onRefresh) {
     const root = document.createElement('section');
     root.className = 'baiqi-unsent';
     const heading = document.createElement('h2');
-    heading.textContent = '未送對帳單・未開發票';
+    heading.textContent = '未送對帳單';
     const lead = document.createElement('p');
     lead.className = 'baiqi-unsent-lead';
     lead.textContent = text;
@@ -417,7 +430,7 @@ export function mountUnsentDashboard(container, { db, fs, today, load } = {}) {
     let timer = 0;
     const reload = () => {
         const token = ++sequence;
-        container.replaceChildren(messageBoard('讀取本期未送與未開發票…', reload));
+        container.replaceChildren(messageBoard('讀取本期未送對帳單…', reload));
         const job = load
             ? load()
             : loadUnsentBoard(db, fs, typeof today === 'function' ? today() : (today || taipeiToday()));
@@ -426,7 +439,7 @@ export function mountUnsentDashboard(container, { db, fs, today, load } = {}) {
             container.replaceChildren(renderUnsentBoard(board, reload));
         }).catch(error => {
             if (token !== sequence) return;
-            container.replaceChildren(messageBoard(error?.message || '讀取失敗。還沒讀完，不能當成全部已送或已開發票。', reload));
+            container.replaceChildren(messageBoard(error?.message || '讀取失敗。還沒讀完，不能當成全部已送。', reload));
         });
     };
     const schedule = () => {
