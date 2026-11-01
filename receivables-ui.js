@@ -23,6 +23,12 @@ function customerConfig(c){
  if(matches.length&&matches.every(row=>row.issuer===matches[0].issuer&&row.method===matches[0].method))return matches[0];
  return {issuer:c.collectionRecord?.issuer||'未設定開票公司',method:c.collectionRecord?.paymentMethod||'',order:9999,title:''};
 }
+function invoiceDetails(c){
+ const issuer=customerConfig(c).issuer;
+ if(!['百麒國際','百麒','百富','日聖'].includes(issuer))throw Error('尚未設定開票公司，請先確認公司後再登記發票。');
+ const method=issuer==='百麒國際'?'electronic':'manual';
+ return {issuer,method,label:method==='electronic'?'電子發票':'手開發票'};
+}
 let cases=[],loading=false,available=false,sequence=0;
 function billingMonth(now=new Date()){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
@@ -105,12 +111,22 @@ async function reload(){
  }catch(e){if(token===sequence){$('message').textContent=e.message;$('list').textContent='讀取未完成，請重試。';}}
 }
 let selected=null,action='';
-function open(id,type){selected=cases.find(c=>c.id===id);action=type;const l=ledger(selected);$('title').textContent=type==='confirm'?'確認收到飯店通知':'登記已開立的發票';$('error').textContent='';$('fields').innerHTML=type==='confirm'?`<p>${esc(selected.customerName||selected.customerKey)} · V${l.version} · ${formatCardAmount(l.amount)}</p><label><input type="checkbox" required> 我已收到飯店確認這一版對帳單的通知</label>`:`<p>汎宇 API 尚未串接；電子發票請先於平台開立，再登記號碼。</p><div id="ledger-reference"></div><label>類型<select name="method"><option value="manual">手開發票</option><option value="electronic">已在平台開立電子發票</option></select></label><label>發票日期<input name="date" type="date" required value="${today}"></label><label>發票號碼<input name="number" required pattern="[A-Za-z]{2}[0-9]{8}" maxlength="10" placeholder="AB12345678"></label><label><input type="checkbox" required> 已開立並核對發票金額</label>`;if(type==='invoice'){
- const form=$('form'),update=()=>{$('reference').innerHTML=manualReferenceHtml({buyer:l.snapshot.profile?.name,taxId:l.snapshot.profile?.taxId,date:form.elements.date.value||today,item:selected.endDate.slice(0,7)+' 洗滌費',net:l.snapshot.totals.afterRebate,tax:l.snapshot.totals.tax,total:l.amount,version:l.version},form.elements.number.value);};
- form.elements.date.onchange=update;form.elements.number.oninput=update;update();
- }$('dialog').showModal();}
+function open(id,type){
+ selected=cases.find(c=>c.id===id);action=type;const l=ledger(selected);
+ let details;
+ try{if(type==='invoice')details=invoiceDetails(selected);}
+ catch(error){$('message').textContent=error.message;return;}
+ $('title').textContent=type==='confirm'?'確認收到飯店通知':'登記已開立的發票';$('error').textContent='';
+ $('fields').innerHTML=type==='confirm'?`<p>${esc(selected.customerName||selected.customerKey)} · V${l.version} · ${formatCardAmount(l.amount)}</p><label><input type="checkbox" required> 我已收到飯店確認這一版對帳單的通知</label>`:`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${details.label}</strong>（自動帶入）</p><input name="method" type="hidden" value="${details.method}">${details.method==='electronic'?'<p>汎宇 API 尚未串接；請先於平台開立電子發票，再登記號碼。</p>':''}<div id="ledger-reference"></div><label>發票日期<input name="date" type="date" required value="${today}"></label><label>發票號碼<input name="number" required pattern="[A-Za-z]{2}[0-9]{8}" maxlength="10" placeholder="AB12345678"></label><label><input type="checkbox" required> 已開立並核對發票金額</label>`;
+ if(type==='invoice'&&details.method==='manual'){
+  const form=$('form'),update=()=>{$('reference').innerHTML=manualReferenceHtml({buyer:l.snapshot.profile?.name,taxId:l.snapshot.profile?.taxId,date:form.elements.date.value||today,item:selected.endDate.slice(0,7)+' 洗滌費',net:l.snapshot.totals.afterRebate,tax:l.snapshot.totals.tax,total:l.amount,version:l.version},form.elements.number.value);};
+  form.elements.date.onchange=update;form.elements.number.oninput=update;update();
+ }
+ $('dialog').showModal();
+}
 $('cancel').onclick=()=>{if(!loading)$('dialog').close();};
 $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$('save').disabled=true;$('error').textContent='';const l=ledger(selected),payload=Object.fromEntries(new FormData(e.target));try{
+ if(action==='invoice')payload.method=invoiceDetails(selected).method;
  await fs.runTransaction(db,async tx=>{const ref=fs.doc(db,'statement_cases',selected.id),snap=await tx.get(ref);if(!snap.exists())throw Error('帳單不存在');const updated=applyLedger({id:selected.id,...snap.data()},l.version,action,payload,new Date().toISOString());tx.set(ref,updated);});
  $('dialog').close();window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);await reload();
  }catch(err){$('error').textContent=err.message;}finally{loading=false;$('save').disabled=false;}};
