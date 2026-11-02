@@ -1,4 +1,4 @@
-import { billingReceiptItems } from './logistics-items.js';
+import { billingReceiptItems, statementCustomerKey } from './logistics-items.js';
 import { createInvoiceEngine } from './invoice-engine.js';
 import { caseDocumentId, publishSnapshot } from './statement-case.js';
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
@@ -98,7 +98,7 @@ export function closingPeriod(hotel, date, groups={}) {
 }
 export function customerOf(receipt) {
  const hotel=String(receipt.hotelKeyword||'').trim(), dept=String(receipt.deptName||'').trim();
- return hotel==='鼎王' && dept && dept!==hotel ? hotel+' '+dept : hotel;
+ return statementCustomerKey(hotel, dept && dept!==hotel ? hotel+' '+dept : hotel, dept);
 }
 export function rowsForPeriod(documents,customer,start,end) {
  const rows=[];
