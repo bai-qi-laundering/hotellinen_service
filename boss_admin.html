@@ -374,7 +374,7 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261019-same-names';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
         import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
@@ -390,8 +390,45 @@
 
         const app = initializeApp(firebaseConfig);
         const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+            localCache: memoryLocalCache(),
+            experimentalForceLongPolling: true,
+            useFetchStreams: false
         });
+
+
+        function adminReadTimeout(promise, label, ms=25000) {
+            let timer;
+            return Promise.race([promise,new Promise((_,reject)=>{
+                timer=setTimeout(()=>reject(new Error(label+'讀取逾時，請重新載入；尚未確認此區間是否有資料。')),ms);
+            })]).finally(()=>clearTimeout(timer));
+        }
+
+        // 只讀選定日期；保留舊資料的斜線與不補零日期格式。
+        function adminDateBatches(start, end) {
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||start>end)
+                throw new Error('請確認單據起訖日期。');
+            const values=new Set();
+            const cursor=new Date(start+'T00:00:00Z'),last=new Date(end+'T00:00:00Z');
+            if(!Number.isFinite(cursor.getTime())||!Number.isFinite(last.getTime()))throw new Error('單據日期格式錯誤。');
+            for(;cursor<=last;cursor.setUTCDate(cursor.getUTCDate()+1)){
+                const y=cursor.getUTCFullYear(),m=cursor.getUTCMonth()+1,d=cursor.getUTCDate();
+                for(const separator of ['-','/'])for(const month of [String(m),String(m).padStart(2,'0')])
+                    for(const day of [String(d),String(d).padStart(2,'0')])values.add([y,month,day].join(separator));
+            }
+            const dates=[...values],batches=[];
+            for(let i=0;i<dates.length;i+=30)batches.push(dates.slice(i,i+30));
+            return batches;
+        }
+
+        async function readAdminPeriod(name, start, end) {
+            const batches=adminDateBatches(start,end),snapshots=[];
+            for(let i=0;i<batches.length;i+=4){
+                snapshots.push(...await Promise.all(batches.slice(i,i+4).map(dates=>
+                    adminReadTimeout(getDocsFromServer(query(collection(db,name),where('date','in',dates))),'單據')
+                )));
+            }
+            return snapshots;
+        }
 
         // ★ 寫死的司機名單
         const DRIVER_LIST = ["劉硯茹", "鄭人豪", "吳宏鴻", "朱韋豪", "鄭弘裕", "羅金賢"];
@@ -460,7 +497,7 @@
         async function ensureMasterData() {
             if (masterData.length > 0) return;
             try {
-                const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
+                const templateDoc = await adminReadTimeout(getDoc(doc(db, 'inventory_config', 'master_template')), '飯店與品項設定', 12000);
                 if (templateDoc.exists() && templateDoc.data().items) {
                     masterData = templateDoc.data().items;
                 }
@@ -595,8 +632,7 @@
             try {
                 await ensureMasterData();
 
-                const snapshots = await Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
-                    getDocsFromServer(query(collection(db, 'inventory_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const snapshots = await readAdminPeriod('inventory_records', startDate, endDate);
                 let uniqueDocs = new Map();
                 snapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
@@ -849,8 +885,7 @@
 
         async function buildInventoryMapsForRange(startDate, endDate) {
             await ensureMasterData();
-            const invSnapshots = await Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
-                getDocsFromServer(query(collection(db, 'inventory_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+            const invSnapshots = await readAdminPeriod('inventory_records', startDate, endDate);
 
             let invMap = {};
             let invRawDataMap = {};
@@ -939,8 +974,7 @@
             try {
                 await ensureMasterData();
 
-                const readLogPeriod = Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
-                    getDocsFromServer(query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate);
                 const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
                     readLogPeriod,
                     buildInventoryMapsForRange(startDate, endDate)
@@ -1951,8 +1985,7 @@
 
             try {
                 // 即時重新讀取區間內的物流單與盤點資料庫，確保不管有沒有先按載入都找得到！
-                const readLogPeriod = Promise.all(legacyDatePrefixes(startDate, endDate).map(prefix =>
-                    getDocsFromServer(query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')))));
+                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate);
                 const [logSnapshots, { invRawDataMap }] = await Promise.all([
                     readLogPeriod,
                     buildInventoryMapsForRange(startDate, endDate)
