@@ -151,7 +151,11 @@ test('已開票的帳單不會被新內容覆蓋', async () => {
     assert.equal(next.doc.state, 'needs_review');
     assert.equal(next.doc.versions[0].snapshot.departments[0].summary[0].qty, 10);
     assert.equal(next.doc.versions[1].review, 'invoiced_diff');
-    assert.throws(() => applySentRegistration(next.doc, 2, 'xlsx', '2026-10-30T04:00:00.000Z'), /先不要登記寄出/);
+    const sent = applySentRegistration(next.doc, 2, 'xlsx', '2026-10-30T04:00:00.000Z');
+    assert.equal(sent.state, 'sent');
+    assert.equal(sent.invoiceStatus, 'invoiced');
+    assert.equal(sent.invoicedVersion, 1);
+    assert.equal(sent.versions[1].review, 'invoiced_diff');
 });
 
 test('對帳單畫面與 Excel 用同一份品項、數量與含稅金額', async () => {
