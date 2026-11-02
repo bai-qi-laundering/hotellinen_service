@@ -1,3 +1,15 @@
+// 同統編仍以不同出帳對象建立案件；不改物流或計價來源名稱。
+export function statementCustomerKey(parentCompany, hotelName = '', deptName = '') {
+    const parent=String(parentCompany || '').trim();
+    const hotel=String(hotelName || parent).trim();
+    const compact=value=>String(value || '').normalize('NFKC').replace(/[\s\-－_]/g,'').replace(/ㄧ/g,'一');
+    const key=compact(parent), label=compact(hotel), dept=compact(deptName);
+    if(key==='然一客衣'||(key==='然一'&&(dept.includes('客衣')||label.startsWith('然一客衣'))))return '然一-客衣';
+    if(key==='然一')return '然一';
+    if(parent==='鼎王'||hotel.startsWith('鼎王 '))return hotel;
+    return parent || hotel;
+}
+
 // Display names may change in finance; the inventory source name stays stable.
 export const normalizeItemName = name => String(name || '').replace(/[\s\u3000]+/g, '').trim();
 
