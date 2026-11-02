@@ -359,8 +359,8 @@ function render() {
         const send = document.createElement('button');
         send.className = 'btn primary send-btn';
         send.type = 'button';
-        send.textContent = item.state === 'needs_review' ? '先不要寄' : item.state === 'sent' ? '再次取得檔案' : '確認送出';
-        send.disabled = item.state === 'needs_review';
+        send.textContent = item.state === 'needs_review' ? '取得新版檔案' : item.state === 'sent' ? '再次取得檔案' : '確認送出';
+        send.disabled = !version;
         send.onclick = () => showSend(item);
         actions.append(preview, send);
         const note = document.createElement('div');
@@ -370,7 +370,7 @@ function render() {
         if (unsignedReceipts > 0) notes.push(`產生時有 ${unsignedReceipts} 張簽收單還沒簽名，金額仍含這些出貨。之後補簽名不會自動改這份帳單；要更新請到結帳戰情系統手動產生新版本。`);
         if (item.cloudPending) notes.push('這份還在補送雲端，其他電腦暫時看不到。請按重新整理。');
         if (older.length) notes.push(`上一版 V${older[older.length - 1].version} 已於 ${taipeiStamp(older[older.length - 1].sentAt)} 登記寄出。`);
-        if (item.state === 'needs_review') notes.push('這份帳單開票後有修改。請先完成原發票作廢，再到「貨款登記」按原號碼旁的「登記已作廢」，即可回來核對並寄送新版。');
+        if (item.state === 'needs_review') notes.push('這份帳單開票後有修改。仍可取得新版 Excel／PDF 傳給客戶核對；原發票維持待處理，不會因下載或分享而解除。實際作廢後，請至貨款登記按「登記已作廢」。');
         else if (item.state === 'sent') notes.push(`已於 ${taipeiStamp(version?.sentAt)} 登記寄出。再次取得檔案不會改掉這個紀錄。`);
         else notes.push('核對的是這一份帳單。Excel 或 PDF 在送出時選擇，傳完 LINE 再登記。');
         note.textContent = notes.join('');
@@ -404,11 +404,14 @@ function showSend(item) {
     selected = item;
     chosenFormat = 'xlsx';
     const version = latestVersion(item);
-    $('dialogTitle').textContent = `確認送出 · ${dispatchHotelName(item)}`;
+    $('dialogTitle').textContent = `${item.state === 'needs_review' ? '取得新版檔案' : '確認送出'} · ${dispatchHotelName(item)}`;
+    $('cancel').textContent = '返回';
     $('dialogBody').replaceChildren();
     const intro = document.createElement('p');
     intro.className = 'subtle';
-    intro.textContent = item.state === 'sent'
+    intro.textContent = item.state === 'needs_review'
+        ? '可下載或分享新版帳單供客戶核對。這個操作不會登記寄出，也不會改動原發票或解除開票後有變的提醒。'
+        : item.state === 'sent'
         ? '這一版已經登記寄出。可以再次取得同一份檔案。下載不等於再寄一次，狀態不會被清掉。'
         : '請確認 LINE 收件人與檔案格式。下一步只準備檔案，不會自動傳 LINE，也不會把這份改成已寄出。';
     const label = document.createElement('p');
@@ -417,6 +420,7 @@ function showSend(item) {
     input.id = 'recipientName';
     input.value = item.lineRecipient || '';
     input.maxLength = 80;
+    input.readOnly = item.state === 'needs_review';
     input.setAttribute('aria-label', 'LINE 收件名稱');
     const formatLabel = document.createElement('label');
     formatLabel.htmlFor = 'format';
@@ -429,14 +433,15 @@ function showSend(item) {
     hint.textContent = version ? `現在準備的是 V${version.version}。核對畫面與檔案都來自同一份結帳內容。` : '';
     $('dialogBody').append(intro, label, input, formatLabel, select, hint);
     $('next').hidden = false;
-    $('next').textContent = item.state === 'sent' ? '取得檔案' : '下一步：準備檔案';
+    $('next').textContent = ['sent','needs_review'].includes(item.state) ? '取得檔案' : '下一步：準備檔案';
     $('next').onclick = () => prepareAndContinue();
     $('overlay').classList.add('show');
 }
 async function prepareAndContinue() {
     if (!selected || busy) return;
     const name = $('recipientName')?.value.trim() || '';
-    if (!name) { alert('請先填 LINE 收件名稱，同事才知道要傳給誰。'); return; }
+    const retrievalOnly = selected.state === 'needs_review';
+    if (!name && !retrievalOnly) { alert('請先填 LINE 收件名稱，同事才知道要傳給誰。'); return; }
     chosenFormat = $('format')?.value || 'xlsx';
     const expected = selected.latestVersion;
     // 分享與列印都要留在這次點擊裡。先交出檔案，再等收件人寫入。
@@ -450,12 +455,24 @@ async function prepareAndContinue() {
     busy = true;
     $('next').disabled = true;
     try {
-        const savePromise = repo.saveRecipient(selected.id, name);
-        try { await savePromise; }
-        catch (error) { if (!error.queued) throw error; }
-        selected.lineRecipient = name;
+        if (!retrievalOnly) {
+            const savePromise = repo.saveRecipient(selected.id, name);
+            try { await savePromise; }
+            catch (error) { if (!error.queued) throw error; }
+            selected.lineRecipient = name;
+        }
         const delivered = await handoffResult;
         if (!delivered.ok) throw delivered.error;
+        if (retrievalOnly) {
+            $('dialogTitle').textContent = '新版檔案已準備好';
+            $('dialogBody').replaceChildren();
+            const message = document.createElement('p');
+            message.textContent = '請自行將檔案傳給客戶核對。原發票仍待處理，系統未登記新版寄出，也未變更發票狀態。';
+            $('dialogBody').append(message);
+            $('next').hidden = true;
+            $('cancel').textContent = '關閉';
+            return;
+        }
         if (selected.state === 'sent') {
             $('overlay').classList.remove('show');
             await reload();
