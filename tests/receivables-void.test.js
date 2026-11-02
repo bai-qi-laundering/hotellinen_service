@@ -14,7 +14,7 @@ test('Changed invoice: external void registration unlocks resend and permits a n
   const old=await invoiced(method);
   const changed=(await publishSnapshot(old,snapshot(200),'2026-11-01T01:00:00Z')).doc;
   assert.equal(changed.state,'needs_review');
-  assert.throws(()=>applySentRegistration(changed,2,'xlsx','now'));
+  assert.equal(applySentRegistration(changed,2,'xlsx','now').state,'sent');
   const next=applyLedger(changed,1,'voidInvoice',payload(2),'2026-11-02T01:00:00Z');
   assert.equal(next.state,'resend');assert.equal(deriveState(next),'resend');
   assert.equal(invoiceState(next),'未開票');
@@ -46,4 +46,20 @@ test('Voiding an unchanged sent invoice retains delivery and payment data',async
  assert.equal(next.state,'sent');assert.equal(next.invoiceStatus,'ready');
  assert.deepEqual(next.collectionRecord,old.collectionRecord);
  assert.equal(deriveState(next),'sent');
+});
+
+test('Sending revised invoice statement updates receivable amount but keeps original invoice pending',async()=>{
+ const old=await invoiced();
+ const changed=(await publishSnapshot(old,snapshot(200),'2026-11-01T01:00:00Z')).doc;
+ const sent=applySentRegistration(changed,2,'xlsx','2026-11-02T02:00:00Z');
+ assert.equal(deriveState(sent),'sent');
+ assert.equal(sent.versions[1].sentAt,'2026-11-02T02:00:00Z');
+ assert.equal(sent.versions[0].sentAt,old.versions[0].sentAt);
+ assert.deepEqual(sent.invoiceRecord,old.invoiceRecord);
+ assert.equal(sent.invoiceStatus,'invoiced');
+ assert.equal(sent.invoicedVersion,1);
+ assert.equal(invoiceState(sent),'開票後有變');
+ assert.equal(ledger(sent).amount,205);
+ assert.equal(ledger(sent).pending,false);
+ assert.equal(sent.invoiceHistory,undefined);
 });
