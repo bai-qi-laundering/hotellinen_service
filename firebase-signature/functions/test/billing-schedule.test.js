@@ -381,3 +381,25 @@ test('the sign page no longer starts statement generation', () => {
     assert.match(index, /Asia\/Taipei/);
     assert.equal(index.includes('onDocumentWritten'), false);
 });
+
+test('Ran auto billing creates two separate cases with the same tax profile and retries once', async () => {
+ const db=fakeDb({docs:baseDocs({然一:'25th'},[{baseName:'然一',hotel:'然一 房務',item:'床單'},{baseName:'然一',hotel:'然一 客衣',item:'衣服'}]),receipts:[
+  {id:'ran-room',data:{date:'2026-10-10',hotelKeyword:'然一',deptName:'房務',items:[{itemName:'床單',actualQty:2,price:10}]}},
+  {id:'ran-guest',data:{date:'2026-10-10',hotelKeyword:'然一',deptName:'客衣',items:[{itemName:'衣服',actualQty:4,price:30}]}}
+ ]});
+ const http=masterFetch([['然一','御盟酒店股份有限公司灣區分公司','59269713']]);
+ const args={db,date:'2026-10-25',masterUrl:MASTER,fetchFn:http.fetchFn,logger:{info(){},warn(){}},backoffMs:0};
+ const first=await runBillingDay(args);
+ assert.equal(first.failures.length,0);
+ const bills=casesOf(db).sort((a,b)=>a.customerKey.localeCompare(b.customerKey));
+ assert.equal(bills.length,2);
+ assert.equal(new Set(bills.map(b=>b.id)).size,2);
+ for(const bill of bills){
+  const snapshot=bill.versions[0].snapshot;
+  assert.equal(snapshot.profile.taxId,'59269713');
+  assert.equal(snapshot.totals.grandTotal,bill.customerKey==='然一'?20:120);
+  assert.equal(snapshot.departments.length,1);
+ }
+ await runBillingDay(args);
+ assert.equal(casesOf(db).length,2);
+});
