@@ -503,7 +503,9 @@
                 }
             } catch (e) {
                 console.error("無法載入試算表基礎排序設定", e);
+                throw e;
             }
+            if (!masterData.length) throw new Error('飯店與品項設定尚未讀取完成，請重試。');
         }
 
         function getItemSortIndex(hotelName, itemName) {
