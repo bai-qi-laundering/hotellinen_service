@@ -510,6 +510,7 @@ import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapsho
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261102-ran-split';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 
 const firebaseConfig = {
@@ -2246,10 +2247,7 @@ async function refreshInvoiceClientsFromSheet(force=false) {
 window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
 
 function invoiceCustomerKeyForRecord(r) {
-    const parent = String(r?.parentCompany || '').trim();
-    const hotel = String(r?.hotel || parent).trim();
-    if (parent === '鼎王' || hotel.startsWith('鼎王 ')) return hotel;
-    return parent || hotel;
+    return statementCustomerKey(r?.parentCompany, r?.hotel);
 }
 function invoiceCustomerKeyFromHotelName(name) {
     const n = String(name || '').trim();
@@ -2337,6 +2335,7 @@ function normalizeClientLookupKey(v) {
 }
 function resolveClientProfile(comp) {
     if (!comp) return null;
+    if (comp === '然一-客衣') comp = '然一';
     if (sheetClients[comp]) return sheetClients[comp];
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
