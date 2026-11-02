@@ -8,7 +8,7 @@ import {
     latestVersion,
     publishSnapshot,
     sortCases,
-} from './statement-case.js';
+} from './statement-case.js?v=20261102-sent-invoice';
 
 export const STATEMENT_COLLECTION = 'statement_cases';
 export const CASE_CACHE_KEY = 'baiqi_statement_cases_v1';
