@@ -19,8 +19,8 @@ import {
     rowsForPeriod,
 } from './auto-close.js';
 
-// customerOf 只把「鼎王」拆成「鼎王 部門」各自一張帳單。其他飯店一間一張。
-const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王']);
+// 鼎王按部門出帳；然一將客衣獨立出帳，其餘部門仍歸然一。
+const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王', '然一']);
 
 function alreadyExists(error) {
     return error?.code === 6 || error?.code === 'already-exists' || error?.code === 'ALREADY_EXISTS';
