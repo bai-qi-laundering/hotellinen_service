@@ -1,5 +1,5 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
-import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261101-fixed-hotels';
+import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
 import {formatCardAmount} from './statement-case.js';
 import {createFirestoreRepository} from './statement-store.js?v=20261101-month-query';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
@@ -77,10 +77,12 @@ function render(){
  const title=l.snapshot.profile?.name||r.config.title||r.c.customerName||'';
  const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="13">'+esc(r.config.issuer)+'</th></tr>':'';
  previousIssuer=r.config.issuer;
- const invoiceCell=invoice?'<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">'+esc(invoice)+'</span>':'<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="先在平台開票，再登記發票號碼">開立發票</button>';
+ const history=(r.c.invoiceHistory||[]).length?'<details><summary>作廢紀錄</summary>'+r.c.invoiceHistory.map(h=>'<p>'+esc(h.number)+' · '+esc(h.voidDate||h.at?.slice(0,10)||'')+'<br>'+esc(h.reason)+'</p>').join('')+'</details>':'';
+ const invoiceCell=(invoice?'<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">'+esc(invoice)+'</span><button data-void-invoice="'+esc(r.c.id)+'" type="button">登記已作廢</button>':'<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="先在平台開票，再登記發票號碼">開立發票</button>')+history;
  return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><small class="ledger-row-status" role="status"></small></td></tr>';
  }).join('')+'</tbody>'+footer+'</table></div>':'<p>此條件沒有紀錄。</p>';
  $('list').querySelectorAll('[data-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.invoice,'invoice'));
+ $('list').querySelectorAll('[data-void-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.voidInvoice,'voidInvoice'));
  $('list').querySelectorAll('[data-collection]').forEach(b=>b.onclick=()=>saveCollection(b));
 }
 async function saveCollection(button){
@@ -116,6 +118,11 @@ function open(id,type){
  let details;
  try{if(type==='invoice')details=invoiceDetails(selected);}
  catch(error){$('message').textContent=error.message;return;}
+ if(type==='voidInvoice'){
+  $('title').textContent='登記已作廢的發票';$('error').textContent='';
+  $('fields').innerHTML=`<p>${esc(selected.customerKey)} · 原發票：<strong>${esc(l.invoice?.number||selected.invoiceNumber)}</strong></p><p>此處只登記作廢結果，不會向汎宇送出作廢。請先在原開票平台完成作廢；手開發票依原作廢流程處理。</p><label>再次輸入原發票號碼<input name="number" required maxlength="10" placeholder="原發票號碼"></label><label>實際作廢日期<input name="date" type="date" required value="${today}"></label><label>作廢原因<input name="reason" required maxlength="300"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已完成這張實際發票的作廢</label><p>保留舊發票紀錄。若有新版帳單，完成後可回送件中心重寄，再登記新發票。</p>`;
+  $('dialog').showModal();return;
+ }
  $('title').textContent=type==='confirm'?'確認收到飯店通知':'登記已開立的發票';$('error').textContent='';
  $('fields').innerHTML=type==='confirm'?`<p>${esc(selected.customerName||selected.customerKey)} · V${l.version} · ${formatCardAmount(l.amount)}</p><label><input type="checkbox" required> 我已收到飯店確認這一版對帳單的通知</label>`:`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${details.label}</strong>（自動帶入）</p><input name="method" type="hidden" value="${details.method}">${details.method==='electronic'?'<p>汎宇 API 尚未串接；請先於平台開立電子發票，再登記號碼。</p>':''}<div id="ledger-reference"></div><label>發票日期<input name="date" type="date" required value="${today}"></label><label>發票號碼<input name="number" required pattern="[A-Za-z]{2}[0-9]{8}" maxlength="10" placeholder="AB12345678"></label><label><input type="checkbox" required> 已開立並核對發票金額</label>`;
  if(type==='invoice'&&details.method==='manual'){
@@ -127,6 +134,7 @@ function open(id,type){
 $('cancel').onclick=()=>{if(!loading)$('dialog').close();};
 $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$('save').disabled=true;$('error').textContent='';const l=ledger(selected),payload=Object.fromEntries(new FormData(e.target));try{
  if(action==='invoice')payload.method=invoiceDetails(selected).method;
+ if(action==='voidInvoice')payload.latestVersion=selected.latestVersion;
  await fs.runTransaction(db,async tx=>{const ref=fs.doc(db,'statement_cases',selected.id),snap=await tx.get(ref);if(!snap.exists())throw Error('帳單不存在');const updated=applyLedger({id:selected.id,...snap.data()},l.version,action,payload,new Date().toISOString());tx.set(ref,updated);});
  $('dialog').close();window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);await reload();
  }catch(err){$('error').textContent=err.message;}finally{loading=false;$('save').disabled=false;}};
