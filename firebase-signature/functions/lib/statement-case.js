@@ -205,7 +205,6 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
 export function applySentRegistration(doc, expectedVersion, format, sentAt) {
     const copy = clone(doc);
     if (!copy) throw new Error('找不到這份帳單，請重新整理。');
-    if (copy.state === 'needs_review') throw new Error('這份在開票後內容有變，先不要登記寄出。');
     if (Number(copy.latestVersion) !== Number(expectedVersion)) {
         throw new Error('已經有更新的版本，請重新整理後再登記。');
     }
@@ -232,10 +231,10 @@ export function applyLineRecipient(doc, lineRecipient, now) {
 export function deriveState(doc) {
     const latest = latestVersion(doc);
     if (!latest) return 'pending';
+    if (latest.sentAt) return 'sent';
     if (latest.review === 'invoiced_diff' || (doc.invoiceStatus === 'invoiced' && doc.invoicedVersion && latest.version > doc.invoicedVersion)) {
         return 'needs_review';
     }
-    if (latest.sentAt) return 'sent';
     if ((doc.versions || []).some(version => version.version < latest.version && version.sentAt)) return 'resend';
     return 'pending';
 }
