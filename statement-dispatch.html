@@ -370,7 +370,7 @@ function render() {
         if (unsignedReceipts > 0) notes.push(`產生時有 ${unsignedReceipts} 張簽收單還沒簽名，金額仍含這些出貨。之後補簽名不會自動改這份帳單；要更新請到結帳戰情系統手動產生新版本。`);
         if (item.cloudPending) notes.push('這份還在補送雲端，其他電腦暫時看不到。請按重新整理。');
         if (older.length) notes.push(`上一版 V${older[older.length - 1].version} 已於 ${taipeiStamp(older[older.length - 1].sentAt)} 登記寄出。`);
-        if (item.state === 'needs_review') notes.push('這份以前已開過票。新內容不能蓋掉舊帳，請先跟老闆確認差異，不要直接寄出。');
+        if (item.state === 'needs_review') notes.push('這份帳單開票後有修改。請先完成原發票作廢，再到「貨款登記」按原號碼旁的「登記已作廢」，即可回來核對並寄送新版。');
         else if (item.state === 'sent') notes.push(`已於 ${taipeiStamp(version?.sentAt)} 登記寄出。再次取得檔案不會改掉這個紀錄。`);
         else notes.push('核對的是這一份帳單。Excel 或 PDF 在送出時選擇，傳完 LINE 再登記。');
         note.textContent = notes.join('');
