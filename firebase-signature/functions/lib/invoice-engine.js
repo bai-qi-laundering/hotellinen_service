@@ -1,6 +1,6 @@
 // Pricing formulas shared with finance.html. Parity is covered by tests.
 import { snapshotFromParts } from './statement-case.js';
-import { orderStatementSnapshot } from './logistics-items.js';
+import { orderStatementSnapshot, statementCustomerKey } from './logistics-items.js';
 import { catalogPrice, datedPrice, unitPriceForRecord } from './price-catalog.js';
 export function createInvoiceEngine(options) {
 const { logisticsMasterItems, pricingRules, effectivePriceRules, sheetPrices, customPrices, sheetClients, rawLogisticsData } = options;
@@ -56,10 +56,7 @@ function distinctShipmentRows(records) {
 }
 
 function invoiceCustomerKeyForRecord(r) {
-    const parent = String(r?.parentCompany || '').trim();
-    const hotel = String(r?.hotel || parent).trim();
-    if (parent === '鼎王' || hotel.startsWith('鼎王 ')) return hotel;
-    return parent || hotel;
+    return statementCustomerKey(r?.parentCompany, r?.hotel);
 }
 
 function buildInvoiceReport(targetVal) {
@@ -169,6 +166,7 @@ function normalizeClientLookupKey(v) {
 
 function resolveClientProfile(comp) {
     if (!comp) return null;
+    if (comp === '然一-客衣') comp = '然一';
     if (sheetClients[comp]) return sheetClients[comp];
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
