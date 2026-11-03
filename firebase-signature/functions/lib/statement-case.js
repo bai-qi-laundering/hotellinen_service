@@ -42,6 +42,8 @@ export function statementDisplayName(snapshot) {
     const key = text(snapshot?.customerKey);
     if (key === '然一') return '然一';
     if (key === '然一-客衣') return '然一客衣';
+    if (key === '驛館') return '驛館';
+    if (key === '驛館-餐廳') return '驛館餐廳';
     return text(snapshot?.profile?.name) || key;
 }
 export function dispatchHotelName(item) {
@@ -320,7 +322,7 @@ export function renderStatementHtml(snapshot, template) {
         <header class="invoice-header"><div class="invoice-title">百麒國際股份有限公司</div><div class="report-heading">客戶對帳單</div></header>
         <div class="info-boxes">
           <div class="info-box"><div class="info-box-title">客戶資訊</div><table class="info-table"><tbody>
-          <tr><td>客戶名稱</td><td>${e(statementDisplayName(content))}</td></tr>${['然一','然一-客衣'].includes(content.customerKey) ? `<tr><td>發票抬頭</td><td>${e(profile.name)}</td></tr>` : ''}<tr><td>統一編號</td><td>${e(profile.taxId)}</td></tr>
+          <tr><td>客戶名稱</td><td>${e(statementDisplayName(content))}</td></tr>${['然一','然一-客衣','驛館','驛館-餐廳'].includes(content.customerKey) ? `<tr><td>發票抬頭</td><td>${e(profile.name)}</td></tr>` : ''}<tr><td>統一編號</td><td>${e(profile.taxId)}</td></tr>
           <tr><td>聯絡人</td><td>${e(profile.contact)}</td></tr><tr><td>聯絡電話</td><td>${e(profile.phone)}</td></tr>
           <tr><td>出貨地址</td><td>${e(profile.address)}</td></tr></tbody></table></div>
           <div class="info-box"><div class="info-box-title">對帳資訊</div><table class="info-table"><tbody>
@@ -382,7 +384,7 @@ export function buildStatementTables(snapshot, template) {
     const hasRebate = rebate.amount > 0;
     const totalRows = [
         ['百麒國際股份有限公司｜客戶對帳總表', '', ''],
-        ['客戶名稱', statementDisplayName(content) + (['然一','然一-客衣'].includes(content.customerKey) ? '\n發票抬頭：' + content.profile.name + '／統編：' + content.profile.taxId : ''), ''],
+        ['客戶名稱', statementDisplayName(content) + (['然一','然一-客衣','驛館','驛館-餐廳'].includes(content.customerKey) ? '\n發票抬頭：' + content.profile.name + '／統編：' + content.profile.taxId : ''), ''],
         ['對帳期間', period, ''],
         [],
         ['項次', '部門名稱', '未稅金額'],
