@@ -167,6 +167,7 @@ function normalizeClientLookupKey(v) {
 function resolveClientProfile(comp) {
     if (!comp) return null;
     if (comp === '然一-客衣') comp = '然一';
+    if (comp === '驛館-餐廳') comp = '驛館';
     if (sheetClients[comp]) return sheetClients[comp];
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
