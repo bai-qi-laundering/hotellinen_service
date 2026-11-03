@@ -6,6 +6,8 @@ export function statementCustomerKey(parentCompany, hotelName = '', deptName = '
     const key=compact(parent), label=compact(hotel), dept=compact(deptName);
     if(key==='然一客衣'||(key==='然一'&&(dept.includes('客衣')||label.startsWith('然一客衣'))))return '然一-客衣';
     if(key==='然一')return '然一';
+    if(key==='驛館餐廳'||(key==='驛館'&&(dept.includes('餐廳')||['餐飲','餐飲部'].includes(dept)||label.startsWith('驛館餐廳'))))return '驛館-餐廳';
+    if(key==='驛館')return '驛館';
     if(parent==='鼎王'||hotel.startsWith('鼎王 '))return hotel;
     return parent || hotel;
 }
