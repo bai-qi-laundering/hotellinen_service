@@ -538,6 +538,14 @@ let currentDriverStats = {};
 let currentUnassignedStats = {};
 let customPrices = {};
 let currentStatementSnapshot = null;
+let statementGenerationPending = false;
+let financeSavePromise = null;
+function invalidateStatementSnapshot() {
+    currentStatementSnapshot = null;
+}
+document.addEventListener('change', event => {
+    if (event.target.matches('#startDate, #endDate, .hotel-cb, #invoiceModal input, #invoiceModal select')) invalidateStatementSnapshot();
+});
 const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 
 // 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
@@ -1073,6 +1081,7 @@ window.showDriverDetails = showDriverDetails;
 
 // ★ 處理待儲存清單 (共用)
 function registerPendingUpdate(docId, receiptOrder, hotelName, newItemName, newPrice) {
+    invalidateStatementSnapshot();
     let existing = pendingUpdatesArray.find(p => p.docId === docId && p.receiptOrder === receiptOrder);
     if (existing) {
         existing.newItemName = newItemName;
@@ -1144,8 +1153,13 @@ window.markPriceChanged = function(docId, receiptOrder, hotelName, newVal, input
     recalculateFinanceUI();
 }
 
-window.batchSavePrices = async function() {
-    if (pendingUpdatesArray.length === 0) return;
+window.batchSavePrices = function() {
+    if (financeSavePromise) return financeSavePromise;
+    financeSavePromise = saveFinanceChanges().finally(() => { financeSavePromise = null; });
+    return financeSavePromise;
+};
+async function saveFinanceChanges() {
+    if (pendingUpdatesArray.length === 0) return true;
 
     const btn = document.getElementById('batchSaveBtn');
     btn.innerHTML = `⏳ 儲存中...`;
@@ -1212,12 +1226,15 @@ window.batchSavePrices = async function() {
         btn.innerHTML = `💾 尚未修改內容`;
         btn.disabled = false;
 
-        showToast("✅ 所有修改 (含品項與單價) 已批次儲存完畢！");
+        invalidateStatementSnapshot();
+        showToast("✅ 修改已儲存。請重新產生對帳單，送件中心的 Excel／PDF 才會更新。");
+        return true;
     } catch (err) {
         console.error("批次儲存失敗:", err);
         alert("儲存未全部完成，請保留修改並重試：" + err.message);
         btn.innerHTML = `💾 批次儲存失敗 (點擊重試)`;
         btn.disabled = false;
+        return false;
     }
 }
 
@@ -1478,10 +1495,10 @@ setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 // ★ 純粹讀取 logistics_records（物流簽收查帳台資料庫），完全不讀盤點表，100% 以物流查帳台為主！
 const LOGISTICS_CACHE_MS = 600000;
 const logisticsPeriodCache = new Map();
-async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
+async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requireServer = false) {
     const key = `${startDate}|${endDate}`;
     const cached = logisticsPeriodCache.get(key);
-    if (cached && (cached.promise || (!force && Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS))) return cached.promise || cached.docs;
+    if (!requireServer && cached && (cached.promise || (!force && Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS))) return cached.promise || cached.docs;
     const staleDocs = cached?.docs || null;
     let usedPersistentCache = false;
     const promise = (async () => {
@@ -1492,6 +1509,7 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
         try {
             snapshots = await withTimeout(Promise.all(dateQueries.map(q => getDocsFromServer(q))), 15000, '物流明細');
         } catch (serverError) {
+            if (requireServer) throw serverError;
             try {
                 const cachedSnapshots = await Promise.all(dateQueries.map(q => getDocsFromCache(q)));
                 if (!cachedSnapshots.some(snap => !snap.empty)) throw serverError;
@@ -1521,7 +1539,7 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false) {
         logisticsPeriodCache.set(key, {promise:null, fetchedAt:Date.now(), docs, fromCache:usedPersistentCache});
         return docs;
     } catch (error) {
-        if (staleDocs && !force) {
+        if (staleDocs && !force && !requireServer) {
             logisticsPeriodCache.set(key, {promise:null, fetchedAt:0, docs:staleDocs});
             showToast('⚡ 網路較慢，先使用上次成功的物流資料');
             console.warn('物流遠端查詢失敗，沿用舊快取：', error);
@@ -1631,7 +1649,7 @@ function shipmentCountsByDate(records) {
     return new Map([...receipts].map(([date, ids]) => [date, ids.size]));
 }
 
-async function fetchRecordsForSelectedHotels() {
+async function fetchRecordsForSelectedHotels({ requireServer = false } = {}) {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
     const selectedHotels = Array.from(document.querySelectorAll('.hotel-cb:checked')).map(cb => cb.value);
@@ -1639,7 +1657,7 @@ async function fetchRecordsForSelectedHotels() {
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
     const [uniqueDocs] = await Promise.all([
-        getLogisticsDocsForPeriod(startDate, endDate, true),
+        getLogisticsDocsForPeriod(startDate, endDate, true, requireServer),
         ensureEffectivePrices(),
         syncMasterDataFromSheet(),
         ensurePricingRules().catch(err => { console.warn('春節／回饋設定稍後再試', err); }),
@@ -1679,6 +1697,7 @@ async function fetchRecordsForSelectedHotels() {
 
 // 💰 系統1：財務載入
 async function loadFinanceData() {
+    invalidateStatementSnapshot();
     const tbody = document.getElementById('internalTableBody');
     const btn = document.getElementById('loadBtn');
     
@@ -2317,7 +2336,6 @@ function refreshInvoiceCompanyOptions(preferred = '') {
 
 async function openInvoiceModal() {
     if (!rawLogisticsData.length) { alert('請先於「財務對帳單」畫面點擊載入明細！'); return; }
-    if (pendingUpdatesArray.length && !confirm('您有尚未儲存的內容修改，確定要直接產生對帳單嗎？')) return;
     const names = refreshInvoiceCompanyOptions();
     if (!names.length) { alert('目前明細沒有可產生對帳單的飯店資料。'); return; }
     document.getElementById('invoiceModal').classList.replace('hidden','flex');
@@ -2505,12 +2523,55 @@ function setDispatchStatus(message, isError) {
     }
 }
 async function generateOfficialInvoice() {
+    if (statementGenerationPending) return;
+    statementGenerationPending = true;
+    const button = document.querySelector('[onclick="generateOfficialInvoice()"]');
+    if (button) button.disabled = true;
+    try { await generateFreshStatement(); }
+    catch (err) {
+        invalidateStatementSnapshot();
+        setDispatchStatus('產生對帳單失敗，請重新確認明細。', true);
+        alert(err.message || String(err));
+    }
+    finally {
+        statementGenerationPending = false;
+        if (button) button.disabled = false;
+    }
+}
+async function generateFreshStatement() {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
     if (!targetVal) { alert('請先選擇出帳對象！'); return; }
     if (targetVal === MERGE_ALL_KEY) { alert('請選擇固定的單一飯店出帳，不能將不同飯店任意合併。'); return; }
     const ciNameVal = document.getElementById('ciName').value.trim();
     if (!ciNameVal) {
         alert('請確認「發票抬頭」欄位已填寫！');
+        return;
+    }
+    const scopeKey = () => JSON.stringify([
+        document.getElementById('startDate').value, document.getElementById('endDate').value,
+        [...document.querySelectorAll('.hotel-cb:checked')].map(cb => cb.value).sort(),
+        document.getElementById('invoiceTargetCompany').value
+    ]);
+    const requestedScope = scopeKey();
+    // Save edits before re-reading: never discard pending names/prices or publish stale quantities.
+    invalidateStatementSnapshot();
+    if (financeSavePromise || pendingUpdatesArray.length) {
+        setDispatchStatus('正在儲存明細修改…', false);
+        if (!await window.batchSavePrices()) {
+            setDispatchStatus('修改尚未儲存完成，對帳單沒有更新。', true);
+            return;
+        }
+    }
+    setDispatchStatus('正在確認最新數量與品項名稱…', false);
+    try {
+        rawLogisticsData = await fetchRecordsForSelectedHotels({ requireServer: true });
+    } catch (err) {
+        setDispatchStatus('無法確認最新物流明細，已停止產單。請稍後重試。', true);
+        alert('無法取得最新數量與名稱，對帳單沒有更新：' + (err.message || err));
+        return;
+    }
+    if (scopeKey() !== requestedScope) {
+        setDispatchStatus('出帳區間或飯店已變更，請重新產生對帳單。', true);
         return;
     }
     const report = buildInvoiceReport();
@@ -2552,7 +2613,7 @@ async function generateOfficialInvoice() {
 
 function exportToExcel() {
     const snapshot = currentStatementSnapshot;
-    if (!snapshot || !snapshot.departments?.length) { alert('請先產生對帳單！'); return; }
+    if (statementGenerationPending || pendingUpdatesArray.length || !snapshot || !snapshot.departments?.length) { alert('明細已修改或尚未產單，請先重新產生對帳單，再取得最新 Excel。'); return; }
     const wb = buildStatementWorkbook(XLSX, snapshot, logisticsMasterItems);
     XLSX.writeFile(wb, statementFileBase(snapshot) + '.xlsx');
 }
