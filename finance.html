@@ -506,11 +506,11 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, getDocFromServer, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-ran-name';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
-import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261102-ran-split';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 
 const firebaseConfig = {
@@ -2354,6 +2354,7 @@ function normalizeClientLookupKey(v) {
 function resolveClientProfile(comp) {
     if (!comp) return null;
     if (comp === '然一-客衣') comp = '然一';
+    if (comp === '驛館-餐廳') comp = '驛館';
     if (sheetClients[comp]) return sheetClients[comp];
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
