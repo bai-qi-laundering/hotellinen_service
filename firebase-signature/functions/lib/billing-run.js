@@ -20,7 +20,7 @@ import {
 } from './auto-close.js';
 
 // 鼎王按部門出帳；然一將客衣獨立出帳，其餘部門仍歸然一。
-const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王', '然一']);
+const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王', '然一', '驛館']);
 
 function alreadyExists(error) {
     return error?.code === 6 || error?.code === 'already-exists' || error?.code === 'ALREADY_EXISTS';
