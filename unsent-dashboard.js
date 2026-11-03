@@ -4,7 +4,7 @@
 // 不聽即時更新，也不掃整份對帳單或出貨紀錄。
 
 import { settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
-import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261102-ran-split';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 
 // Display aliases must resolve to the same immutable statement customer key.
 const BOARD_ALIASES = Object.freeze({
@@ -17,7 +17,7 @@ const BOARD_ALIASES = Object.freeze({
 export function boardHotelKey(name) {
  const key=String(name||'').normalize('NFKC').trim().replace(/\s+/g,' ');
  const ranKey=statementCustomerKey(key);
- return statementHotelKey(BOARD_ALIASES[key]||(ranKey==='然一-客衣'||ranKey==='然一'?ranKey:key));
+ return statementHotelKey(BOARD_ALIASES[key]||(ranKey==='然一-客衣'||ranKey==='然一'||ranKey==='驛館-餐廳'||ranKey==='驛館'?ranKey:key));
 }
 const DEPARTMENT_PARENTS = new Set(['鼎王']);
 
@@ -148,6 +148,7 @@ function rosterParents(baseNames, groups) {
 
 function customersFor(parent, items, cases, period) {
     if(parent==='然一')return ['然一','然一-客衣'];
+    if(parent==='驛館')return ['驛館','驛館-餐廳'];
     if (!DEPARTMENT_PARENTS.has(parent)) return [parent];
     const names = new Set();
     for (const item of items || []) {
