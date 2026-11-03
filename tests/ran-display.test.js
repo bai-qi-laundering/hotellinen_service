@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {statementCustomerKey} from '../logistics-items.js';
+import {statementCustomerKey} from '../firebase-signature/functions/lib/logistics-items.js';
 import {publishSnapshot,renderStatementHtml,buildStatementTables,caseDocumentId,statementFileBase} from '../statement-case.js';
 test('同統編不同出帳對象保留各自明細、金額、案件、檔名及顯示名稱',async()=>{
  const records=[{parent:'然一',hotel:'然一 房務',dept:'房務',qty:20},{parent:'然一',hotel:'然一 客衣',dept:'客衣',qty:3},{parent:'然ㄧ',hotel:'然ㄧ 制服',dept:'制服',qty:5}];
