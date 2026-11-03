@@ -506,7 +506,7 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, getDocFromServer, setDoc, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261031-item-order';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-ran-name';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
@@ -1680,7 +1680,7 @@ async function fetchRecordsForSelectedHotels({ requireServer = false } = {}) {
                     if (actual > 0 && !String(item.itemName).includes("回洗")) {
                         results.push({
                             docId: docSnap.id, rowId: JSON.stringify([docSnap.id, idx]),
-                            parentCompany: d.hotelKeyword || "未分類", hotel: hotelName,
+                            parentCompany: d.hotelKeyword || "未分類", hotel: hotelName, deptName: d.deptName || '',
                             date: dDate, item: item.itemName, qty: actual,
                             receiptOrder: idx, 
                             financeItemId:item.financeItemId || null, sourceRowSnapshot:financeItemSnapshot(item),
@@ -2266,7 +2266,7 @@ async function refreshInvoiceClientsFromSheet(force=false) {
 window.refreshInvoiceClientsFromSheet = refreshInvoiceClientsFromSheet;
 
 function invoiceCustomerKeyForRecord(r) {
-    return statementCustomerKey(r?.parentCompany, r?.hotel);
+    return statementCustomerKey(r?.parentCompany, r?.hotel, r?.deptName);
 }
 function invoiceCustomerKeyFromHotelName(name) {
     const n = String(name || '').trim();
@@ -2540,7 +2540,7 @@ async function generateOfficialInvoice() {
 }
 async function generateFreshStatement() {
     const targetVal = document.getElementById('invoiceTargetCompany').value;
-    if (!targetVal) { alert('請先選擇出帳對象！'); return; }
+    if (!targetVal) { alert('請先選擇出帳對象！然一與然一客衣需分別產生對帳單。'); return; }
     if (targetVal === MERGE_ALL_KEY) { alert('請選擇固定的單一飯店出帳，不能將不同飯店任意合併。'); return; }
     const ciNameVal = document.getElementById('ciName').value.trim();
     if (!ciNameVal) {
