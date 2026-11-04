@@ -13,12 +13,10 @@ function fixture() {
  add('盤點總表',[['選擇日期','飯店部門','品項','現場數量','備註','現場簽名','複點數量','複點簽名','複點時間','請款數量(結帳用)']]);add('歷史紀錄',[['header']]);add('客戶簽單流水帳',[['header']]);
  const ctx=vm.createContext({SpreadsheetApp:{openById:()=>workbook},ContentService:{MimeType:{JSON:'json'},createTextOutput:raw=>({setMimeType:()=>JSON.parse(raw)})},LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},Utilities:{formatDate:()=> '2026-10-01 12:00:00'}});vm.runInContext(source,ctx);return{ctx,sheets,add,workbook};
 }
-test('full script preserves original doPost and schedule reader exactly after Markdown unescaping',()=>{
+test('full script preserves original doPost after adding the second delivery day rule',()=>{
  const digest=s=>crypto.createHash('sha256').update(s.trim()).digest('hex');
  const post=source.slice(source.indexOf('function doPost'),source.indexOf('// 僅在不存在時建立'));
- const schedules=source.slice(source.indexOf('function baiqiReadDeliverySchedules'),source.indexOf('function doGet'));
  assert.equal(digest(post),'616725c3a8baae274855a87e625a0a8cd82f264fd20e9b9d81516b46795b931d');
- assert.equal(digest(schedules),'04a8326d750927feecb9ef39cf333a08f389f26046052de7068afbcb95cbeca9');
 });
 test('getInventoryData creates only an empty sendwash setting and retains existing template and schedules',()=>{
  const f=fixture(),before=JSON.stringify(f.sheets.get('收送日設定').rows);const response=f.ctx.doGet({parameter:{action:'getInventoryData'}});
@@ -49,3 +47,4 @@ test('existing logistics POST still writes signatures, verifyJson and billing qu
  const response=f.ctx.doPost({postData:{contents:JSON.stringify({type:'logistics',date:'2026-10-01',hotelKeyword:'驛館',deptName:'驛館 餐飲部',verifyJson:JSON.stringify([{itemName:'浴巾',actualQty:'98'}]),clientSigBase64:'client',driverSigBase64:'driver'})}});
  assert.equal(response.status,'success');assert.equal(f.sheets.get('盤點總表').rows[1][9],'98');assert.equal(f.sheets.get('客戶簽單流水帳').rows[1][5],'client');assert.equal(f.sheets.get('客戶簽單流水帳').rows[1][6],'driver');
 });
+

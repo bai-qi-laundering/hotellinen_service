@@ -208,7 +208,7 @@
     </div>
 
     <script src="inventory-save.js?v=20261021-unlock-retry"></script>
-    <script src="sendwash-core.js?v=20261020-cheng-recheck"></script>
+    <script src="sendwash-core.js?v=20261104-second-delivery"></script>
     <script src="sendwash-verification.js?v=20261022-inventory-speed"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
@@ -349,7 +349,7 @@
                 const department = String(row.department || '').trim();
                 const rule = String(row.rule || '').trim();
                 const days = parseDeliveryDays(row.days);
-                if (!hotel || !department || !days.length || rule !== '收件後的下一個收送日') {
+                if (!hotel || !department || !days.length || !window.SendwashCore.deliveryStep(rule)) {
                     throw new Error(`收送日設定不完整或規則不支援：${hotel}／${department}`);
                 }
                 const key = JSON.stringify([normalizeScheduleName(hotel), normalizeScheduleDept(department)]);
@@ -372,11 +372,13 @@
             const setting = deliverySchedules.find(row =>
                 normalizeScheduleName(row.hotel) === normalizeScheduleName(baseName) &&
                 normalizeScheduleDept(row.department) === normalizeScheduleDept(selectedDept));
-            if (setting && setting.days.length && setting.rule === '收件後的下一個收送日') {
+            const step = setting ? window.SendwashCore.deliveryStep(setting.rule) : 0;
+            if (setting && setting.days.length && step) {
                 // 從隔天開始找；收件當天即使是收送日，也不使用當天。
-                for (let offset = 1; offset <= 7; offset++) {
+                let matched = 0;
+                for (let offset = 1; offset <= 7 * step; offset++) {
                     d.setDate(d.getDate() + 1);
-                    if (setting.days.includes(d.getDay())) return getLocalDateString(d);
+                    if (setting.days.includes(d.getDay()) && ++matched === step) return getLocalDateString(d);
                 }
             }
 
@@ -1394,6 +1396,7 @@
     </script>
 </body>
 </html>
+
 
 
 

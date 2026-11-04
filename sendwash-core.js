@@ -21,6 +21,11 @@
             return value === '' ? [] : [{item:row.item, quantity:quantity(value), unit:row.unit}];
         });
     }
+    function deliveryStep(rule) {
+        const value = normalize(rule);
+        if (value === '收件後的下一個收送日') return 1;
+        return /^收件後(?:的)?(?:第|下)(?:2|二|兩)個(?:收送日|工作日)$/.test(value) ? 2 : 0;
+    }
     function targetDate(hotel, dept, sourceDate, schedules) {
         const d = date(sourceDate);
         if (!Array.isArray(schedules)) throw new Error('收送日設定尚未載入');
@@ -28,8 +33,10 @@
         if (matches.length > 1) throw new Error('收送日設定重複，請先確認試算表');
         const rule = matches[0];
         if (rule) {
-            if (rule.rule !== '收件後的下一個收送日' || !Array.isArray(rule.days) || !rule.days.length || rule.days.some(n => !Number.isInteger(n) || n < 0 || n > 6)) throw new Error('固定收送日設定不完整，請先更新設定');
-            for (let i=0;i<7;i++) { d.setDate(d.getDate()+1); if(rule.days.includes(d.getDay())) return localDate(d); }
+            const step = deliveryStep(rule.rule);
+            if (!step || !Array.isArray(rule.days) || !rule.days.length || rule.days.some(n => !Number.isInteger(n) || n < 0 || n > 6)) throw new Error('固定收送日設定不完整，請先更新設定');
+            let matched = 0;
+            for (let i=0;i<7*step;i++) { d.setDate(d.getDate()+1); if(rule.days.includes(d.getDay()) && ++matched === step) return localDate(d); }
         }
         // Exactly the existing index.html fallback, including its legacy exceptions.
         if (['歐遊','H2O','花季Ａ館','花季Ｃ館','花季','文七','好六','媚力泊'].some(k=>hotel.includes(k))) return localDate(d);
@@ -116,9 +123,10 @@
         }
         const seen=new Set();return expanded.filter(row=>{const key=JSON.stringify([row.hotel,row.department,row.outlet,row.item]);if(seen.has(key))return false;seen.add(key);return true;});
     }
-    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,displayRows,retiredOutletItem,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
+    const api = {normalize,department,quantity,submissionItems,sendwashInventoryPatch,recheckOnly,displayRows,retiredOutletItem,deliveryStep,targetDate,settings,submissionId,outletItem,inventoryId,mergeVerification};
     root.SendwashCore=api;
     if (typeof module !== 'undefined') module.exports=api;
 })(typeof window !== 'undefined' ? window : globalThis);
+
 
 

@@ -19,7 +19,7 @@ test('same hotel departments resolve independently; normalization is existing be
 test('new date resolver agrees with current index resolver across every day for a year',()=>{
  const html=fs.readFileSync('index.html','utf8');
  const functions=html.slice(html.indexOf('        function normalizeScheduleName'),html.indexOf('        function renderHome'));
- const ctx=vm.createContext({deliverySchedules:schedules,todayHotels:['歐遊','H2O','花季Ａ館','花季Ｃ館','花季','文七','好六','媚力泊'],yesterdayHotels:['捷中正'],getLocalDateString:d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split('T')[0]});
+ const ctx=vm.createContext({window:{SendwashCore:core},deliverySchedules:schedules,todayHotels:['歐遊','H2O','花季Ａ館','花季Ｃ館','花季','文七','好六','媚力泊'],yesterdayHotels:['捷中正'],getLocalDateString:d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split('T')[0]});
  vm.runInContext(functions,ctx);
  for(let day=0;day<366;day++){const d=new Date(2026,0,1+day,12),value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;for(const hotel of ['驛館','H2O','花季Ａ館','捷中正','普通飯店'])assert.equal(core.targetDate(hotel,'房務',value,schedules),ctx.getTargetDateStr(hotel,value,'房務'));}
 });
@@ -68,4 +68,5 @@ test('sheet order is preserved within departments with blank numeric order and i
  const result=core.settings(rows,[...template,other]);
  assert.deepEqual(result.filter(r=>r.hotel==='驛館').map(r=>r.item),['中毛','浴巾']);
 });
+
 

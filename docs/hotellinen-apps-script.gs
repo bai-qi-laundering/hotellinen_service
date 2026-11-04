@@ -71,7 +71,8 @@ function baiqiReadDeliverySchedules(ss) {
     const values = columns.map(function(col) { return String(row[col] || '').trim(); });
     if (values.every(function(v) { return !v; })) return;
     if (values.some(function(v) { return !v; })) throw new Error('收送日設定第 ' + (index + 2) + ' 列未填完整。');
-    if (values[3] !== '收件後的下一個收送日') throw new Error('收送日設定第 ' + (index + 2) + ' 列打單日期規則不支援。');
+    const rule = values[3].normalize('NFKC').replace(/\s+/g, '');
+    if (rule !== '收件後的下一個收送日' && !/^收件後(?:的)?(?:第|下)(?:2|二|兩)個(?:收送日|工作日)$/.test(rule)) throw new Error('收送日設定第 ' + (index + 2) + ' 列打單日期規則不支援。');
     result.push({hotel: values[0], department: values[1], days: values[2], rule: values[3]});
   });
   return result;
@@ -231,4 +232,5 @@ function readSendwashSettings(ss) {
     };
   });
 }
+
 
