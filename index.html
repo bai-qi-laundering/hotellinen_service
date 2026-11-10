@@ -208,6 +208,7 @@
     </div>
 
     <script src="inventory-save.js?v=20261021-unlock-retry"></script>
+    <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
     <script src="sendwash-core.js?v=20261104-second-delivery"></script>
     <script src="sendwash-verification.js?v=20261022-inventory-speed"></script>
     <script>
@@ -236,6 +237,14 @@
 
         window.getSafeId = function(str) {
             return "id_" + Array.from(String(str || "")).map(c => c.charCodeAt(0).toString(16)).join('_');
+        };
+        // Item cards must not share an id across hotels. 巨蛋 and 鉑麗 both have 抹布.
+        window.itemElementId = function(itemName) {
+            return window.getSafeId(currentHotelName) + '_' + window.getSafeId(itemName);
+        };
+        window.inventorySaveTargetsOpenHotel = function(category) {
+            if (!window.InventoryHotel) return true;
+            return window.InventoryHotel.belongs(currentBaseHotel, category);
         };
 
         function getLocalDateString(dateObj) { return new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0]; }
@@ -577,6 +586,9 @@
         }
 
         function goToHotel(baseName) {
+            // Hotel buttons stay in the page after entry. A later click must not switch hotels.
+            const homeHidden = document.getElementById('homeView').classList.contains('hidden');
+            if (homeHidden && currentBaseHotel) return;
             currentBaseHotel = baseName;
             
             currentDept = getDefaultDept(baseName);
@@ -600,7 +612,10 @@
                 let selected = (d === currentDept) ? "selected" : "";
                 html += `<option value="${d}" ${selected}>📂 ${d}</option>`;
             });
-            document.getElementById('deptSelect').innerHTML = html;
+            const deptSelect = document.getElementById('deptSelect');
+            deptSelect.removeAttribute('onchange');
+            deptSelect.innerHTML = html;
+            deptSelect.setAttribute('onchange', 'changeDept(this.value)');
 
             updateCurrentHotelName();
             applyDepartmentDate();
@@ -609,11 +624,17 @@
         }
 
         function updateCurrentHotelName() {
+            if (window.InventoryHotel) {
+                currentHotelName = window.InventoryHotel.resolve(currentBaseHotel, currentDept, masterData);
+                return;
+            }
             let target = masterData.find(d => d.baseName === currentBaseHotel && d.deptName === currentDept);
             currentHotelName = target ? target.hotel : (currentDept === "房務" ? currentBaseHotel : (currentBaseHotel + " " + currentDept));
         }
 
         function changeDept(newDept) {
+            const depts = hotelStructure[currentBaseHotel] || [];
+            if (!depts.includes(newDept) || newDept === currentDept) return;
             currentDept = newDept;
             updateCurrentHotelName();
             applyDepartmentDate();
@@ -666,18 +687,14 @@
 
             if (!needsRebuild) {
                 displayItems.forEach(itemName => {
-                    if (!document.getElementById(`card_${window.getSafeId(itemName)}`)) needsRebuild = true;
+                    const card = document.getElementById(`card_${window.itemElementId(itemName)}`);
+                    if (!card || card.getAttribute('data-hotel') !== currentHotelName) needsRebuild = true;
                 });
-            }
-
-            if (needsRebuild) {
-                itemsList.dataset.hotel = currentHotelName;
-                itemsList.dataset.date = dateStr;
             }
 
             let htmlContent = "";
             displayItems.forEach(itemName => {
-                const safeId = window.getSafeId(itemName);
+                const safeId = window.itemElementId(itemName);
                 const u = todayInputs[itemName] || {};
                 const recheckOnly = window.sendwashRecheckOnly && window.sendwashRecheckOnly(dateStr, currentHotelName, itemName);
                 const sendwashCard = window.sendwashCard && window.sendwashCard(itemName, dateStr, currentHotelName, u);
@@ -753,7 +770,7 @@
 
                 if (needsRebuild) {
                     htmlContent += `
-                    <div id="card_${safeId}" class="${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300">
+                    <div id="card_${safeId}" data-hotel="${currentHotelName}" class="${cardClass} p-4 rounded-2xl relative overflow-hidden transition-colors duration-300">
                         <div class="font-black text-2xl text-gray-800 mb-3 z-20 relative">${window.sendwashOutletDisplay ? window.sendwashOutletDisplay(itemName) : itemName}</div>
                         <div class="flex gap-2 mb-4 relative z-20">
                             <div id="aunt_bg_${safeId}" class="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col justify-between ${isSupFullyDone ? 'opacity-60' : ''}">
@@ -791,10 +808,13 @@
 
             if (needsRebuild) {
                 itemsList.innerHTML = htmlContent;
+                itemsList.dataset.hotel = currentHotelName;
+                itemsList.dataset.date = dateStr;
             }
         }
 
         function handleInput(date, category, item, field, value) {
+            if (window.inventorySaveTargetsOpenHotel && !window.inventorySaveTargetsOpenHotel(category)) return;
             if (!userInputs[date]) userInputs[date] = {};
             if (!userInputs[date][category]) userInputs[date][category] = {};
             if (!userInputs[date][category][item]) userInputs[date][category][item] = { count: '', note: '', hasSigned: false, isSubmitted: false, signature: '', doubleCount: '', doubleSignature: '', doubleHasSigned: false, doubleSignDate: '', isSaving: false, saveError: false };
@@ -1177,7 +1197,7 @@
                                 
                                 let isCurrentlyEditingThis = (isSameDate && activeItem === r.item && activeCategory === r.hotel && (isCalcOpen || isSignOpen));
                                 
-                                let safeId = window.getSafeId(r.item);
+                                let safeId = window.itemElementId ? window.itemElementId(r.item) : window.getSafeId(r.item);
                                 let noteInput = document.getElementById(`note_${safeId}`);
                                 let isNoteFocused = (isSameDate && currentHotelName === r.hotel && noteInput && document.activeElement === noteInput);
                                 
@@ -1236,6 +1256,11 @@
 
                 window.firebaseSubmit = async function(category, item, requestedDate) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
+                    if (window.inventorySaveTargetsOpenHotel && !window.inventorySaveTargetsOpenHotel(category)) {
+                        showMessage('這筆不是目前畫面上這家飯店的數量，沒有寫入。請看上方飯店名稱後再填。');
+                        renderItems(true);
+                        return;
+                    }
                     const dateStr = requestedDate || document.getElementById('datePicker').value;
                     const u = userInputs[dateStr]?.[category]?.[item];
                     if (!u) return;
