@@ -107,11 +107,13 @@
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
-        const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
+        const [firebaseApp, firestoreSDK, storageSDK, hotelMatchModule] = await Promise.all([
             import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js"),
             import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-lite.js"),
-            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js")
+            import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js"),
+            import("./hotel-match.js?v=20261110-hotel-tap")
         ]);
+        const { assignInventoryHotel, inventoryBases, sameDepartment } = hotelMatchModule;
         const { initializeApp } = firebaseApp;
         const { collection, query, where, getDocs: getDocsFromServer, doc, setDoc,
             getDoc: getDocFromServer, deleteDoc, runTransaction, getFirestore } = firestoreSDK;
@@ -145,6 +147,9 @@
         let signatureSaving = false;
         let fetchSequence = 0;
         let dataReady = false;
+        let cachedInvDocs = null;
+        let cachedLogDocs = null;
+        let cachedFetchDate = '';
         let templatePromise;
         let sendwashSettings = [];
         let sendwashSettingsLoaded = false;
@@ -308,11 +313,16 @@
                 sendwashSettings=templateDoc.data().sendwashSettings || [];
                 sendwashSettingsLoaded=true;sendwashSettingsError='';
                 masterTemplate.forEach((t,idx)=>{if(globalItemOrder[t.item]===undefined)globalItemOrder[t.item]=idx;});
-                if(dataReady&&Object.keys(groupedData).length)renderDepartments();
+                if (cachedFetchDate === currentDate && cachedInvDocs) renderCachedReceipt();
+                else if(dataReady&&Object.keys(groupedData).length)renderDepartments();
                 else renderSendwashLinks();
             });
             templatePromise=withReadTimeout(pending,'品項設定',8000).catch(error=>{
-                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();}
+                if(request===templateLoadSequence){
+                    sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';
+                    if (cachedFetchDate === currentDate && cachedInvDocs) renderCachedReceipt();
+                    else renderSendwashLinks();
+                }
                 console.warn('品項設定讀取較慢',error);
             });
             return templatePromise;
@@ -414,54 +424,19 @@
                 <div id="loadingText" class="text-blue-700 font-black text-xl animate-pulse tracking-wide">正在確認雲端單據...</div>
             </div>`;
 
-        async function fetchData(isBackground = false, forceServer = false) {
-            if (signatureSaving) { showToastMsg('正在儲存簽名，請稍候'); return; }
-            if (!currentHotel || !currentDate) return;
-            dataReady = false;
-            const fetchTargetDate = currentDate;
-            const thisFetch = ++fetchSequence;
-
-            if (!isBackground) {
-                document.getElementById('departmentsContainer').innerHTML = loadingHtml;
-                document.getElementById('outletDetails').hidden = true;
-                document.getElementById('receiptTotalsHeading').hidden = true;
-            } else {
-                const indicator = document.getElementById('syncIndicator');
-                if(indicator) {
-                    indicator.classList.remove('opacity-0');
-                    setTimeout(() => indicator.classList.add('opacity-0'), 1500);
-                }
-            }
-
-            try {
+        function renderCachedReceipt() {
+            if (!cachedInvDocs || cachedFetchDate !== currentDate || signatureSaving) return;
                 let rawData = [];
-                const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
-                
-                // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
-                // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
-                const fetchMethod = getDocsFromServer;
-                if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
-
-                // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
-                const inventoryRead = window.ReceiptInventoryRead
-                    ? window.ReceiptInventoryRead.read({projectId: firebaseConfig.projectId, date: fetchTargetDate, fallback: () => fetchMethod(invQ)})
-                    : fetchMethod(invQ);
-                const [invSnap, logSnap] = await Promise.all([withReadTimeout(inventoryRead, '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
-
-                if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
-                    return; 
-                }
-
                 let inventoryMap = {}, outletKeys = new Set(), inventoryRows = [];
                 
-                invSnap.forEach(docSnap => {
-                    const d = docSnap.data();
-                    const hotelStr = d.hotel || d.hotelKeyword || d.hotelName || "";
-                    
-                    if (hotelStr.includes(currentHotel)) {
-                        let deptName = hotelStr.replace(currentHotel, "").trim();
-                        if (deptName === "") deptName = "房務";
+                cachedInvDocs.forEach(d => {
+                    const assigned = assignInventoryHotel(
+                        d.hotel || d.hotelKeyword || d.hotelName || "",
+                        inventoryBases(currentHotel, masterTemplate),
+                        { allowGlued: masterTemplate.length > 0 }
+                    );
+                    if (assigned && assigned.base === currentHotel) {
+                        let deptName = assigned.dept || "房務";
 
                         const processInvItem = (itemData) => {
                             let itemName = itemData.itemName || itemData.item || itemData.name;
@@ -492,8 +467,7 @@
                 });
 
                 let savedLogistics = {}, savedReceiptDetails = [];
-                logSnap.forEach(docSnap => {
-                    const d = docSnap.data();
+                cachedLogDocs.forEach(d => {
                     savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
@@ -506,10 +480,7 @@
 
                     let savedDept = savedLogistics[invItem.deptName];
                     if (!savedDept) {
-                        savedDept = Object.values(savedLogistics).find(s => 
-                            (s.deptName && s.deptName.includes(invItem.deptName)) || 
-                            (invItem.deptName && invItem.deptName.includes(s.deptName))
-                        );
+                        savedDept = Object.values(savedLogistics).find(s => sameDepartment(s.deptName, invItem.deptName));
                     }
 
                     if (savedDept) {
@@ -559,6 +530,53 @@
                 try { outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings); }
                 catch(error) { outletDetailGroups=[];outletDetailError='部門明細暫時無法顯示，仍可在上方簽收總數。';console.warn('餐廳明細讀取失敗',error); }
                 renderOutletDetails();
+        }
+
+        async function fetchData(isBackground = false, forceServer = false) {
+            if (signatureSaving) { showToastMsg('正在儲存簽名，請稍候'); return; }
+            if (!currentHotel || !currentDate) return;
+            dataReady = false;
+            const fetchTargetDate = currentDate;
+            const thisFetch = ++fetchSequence;
+
+            if (!isBackground) {
+                document.getElementById('departmentsContainer').innerHTML = loadingHtml;
+                document.getElementById('outletDetails').hidden = true;
+                document.getElementById('receiptTotalsHeading').hidden = true;
+            } else {
+                const indicator = document.getElementById('syncIndicator');
+                if(indicator) {
+                    indicator.classList.remove('opacity-0');
+                    setTimeout(() => indicator.classList.add('opacity-0'), 1500);
+                }
+            }
+
+            try {
+                const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
+                
+                // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
+                // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
+                const fetchMethod = getDocsFromServer;
+                if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
+
+                // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
+                const inventoryRead = window.ReceiptInventoryRead
+                    ? window.ReceiptInventoryRead.read({projectId: firebaseConfig.projectId, date: fetchTargetDate, fallback: () => fetchMethod(invQ)})
+                    : fetchMethod(invQ);
+                const [invSnap, logSnap] = await Promise.all([withReadTimeout(inventoryRead, '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
+
+                if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
+                    return; 
+                }
+
+                cachedInvDocs = [];
+                invSnap.forEach(docSnap => cachedInvDocs.push(docSnap.data()));
+                cachedLogDocs = [];
+                logSnap.forEach(docSnap => cachedLogDocs.push(docSnap.data()));
+                cachedFetchDate = fetchTargetDate;
+                if (!masterTemplate.length && !sendwashSettingsLoaded && !sendwashSettingsError) return;
+                renderCachedReceipt();
             } catch (err) {
                 if (thisFetch === fetchSequence) dataReady = false;
                 console.error("Fetch Data Error:", err);
@@ -710,11 +728,17 @@
                 let isSynced = groupedData[dept].isSynced;
                 let localItemOrder = {};
                 if (masterTemplate && masterTemplate.length > 0) {
-                    let matchedItems = masterTemplate.filter(t => 
-                        (t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel))) && 
-                        ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && t.hotel.includes(dept)))
+                    const belongsHere = t => {
+                        const base = String(t.baseName || '').trim();
+                        if (base) return base === currentHotel;
+                        const assigned = assignInventoryHotel(t.hotel, inventoryBases(currentHotel, masterTemplate), { allowGlued: true });
+                        return assigned?.base === currentHotel;
+                    };
+                    let matchedItems = masterTemplate.filter(t =>
+                        belongsHere(t) &&
+                        ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && String(t.hotel).includes(dept)))
                     );
-                    if (matchedItems.length === 0) matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
+                    if (matchedItems.length === 0) matchedItems = masterTemplate.filter(belongsHere);
                     matchedItems.forEach((t, idx) => { if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx; });
                 }
 

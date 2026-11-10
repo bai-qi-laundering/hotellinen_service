@@ -1552,6 +1552,7 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requ
 
 async function fetchInitialHotels() {
 const container = document.getElementById('hotelCheckboxes');
+const previouslyChecked = new Set([...container.querySelectorAll('.hotel-cb:checked')].map(el => el.value));
 container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
 try {
 const startDate = document.getElementById('startDate').value;
@@ -1588,6 +1589,7 @@ container.innerHTML = Array.from(hotels).sort().map(h => `
 <span class="text-sm font-bold text-gray-700">${h}</span>
 </label>
 `).join('');
+container.querySelectorAll('.hotel-cb').forEach(el => { if (previouslyChecked.has(el.value)) el.checked = true; });
 filterCheckboxes();
 
 } catch (e) {
@@ -1614,7 +1616,7 @@ const matches = !kw || clean(name).includes(kw) || clean(lbl.textContent).includ
 lbl.hidden = false;
 lbl.style.display = matches ? 'flex' : 'none';
 });
-container.scrollTop = 0;
+if (kw) container.scrollTop = 0;
 }
 
 function selectAllVisible() {
