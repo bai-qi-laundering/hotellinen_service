@@ -253,16 +253,7 @@
                 if (base && !hotelStructure[base]) { hotelStructure[base] = []; allBaseHotels.push(base); }
                 if (base && !hotelStructure[base].includes(dept)) hotelStructure[base].push(dept);
             });
-            allBaseHotels.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
         }
-
-        function escapeHtml(value) {
-            return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-        }
-
-        let pressedHotel = '';
-        let heldGridRender = false;
-        let dateTouched = false;
 
         function saveToLocal() {
             try {
@@ -403,13 +394,11 @@
         }
 
         function renderHome(forceRebuild = false) {
-            if (pressedHotel) { heldGridRender = true; return; }
             const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
             const filtered = allBaseHotels.filter(c => c.toLowerCase().includes(keyword));
             const grid = document.getElementById('hotelGrid');
-            const signature = filtered.join('\u0000');
-            const sameButtons = grid.dataset.hotels === signature && filtered.every(c => document.getElementById(`btn_${window.getSafeId(c)}`));
-            let needsRebuild = !sameButtons;
+            
+            let needsRebuild = forceRebuild || grid.children.length === 0 || grid.children.length !== filtered.length;
 
             if (!needsRebuild) {
                 filtered.forEach(c => {
@@ -525,8 +514,8 @@
                     let shadowStyle = isOrange ? "text-shadow: 1px 1px 0px rgba(0,0,0,0.3); font-weight: 900;" : "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3); font-weight: 900;";
 
                     if (needsRebuild) {
-                        htmlContent += `<button id="btn_${safeId}" type="button" data-hotel="${escapeHtml(c)}" class="${baseClasses}">
-                                            <span id="span_${safeId}" class="text-3xl break-words w-full text-center leading-tight tracking-wide" style="${shadowStyle}">${escapeHtml(c)}</span>
+                        htmlContent += `<button id="btn_${safeId}" onclick="goToHotel('${c}')" class="${baseClasses}">
+                                            <span id="span_${safeId}" class="text-3xl break-words w-full text-center leading-tight tracking-wide" style="${shadowStyle}">${c}</span>
                                         </button>`;
                     } else {
                         document.getElementById(`btn_${safeId}`).className = baseClasses;
@@ -534,10 +523,7 @@
                     }
                 });
 
-                if (needsRebuild) {
-                    grid.innerHTML = htmlContent;
-                    grid.dataset.hotels = signature;
-                }
+                if (needsRebuild) grid.innerHTML = htmlContent;
 
             } else {
                 grid.innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-2xl">找不到飯店</div>`;
@@ -592,10 +578,6 @@
 
         function goToHotel(baseName) {
             currentBaseHotel = baseName;
-            dateTouched = false;
-            if (history.state?.view !== 'hotel' || history.state.hotel !== baseName) {
-                history.pushState({ view: 'hotel', hotel: baseName }, '');
-            }
             
             currentDept = getDefaultDept(baseName);
             const baseDateStr = document.getElementById('homeDatePicker').value;
@@ -639,42 +621,12 @@
             window.updateBorderBtnState();
         }
         
-        function showHotelList() {
-            document.getElementById('homeView').classList.remove('hidden');
-            document.getElementById('hotelView').classList.add('hidden');
-            document.getElementById('searchInput').value = "";
-            renderHome(false);
+        function goHome() { 
+            document.getElementById('homeView').classList.remove('hidden'); 
+            document.getElementById('hotelView').classList.add('hidden'); 
+            document.getElementById('searchInput').value = ""; 
+            renderHome(false); 
         }
-
-        function goHome() {
-            if (history.state?.view === 'hotel') {
-                history.back();
-                return;
-            }
-            showHotelList();
-        }
-
-        window.addEventListener('popstate', () => {
-            if (history.state?.view === 'hotel') return;
-            if (!document.getElementById('hotelView').classList.contains('hidden')) showHotelList();
-        });
-
-        const hotelGridEl = document.getElementById('hotelGrid');
-        hotelGridEl.addEventListener('pointerdown', event => {
-            const button = event.target.closest('[data-hotel]');
-            pressedHotel = button ? button.dataset.hotel : '';
-        });
-        hotelGridEl.addEventListener('pointercancel', () => {
-            pressedHotel = '';
-            if (heldGridRender) { heldGridRender = false; renderHome(true); }
-        });
-        hotelGridEl.addEventListener('click', event => {
-            const wanted = pressedHotel;
-            pressedHotel = '';
-            const button = event.target.closest('[data-hotel]');
-            if (wanted && button && button.dataset.hotel === wanted) goToHotel(wanted);
-            if (heldGridRender) { heldGridRender = false; renderHome(true); }
-        });
         
         function homeDateChanged() { 
             const parts = document.getElementById('homeDatePicker').value.split('-');
@@ -683,8 +635,7 @@
             if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
         }
         
-        function dateChanged() {
-            dateTouched = true;
+        function dateChanged() { 
             const parts = document.getElementById('datePicker').value.split('-');
             document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
             if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
@@ -1141,7 +1092,7 @@
                     renderHome(true);
                     if (currentBaseHotel) {
                         updateCurrentHotelName();
-                        if (!dateTouched) applyDepartmentDate();
+                        applyDepartmentDate();
                         renderItems(true);
                     }
                 }

@@ -366,12 +366,8 @@
                 input.addEventListener('change', () => saveOfficeName(input));
             });
         }
-        let cardPointer = false;
-        let cardRenderPending = false;
         function render() {
             renderTabs();
-            if (mode === 'fold' && cardPointer) { cardRenderPending = true; return; }
-            cardRenderPending = false;
             if (mode === 'fold') renderCards();
             else renderSheets();
         }
@@ -596,27 +592,13 @@
                 saving = false;
             }
         }
-        let pressedCardId = '';
-        document.getElementById('cardScroller').addEventListener('pointerdown', event => {
-            cardPointer = true;
-            pressedCardId = event.target.closest('[data-action="open-item"]')?.dataset.id || '';
-        });
-        const releaseCards = () => {
-            cardPointer = false;
-            if (cardRenderPending) render();
-        };
-        document.getElementById('cardScroller').addEventListener('pointerup', releaseCards);
-        document.getElementById('cardScroller').addEventListener('pointercancel', () => { pressedCardId = ''; releaseCards(); });
         document.body.addEventListener('click', event => {
             const button = event.target.closest('[data-action]');
             if (!button) return;
             const action = button.dataset.action;
             if (action === 'switch-fold') { mode = 'fold'; render(); }
             else if (action === 'switch-office') { mode = 'office'; render(); }
-            else if (action === 'open-item') {
-                if (pressedCardId && button.dataset.id !== pressedCardId) return;
-                openItem(button.dataset.id);
-            }
+            else if (action === 'open-item') openItem(button.dataset.id);
             else if (action === 'close-popup') closeItem();
             else if (action === 'clear-fold') foldPad?.clear();
             else if (action === 'confirm-sign') confirmSign();
