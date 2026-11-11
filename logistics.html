@@ -53,6 +53,18 @@
 
         <!-- 點交清單區 -->
         <div id="sendwashLinks"></div>
+        <section id="specialReceipt" data-hotel="" class="hidden bg-white p-4 rounded-2xl shadow-md border border-teal-200 mb-6">
+            <h2 class="text-2xl font-black text-teal-900">特處對點</h2>
+            <p class="text-base font-bold text-teal-800 mt-1 mb-3">飯店或司機都可以填。送出後直接出現在特處頁，可以摺疊、簽名、出貨，不用再傳 LINE。</p>
+            <div class="flex gap-2 items-stretch">
+                <select id="specialItem" class="flex-1 min-w-0 p-3 text-lg font-bold border-2 border-teal-200 rounded-xl bg-white"></select>
+                <input id="specialQty" type="number" inputmode="numeric" min="1" step="1" placeholder="數量" class="w-24 p-3 text-lg font-black text-center border-2 border-teal-200 rounded-xl">
+                <button type="button" id="specialAdd" class="px-4 bg-teal-700 text-white rounded-xl font-black text-lg">加入</button>
+            </div>
+            <ul id="specialLines" class="mt-3 space-y-2"></ul>
+            <button type="button" id="specialSubmit" class="w-full mt-3 p-4 bg-teal-800 text-white rounded-xl font-black text-xl">送出特處對點</button>
+            <p id="specialStatus" class="hidden mt-2 text-base font-bold text-teal-900"></p>
+        </section>
         <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
         <div id="departmentsContainer" class="space-y-6">
             <div class="text-center py-10 text-gray-500 font-bold text-lg">載入資料中...</div>
@@ -105,6 +117,7 @@
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
+        import { receiptSpecialCatalog, normalizeReceiptLines, buildReceiptSpecialDocs, nextReceiptWrite, sameReceiptHotel } from './special-receipt.js?v=20261111-special-receipt';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -136,6 +149,8 @@
         
         let currentHotel = "";
         let currentDate = "";
+        let specialDraft = [];
+        let specialSaving = false;
         let groupedData = {}; 
         let outletDetailGroups = [];
         let outletDetailError = '';
@@ -238,7 +253,10 @@
         function dateChanged() {
             if (signatureSaving) { document.getElementById('datePicker').value = currentDate; return; }
             closeSignModal();
-            updateDateDisplay(); 
+            const hadSpecialLines = specialDraft.length > 0;
+            updateDateDisplay();
+            clearSpecialDraft();
+            if (hadSpecialLines) showToastMsg('已改日期，特處對點請照新日期重填。');
             fetchData(false); 
         }
 
@@ -318,6 +336,133 @@
             return templatePromise;
         }
 
+        function clearSpecialDraft() {
+            specialDraft = [];
+            renderSpecialLines();
+        }
+
+        function renderSpecialLines() {
+            const list = document.getElementById('specialLines');
+            if (!list) return;
+            list.replaceChildren();
+            specialDraft.forEach((line, index) => {
+                const row = document.createElement('li');
+                row.className = 'flex items-center justify-between gap-2 bg-teal-50 rounded-xl px-3 py-2';
+                const label = document.createElement('span');
+                label.className = 'font-black text-lg text-teal-950';
+                label.textContent = `${line.item} × ${line.qty}`;
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'px-3 py-2 text-red-600 font-black';
+                remove.textContent = '移除';
+                remove.onclick = () => {
+                    specialDraft.splice(index, 1);
+                    renderSpecialLines();
+                };
+                row.append(label, remove);
+                list.append(row);
+            });
+        }
+
+        function mountSpecialReceipt() {
+            const section = document.getElementById('specialReceipt');
+            if (!section || !currentHotel) return;
+            section.dataset.hotel = currentHotel;
+            section.classList.remove('hidden');
+            const select = document.getElementById('specialItem');
+            select.replaceChildren();
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '選擇品項';
+            select.append(placeholder);
+            for (const name of receiptSpecialCatalog()) {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.append(option);
+            }
+            document.getElementById('specialAdd').onclick = addSpecialLine;
+            document.getElementById('specialSubmit').onclick = submitSpecialReceipt;
+            renderSpecialLines();
+        }
+
+        function addSpecialLine() {
+            const item = document.getElementById('specialItem').value;
+            const qty = document.getElementById('specialQty').value;
+            try {
+                specialDraft = normalizeReceiptLines([...specialDraft, { item, qty }], receiptSpecialCatalog());
+            } catch (error) {
+                showToastMsg(error.message || '這項沒有加入', true);
+                return;
+            }
+            document.getElementById('specialQty').value = '';
+            renderSpecialLines();
+        }
+
+        function receiptHotelMatches() {
+            const pageHotel = new URLSearchParams(location.search).get('hotel');
+            const sectionHotel = document.getElementById('specialReceipt')?.dataset.hotel || '';
+            const titleHotel = document.getElementById('hotelTitle').textContent.replace(/\s*點交\s*$/, '');
+            return sameReceiptHotel(currentHotel, pageHotel, sectionHotel, titleHotel);
+        }
+
+        async function submitSpecialReceipt() {
+            if (specialSaving) return;
+            if (!receiptHotelMatches()) {
+                showToastMsg('飯店名稱和這張簽收單不一致，沒有寫入。請重新整理後再送出。', true);
+                return;
+            }
+            const hotel = currentHotel;
+            const receivedDate = document.getElementById('datePicker').value;
+            let docs;
+            try {
+                const lines = normalizeReceiptLines(specialDraft, receiptSpecialCatalog());
+                docs = buildReceiptSpecialDocs({
+                    hotel,
+                    receivedDate,
+                    lines,
+                    time: new Date().toISOString(),
+                });
+            } catch (error) {
+                showToastMsg(error.message || '無法送出', true);
+                return;
+            }
+            if (!receiptHotelMatches() || docs.some(row => row.hotel !== hotel)) {
+                showToastMsg('飯店名稱和這張簽收單不一致，沒有寫入。請重新整理後再送出。', true);
+                return;
+            }
+            const button = document.getElementById('specialSubmit');
+            specialSaving = true;
+            button.disabled = true;
+            try {
+                const decisions = await runTransaction(db, async (tx) => {
+                    const snaps = [];
+                    for (const planned of docs) snaps.push(await tx.get(doc(db, 'special_items', planned.id)));
+                    const next = snaps.map((snap, index) => nextReceiptWrite(snap.exists() ? snap.data() : null, docs[index]));
+                    next.forEach((decision, index) => {
+                        if (decision.action === 'same') return;
+                        const { id, ...fields } = decision.doc;
+                        if (fields.hotel !== hotel) throw new Error('飯店名稱和這張簽收單不一致，沒有寫入。');
+                        tx.set(doc(db, 'special_items', docs[index].id), fields);
+                    });
+                    return next;
+                });
+                clearSpecialDraft();
+                const status = document.getElementById('specialStatus');
+                const summary = docs.map(row => `${row.item}×${row.qty}`).join('、');
+                status.textContent = decisions.every(row => row.action === 'same')
+                    ? `特處頁已經有這些品項，沒有重複寫入：${summary}`
+                    : `已送進特處頁，可以開始摺疊：${summary}`;
+                status.classList.remove('hidden');
+                showToastMsg(decisions.every(row => row.action === 'same') ? '沒有重複寫入' : '已送進特處');
+            } catch (error) {
+                showToastMsg(error.message || '特處對點送出失敗', true);
+            } finally {
+                specialSaving = false;
+                button.disabled = false;
+            }
+        }
+
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
@@ -336,6 +481,7 @@
             }
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
+            mountSpecialReceipt();
             
             let targetDate = getTodayString(); 
             if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
