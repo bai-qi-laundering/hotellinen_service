@@ -53,13 +53,6 @@
 
         <!-- 點交清單區 -->
         <div id="sendwashLinks"></div>
-        <section id="specialReceipt" data-hotel="" class="hidden bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
-            <h2 class="text-2xl font-black text-gray-800">特處對點</h2>
-            <p class="text-base font-bold text-gray-600 mt-1">只填這次有的品項，其他可留白。送出後直接出現在特處頁。</p>
-            <div id="specialItems" class="mt-2"></div>
-            <button type="button" id="specialSubmit" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-black text-xl">送出特處對點</button>
-            <p id="specialStatus" class="hidden mt-2 text-base font-bold text-blue-900"></p>
-        </section>
         <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
         <div id="departmentsContainer" class="space-y-6">
             <div class="text-center py-10 text-gray-500 font-bold text-lg">載入資料中...</div>
@@ -112,7 +105,6 @@
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
-        import { receiptSpecialItems, normalizeReceiptLines, buildReceiptSpecialDocs, nextReceiptWrite, sameReceiptHotel } from './special-receipt.js?v=20261111-special-sheet';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -144,7 +136,6 @@
         
         let currentHotel = "";
         let currentDate = "";
-        let specialSaving = false;
         let groupedData = {}; 
         let outletDetailGroups = [];
         let outletDetailError = '';
@@ -247,10 +238,7 @@
         function dateChanged() {
             if (signatureSaving) { document.getElementById('datePicker').value = currentDate; return; }
             closeSignModal();
-            const hadSpecialLines = specialFormFilled();
             updateDateDisplay();
-            refreshSpecialReceipt({ reset: true });
-            if (hadSpecialLines) showToastMsg('已改日期，特處對點請照新日期重填。');
             fetchData(false); 
         }
 
@@ -322,123 +310,12 @@
                 masterTemplate.forEach((t,idx)=>{if(globalItemOrder[t.item]===undefined)globalItemOrder[t.item]=idx;});
                 if(dataReady&&Object.keys(groupedData).length)renderDepartments();
                 else renderSendwashLinks();
-                refreshSpecialReceipt();
             });
             templatePromise=withReadTimeout(pending,'品項設定',8000).catch(error=>{
-                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();refreshSpecialReceipt();}
+                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();}
                 console.warn('品項設定讀取較慢',error);
             });
             return templatePromise;
-        }
-
-        function specialFormFilled() {
-            return [...document.querySelectorAll('#specialItems input[data-item]')].some(input => String(input.value).trim() !== '');
-        }
-
-        function refreshSpecialReceipt(options = {}) {
-            const section = document.getElementById('specialReceipt');
-            const host = document.getElementById('specialItems');
-            if (!section || !host) return;
-            const rows = receiptSpecialItems(sendwashSettings, currentHotel);
-            const previous = new Map();
-            if (!options.reset) {
-                host.querySelectorAll('input[data-item]').forEach(input => previous.set(input.dataset.item, input.value));
-            }
-            host.replaceChildren();
-            if (!currentHotel || !rows.length) {
-                section.classList.add('hidden');
-                section.dataset.hotel = '';
-                return;
-            }
-            section.dataset.hotel = currentHotel;
-            section.classList.remove('hidden');
-            rows.forEach(row => {
-                const label = document.createElement('label');
-                label.className = 'block mt-4 text-xl font-bold text-gray-800 break-words';
-                label.textContent = `${row.item}（${row.unit}）`;
-                const input = document.createElement('input');
-                input.type = 'number';
-                input.min = '0';
-                input.step = '1';
-                input.inputMode = 'numeric';
-                input.placeholder = '這次沒有，可留白';
-                input.dataset.item = row.item;
-                input.value = options.blank ? '' : (previous.has(row.item) ? previous.get(row.item) : row.defaultQuantity);
-                input.className = 'mt-2 w-full rounded-lg border border-slate-400 bg-white p-3 text-3xl font-black text-gray-900';
-                label.append(input);
-                host.append(label);
-            });
-            document.getElementById('specialSubmit').onclick = submitSpecialReceipt;
-        }
-
-        function receiptHotelMatches() {
-            const pageHotel = new URLSearchParams(location.search).get('hotel');
-            const sectionHotel = document.getElementById('specialReceipt')?.dataset.hotel || '';
-            const titleHotel = document.getElementById('hotelTitle').textContent.replace(/\s*點交\s*$/, '');
-            return sameReceiptHotel(currentHotel, pageHotel, sectionHotel, titleHotel);
-        }
-
-        async function submitSpecialReceipt() {
-            if (specialSaving) return;
-            if (!receiptHotelMatches()) {
-                showToastMsg('飯店名稱和這張簽收單不一致，沒有寫入。請重新整理後再送出。', true);
-                return;
-            }
-            const hotel = currentHotel;
-            const receivedDate = document.getElementById('datePicker').value;
-            const catalog = receiptSpecialItems(sendwashSettings, hotel);
-            const filled = [...document.querySelectorAll('#specialItems input[data-item]')].map(input => ({ item: input.dataset.item, qty: input.value }));
-            let docs;
-            try {
-                const lines = normalizeReceiptLines(filled, catalog);
-                if (!lines.length) {
-                    showToastMsg('沒有填數量，沒有寫入。', true);
-                    return;
-                }
-                docs = buildReceiptSpecialDocs({
-                    hotel,
-                    receivedDate,
-                    lines,
-                    time: new Date().toISOString(),
-                });
-            } catch (error) {
-                showToastMsg(error.message || '無法送出', true);
-                return;
-            }
-            if (!receiptHotelMatches() || docs.some(row => row.hotel !== hotel)) {
-                showToastMsg('飯店名稱和這張簽收單不一致，沒有寫入。請重新整理後再送出。', true);
-                return;
-            }
-            const button = document.getElementById('specialSubmit');
-            specialSaving = true;
-            button.disabled = true;
-            try {
-                const decisions = await runTransaction(db, async (tx) => {
-                    const snaps = [];
-                    for (const planned of docs) snaps.push(await tx.get(doc(db, 'special_items', planned.id)));
-                    const next = snaps.map((snap, index) => nextReceiptWrite(snap.exists() ? snap.data() : null, docs[index]));
-                    next.forEach((decision, index) => {
-                        if (decision.action === 'same') return;
-                        const { id, ...fields } = decision.doc;
-                        if (fields.hotel !== hotel) throw new Error('飯店名稱和這張簽收單不一致，沒有寫入。');
-                        tx.set(doc(db, 'special_items', docs[index].id), fields);
-                    });
-                    return next;
-                });
-                refreshSpecialReceipt({ blank: true });
-                const status = document.getElementById('specialStatus');
-                const summary = docs.map(row => `${row.item}×${row.qty}`).join('、');
-                status.textContent = decisions.every(row => row.action === 'same')
-                    ? `特處頁已經有這些品項，沒有重複寫入：${summary}`
-                    : `已送進特處頁，可以開始摺疊：${summary}`;
-                status.classList.remove('hidden');
-                showToastMsg(decisions.every(row => row.action === 'same') ? '沒有重複寫入' : '已送進特處');
-            } catch (error) {
-                showToastMsg(error.message || '特處對點送出失敗', true);
-            } finally {
-                specialSaving = false;
-                button.disabled = false;
-            }
         }
 
         async function init() {

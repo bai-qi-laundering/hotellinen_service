@@ -115,14 +115,14 @@ test('the folding page no longer has the temporary LINE input', () => {
 });
 
 test('existing inventory pages are not wired to the parser', () => {
-    for (const file of ['index.html', 'sendwash.html', 'finance.html']) {
+    for (const file of ['index.html', 'logistics.html', 'finance.html']) {
         const text = fs.readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
         assert.equal(text.includes('special_items'), false, file);
         assert.equal(text.includes('special-parser'), false, file);
         assert.equal(text.includes('parseSpecialEntry'), false, file);
     }
-    const logistics = fs.readFileSync(new URL('./logistics.html', import.meta.url), 'utf8');
-    assert.equal(logistics.includes('special-parser'), false);
-    assert.equal(logistics.includes('parseSpecialEntry'), false);
-    assert.match(logistics, /special_items/);
+    const sendwash = fs.readFileSync(new URL('./sendwash.html', import.meta.url), 'utf8');
+    assert.equal(sendwash.includes('special-parser'), false);
+    assert.equal(sendwash.includes('parseSpecialEntry'), false);
+    assert.match(sendwash, /special_items/);
 });

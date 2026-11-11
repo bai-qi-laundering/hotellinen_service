@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-    RECEIPT_SOURCE, receiptSpecialItems, sameReceiptHotel, normalizeReceiptLines,
+    RECEIPT_SOURCE, receiptSpecialItems, specialLinesFromSubmission, sameReceiptHotel, normalizeReceiptLines,
     receiptSpecialId, buildReceiptSpecialDocs, nextReceiptWrite,
 } from '../special-receipt.js';
 
@@ -99,19 +99,29 @@ test('free text and fractional quantities are rejected', () => {
     assert.deepEqual(normalizeReceiptLines([{ item: '特處床單', qty: '' }, { item: '特處被套', qty: '0' }], ['特處床單', '特處被套']), []);
 });
 
-test('the receipt page writes special items without a new listener or the LINE parser', () => {
-    const page = fs.readFileSync(new URL('../logistics.html', import.meta.url), 'utf8');
-    assert.match(page, /特處對點/);
-    assert.match(page, /special-receipt\.js/);
-    assert.match(page, /receiptSpecialItems\(sendwashSettings, currentHotel\)/);
-    assert.match(page, /這次沒有，可留白/);
-    assert.equal(page.includes('id="specialItem"'), false);
-    assert.equal(page.includes('DEFAULT_SPECIAL_ITEMS'), false);
-    assert.equal(page.includes('FALLBACK_ITEMS'), false);
-    assert.equal(page.includes('parseSpecialEntry'), false);
-    assert.equal(page.includes('special-parser'), false);
-    assert.equal(page.includes('onSnapshot'), false);
-    assert.match(page, /sameReceiptHotel/);
+test('only a 特處 submission copies positive quantities into special items', () => {
+    assert.deepEqual(specialLinesFromSubmission('房務', [{ item: '浴巾', quantity: '8' }]), []);
+    assert.deepEqual(specialLinesFromSubmission('特處', [
+        { item: '特處床單', quantity: '2' },
+        { item: '特處被套', quantity: '0' },
+        { item: '特處枕套', quantity: '' },
+    ]), [{ item: '特處床單', qty: 2 }]);
+    assert.deepEqual(specialLinesFromSubmission('特處部', [{ item: '抹布', quantity: '1' }]), [{ item: '特處抹布', qty: 1 }]);
+});
+
+test('the receipt page no longer expands 特處, and the sendwash form writes special items', () => {
+    const logistics = fs.readFileSync(new URL('../logistics.html', import.meta.url), 'utf8');
+    const sendwash = fs.readFileSync(new URL('../sendwash.html', import.meta.url), 'utf8');
+    assert.equal(logistics.includes('特處對點'), false);
+    assert.equal(logistics.includes('送出特處對點'), false);
+    assert.equal(logistics.includes('special-receipt'), false);
+    assert.equal(logistics.includes('special_items'), false);
+    assert.match(logistics, /填寫送洗對點單/);
+    assert.match(sendwash, /special-receipt\.js/);
+    assert.match(sendwash, /special_items/);
+    assert.match(sendwash, /name !== '特處' && name !== '特處部'/);
+    assert.equal(sendwash.includes('parseSpecialEntry'), false);
+    assert.equal(sendwash.includes('onSnapshot'), false);
     const webhook = fs.readFileSync(new URL('../line-webhook/Code.gs', import.meta.url), 'utf8');
     assert.equal(webhook.includes('簽收單'), false);
 });

@@ -692,6 +692,17 @@ $('btnLast7Days').onclick=()=>{
  loadReconcile();
 };
 
+async function specialDocsFor(dept, sourceDate, submittedItems) {
+ const name = String(dept || '').normalize('NFKC').replace(/\s+/g, '').trim();
+ if (name !== '特處' && name !== '特處部') return { docs: [], write: null };
+ if (params.get('hotel') !== hotel) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
+ const mod = await import('./special-receipt.js?v=20261111-special-send');
+ const lines = mod.specialLinesFromSubmission(dept, submittedItems);
+ if (!lines.length) return { docs: [], write: mod.nextReceiptWrite };
+ const docs = mod.buildReceiptSpecialDocs({ hotel, receivedDate: sourceDate, lines, time: new Date().toISOString() });
+ if (docs.some(row => row.hotel !== hotel)) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
+ return { docs, write: mod.nextReceiptWrite };
+}
 $('department').onchange=()=>{activeOutlet='';if(currentMode==='reconcile')loadReconcile();else load();};
 $('sourceDate').onchange=load;
 $('form').onsubmit=async e=>{
@@ -709,8 +720,31 @@ $('form').onsubmit=async e=>{
   const id=core.submissionId(hotel,dept,sourceDate,outlet);
   const ref=doc(db,'sendwash_records',id);
   const expected=current?.revision || 0;
-  await runTransaction(db,async tx=>{const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;const old=snap.exists()?snap.data():{};if(!adminMode&&signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');if(!adminMode&&(old.acceptedAt || Object.keys(old.receivedItems || {}).length))throw new Error('場內已確認，不能修改');if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');tx.set(ref,{...old,hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});});
-  shownBatchId=null;batchDrafts.delete(id);await load(); $('message').textContent=items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。';
+  const specialPlan=await specialDocsFor(dept, sourceDate, items);
+  const skipped=[];
+  await runTransaction(db,async tx=>{
+   skipped.length=0;
+   const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;
+   const specialSnaps=[];
+   for (const planned of specialPlan.docs) specialSnaps.push(await tx.get(doc(db,'special_items',planned.id)));
+   const old=snap.exists()?snap.data():{};
+   if(!adminMode&&signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');
+   if(!adminMode&&(old.acceptedAt || Object.keys(old.receivedItems || {}).length))throw new Error('場內已確認，不能修改');
+   if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');
+   tx.set(ref,{...old,hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});
+   specialSnaps.forEach((specialSnap,index)=>{
+    let decision;
+    try { decision=specialPlan.write(specialSnap.exists()?specialSnap.data():null, specialPlan.docs[index]); }
+    catch (error) { decision={ action:'skip', message:error.message }; }
+    if (decision.action==='same' || decision.action==='skip') { if (decision.action==='skip') skipped.push(specialPlan.docs[index].item); return; }
+    const { id:specialId, ...fields }=decision.doc;
+    if (fields.hotel!==hotel) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
+    tx.set(doc(db,'special_items',specialPlan.docs[index].id), fields);
+   });
+  });
+  shownBatchId=null;batchDrafts.delete(id);await load();
+  const specialNote=specialPlan.docs.length ? (skipped.length ? '已摺疊或簽名的特處品項沒有覆寫。' : '特處品項已送到特處頁。') : '';
+  $('message').textContent=(items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。')+(specialNote ? '\n'+specialNote : '');
  }catch(e){showError(e);disable(false);rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=locked(current);});}finally{busy=false;}
 };
 try{
