@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { DEFAULT_SPECIAL_ITEMS } from '../special-parser.js';
 import {
-    RECEIPT_SOURCE, receiptSpecialCatalog, sameReceiptHotel, normalizeReceiptLines,
+    RECEIPT_SOURCE, receiptSpecialItems, sameReceiptHotel, normalizeReceiptLines,
     receiptSpecialId, buildReceiptSpecialDocs, nextReceiptWrite,
 } from '../special-receipt.js';
 
@@ -14,16 +13,22 @@ const LINE_KEYS = [
     'source', 'splitOf', 'status', 'unknown',
 ];
 
-test('dropdown uses the special-page names, including configured 特處 items', () => {
-    const catalog = receiptSpecialCatalog(['特處嬰兒枕頭', '工作衣', '特處床單']);
-    assert.ok(catalog.includes('特處床單'));
-    assert.ok(catalog.includes('特處嬰兒枕頭'));
-    assert.equal(catalog.includes('工作衣'), false);
-    assert.equal(catalog.filter(name => name === '特處床單').length, 1);
-    for (const name of DEFAULT_SPECIAL_ITEMS) assert.ok(catalog.includes(`特處${name}`), name);
-    const live = receiptSpecialCatalog();
-    assert.ok(live.includes('特處嬰兒枕頭'));
-    assert.equal(live.includes('工作衣'), false);
+const settings = [
+    { hotel: '巨蛋', department: '房務', item: '浴巾' },
+    { hotel: '巨蛋', department: '特處', item: '特處床單' },
+    { hotel: '巨蛋', department: '特處', item: '特處被套' },
+    { hotel: '巨蛋', department: '特處', item: '特處床單' },
+    { hotel: '巨蛋一般', department: '特處', item: '特處枕頭' },
+    { hotel: '鉑麗', department: '房務', item: '特處抹布' },
+    { hotel: '好六', department: '房務', item: '浴巾' },
+];
+
+test('only this hotel’s 特處 rows from the sheet are offered, in sheet order', () => {
+    assert.deepEqual(receiptSpecialItems(settings, '巨蛋'), ['特處床單', '特處被套']);
+    assert.deepEqual(receiptSpecialItems(settings, '鉑麗'), []);
+    assert.deepEqual(receiptSpecialItems(settings, '好六'), []);
+    assert.deepEqual(receiptSpecialItems(settings, '巨蛋一般'), ['特處枕頭']);
+    assert.deepEqual(receiptSpecialItems([], '巨蛋'), []);
 });
 
 test('巨蛋 is not 鉑麗 or 巨蛋一般', () => {
@@ -90,6 +95,9 @@ test('the receipt page writes special items without a new listener or the LINE p
     const page = fs.readFileSync(new URL('../logistics.html', import.meta.url), 'utf8');
     assert.match(page, /特處對點/);
     assert.match(page, /special-receipt\.js/);
+    assert.match(page, /receiptSpecialItems\(sendwashSettings, currentHotel\)/);
+    assert.equal(page.includes('DEFAULT_SPECIAL_ITEMS'), false);
+    assert.equal(page.includes('FALLBACK_ITEMS'), false);
     assert.equal(page.includes('parseSpecialEntry'), false);
     assert.equal(page.includes('special-parser'), false);
     assert.equal(page.includes('onSnapshot'), false);

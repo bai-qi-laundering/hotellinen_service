@@ -1,7 +1,6 @@
 // Receipt-page 特處 lines. Same special_items shape as the LINE webhook, without parsing free text.
 
-import { DEFAULT_SPECIAL_ITEMS, displayItemName } from './special-parser.js';
-import { FALLBACK_ITEMS } from './special-config.js';
+import { displayItemName } from './special-parser.js';
 
 export const RECEIPT_SOURCE = '簽收單';
 
@@ -9,21 +8,29 @@ function clean(value) {
     return String(value || '').trim().replace(/[\/\\]/g, '-');
 }
 
-export function receiptSpecialCatalog(configItems = FALLBACK_ITEMS) {
+function departmentName(value) {
+    return String(value || '').normalize('NFKC').replace(/\s+/g, '').trim();
+}
+
+export function isSpecialReceiptRow(row) {
+    const department = departmentName(row?.department);
+    return department === '特處' || department === '特處部';
+}
+
+// Items come from the receipt's already-loaded sendwash settings, in sheet order.
+// A hotel with no 特處 rows gets an empty list; there is no built-in fallback.
+export function receiptSpecialItems(settings, hotel) {
+    const page = String(hotel || '').trim();
+    if (!page) return [];
     const names = [];
     const seen = new Set();
-    function add(raw) {
-        const shown = displayItemName(raw);
-        if (!shown || seen.has(shown)) return;
+    for (const row of settings || []) {
+        if (String(row?.hotel || '').trim() !== page || !isSpecialReceiptRow(row)) continue;
+        const shown = displayItemName(row.item);
+        if (!shown || seen.has(shown)) continue;
         seen.add(shown);
         names.push(shown);
     }
-    for (const name of DEFAULT_SPECIAL_ITEMS) add(name);
-    for (const name of configItems || []) {
-        const text = String(name || '').trim();
-        if (text.startsWith('特處')) add(text);
-    }
-    names.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
     return names;
 }
 

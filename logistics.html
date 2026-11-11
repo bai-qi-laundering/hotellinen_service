@@ -117,7 +117,7 @@
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
-        import { receiptSpecialCatalog, normalizeReceiptLines, buildReceiptSpecialDocs, nextReceiptWrite, sameReceiptHotel } from './special-receipt.js?v=20261111-special-receipt';
+        import { receiptSpecialItems, normalizeReceiptLines, buildReceiptSpecialDocs, nextReceiptWrite, sameReceiptHotel } from './special-receipt.js?v=20261111-special-sheet';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -328,9 +328,10 @@
                 masterTemplate.forEach((t,idx)=>{if(globalItemOrder[t.item]===undefined)globalItemOrder[t.item]=idx;});
                 if(dataReady&&Object.keys(groupedData).length)renderDepartments();
                 else renderSendwashLinks();
+                refreshSpecialReceipt();
             });
             templatePromise=withReadTimeout(pending,'品項設定',8000).catch(error=>{
-                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();}
+                if(request===templateLoadSequence){sendwashSettingsError='對點設定讀取較慢，仍可直接開啟對點單，或重試載入。';renderSendwashLinks();refreshSpecialReceipt();}
                 console.warn('品項設定讀取較慢',error);
             });
             return templatePromise;
@@ -364,33 +365,44 @@
             });
         }
 
-        function mountSpecialReceipt() {
+        function refreshSpecialReceipt() {
             const section = document.getElementById('specialReceipt');
-            if (!section || !currentHotel) return;
+            if (!section) return;
+            const names = receiptSpecialItems(sendwashSettings, currentHotel);
+            if (!currentHotel || !names.length) {
+                section.classList.add('hidden');
+                section.dataset.hotel = '';
+                clearSpecialDraft();
+                return;
+            }
             section.dataset.hotel = currentHotel;
             section.classList.remove('hidden');
             const select = document.getElementById('specialItem');
+            const selected = select.value;
             select.replaceChildren();
             const placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = '選擇品項';
             select.append(placeholder);
-            for (const name of receiptSpecialCatalog()) {
+            for (const name of names) {
                 const option = document.createElement('option');
                 option.value = name;
                 option.textContent = name;
+                if (name === selected) option.selected = true;
                 select.append(option);
             }
             document.getElementById('specialAdd').onclick = addSpecialLine;
             document.getElementById('specialSubmit').onclick = submitSpecialReceipt;
+            specialDraft = specialDraft.filter(line => names.includes(line.item));
             renderSpecialLines();
         }
 
         function addSpecialLine() {
             const item = document.getElementById('specialItem').value;
             const qty = document.getElementById('specialQty').value;
+            const catalog = receiptSpecialItems(sendwashSettings, currentHotel);
             try {
-                specialDraft = normalizeReceiptLines([...specialDraft, { item, qty }], receiptSpecialCatalog());
+                specialDraft = normalizeReceiptLines([...specialDraft, { item, qty }], catalog);
             } catch (error) {
                 showToastMsg(error.message || '這項沒有加入', true);
                 return;
@@ -416,7 +428,7 @@
             const receivedDate = document.getElementById('datePicker').value;
             let docs;
             try {
-                const lines = normalizeReceiptLines(specialDraft, receiptSpecialCatalog());
+                const lines = normalizeReceiptLines(specialDraft, receiptSpecialItems(sendwashSettings, hotel));
                 docs = buildReceiptSpecialDocs({
                     hotel,
                     receivedDate,
@@ -481,7 +493,6 @@
             }
 
             document.getElementById('hotelTitle').innerText = currentHotel + " 點交";
-            mountSpecialReceipt();
             
             let targetDate = getTodayString(); 
             if (queryDate && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
