@@ -23,11 +23,19 @@ const settings = [
     { hotel: '好六', department: '房務', item: '浴巾' },
 ];
 
-test('only this hotel’s 特處 rows from the sheet are offered, in sheet order', () => {
-    assert.deepEqual(receiptSpecialItems(settings, '巨蛋'), ['特處床單', '特處被套']);
+test('only this hotel’s 特處 rows from the sheet are listed, in sheet order', () => {
+    const rows = [
+        { hotel: '巨蛋', department: '特處', item: '特處被套', unit: '件', defaultQuantity: '2' },
+        { hotel: '巨蛋', department: '特處', item: '特處床單', unit: '條', defaultQuantity: '' },
+        ...settings.filter(row => row.hotel !== '巨蛋' || row.department !== '特處'),
+    ];
+    assert.deepEqual(receiptSpecialItems(rows, '巨蛋'), [
+        { item: '特處被套', unit: '件', defaultQuantity: '2' },
+        { item: '特處床單', unit: '條', defaultQuantity: '' },
+    ]);
     assert.deepEqual(receiptSpecialItems(settings, '鉑麗'), []);
     assert.deepEqual(receiptSpecialItems(settings, '好六'), []);
-    assert.deepEqual(receiptSpecialItems(settings, '巨蛋一般'), ['特處枕頭']);
+    assert.deepEqual(receiptSpecialItems(settings, '巨蛋一般'), [{ item: '特處枕頭', unit: '件', defaultQuantity: '' }]);
     assert.deepEqual(receiptSpecialItems([], '巨蛋'), []);
 });
 
@@ -40,15 +48,15 @@ test('巨蛋 is not 鉑麗 or 巨蛋一般', () => {
 
 test('receipt documents match the LINE special_items shape and use a stable id', () => {
     const lines = normalizeReceiptLines([
-        { item: '特處床單', qty: '2' },
-        { item: '特處被套', qty: 1 },
-        { item: '特處床單', qty: '1' },
-    ], ['特處床單', '特處被套']);
-    assert.deepEqual(lines, [{ item: '特處床單', qty: 3 }, { item: '特處被套', qty: 1 }]);
+        { item: '特處床單', qty: '' },
+        { item: '特處被套', qty: '0' },
+        { item: '特處枕套', qty: '4' },
+    ], ['特處床單', '特處被套', '特處枕套']);
+    assert.deepEqual(lines, [{ item: '特處枕套', qty: 4 }]);
     const docs = buildReceiptSpecialDocs({
         hotel: '巨蛋',
         receivedDate: '2026-11-11',
-        lines,
+        lines: [{ item: '特處床單', qty: 3 }, { item: '特處被套', qty: 1 }],
         time: '2026-11-11T02:00:00.000Z',
     });
     assert.equal(docs.length, 2);
@@ -85,10 +93,10 @@ test('pressing submit again does not create a second quantity', () => {
     assert.throws(() => nextReceiptWrite({ ...doc, hotel: '鉑麗' }, doc), /沒有覆寫/);
 });
 
-test('free text and zero quantities are rejected', () => {
+test('free text and fractional quantities are rejected', () => {
     assert.throws(() => normalizeReceiptLines([{ item: '隨便打', qty: 1 }], ['特處床單']), /不在特處清單/);
-    assert.throws(() => normalizeReceiptLines([{ item: '特處床單', qty: 0 }], ['特處床單']), /整數/);
-    assert.throws(() => normalizeReceiptLines([], ['特處床單']), /請先加入/);
+    assert.throws(() => normalizeReceiptLines([{ item: '特處床單', qty: '1.5' }], ['特處床單']), /整數/);
+    assert.deepEqual(normalizeReceiptLines([{ item: '特處床單', qty: '' }, { item: '特處被套', qty: '0' }], ['特處床單', '特處被套']), []);
 });
 
 test('the receipt page writes special items without a new listener or the LINE parser', () => {
@@ -96,6 +104,8 @@ test('the receipt page writes special items without a new listener or the LINE p
     assert.match(page, /特處對點/);
     assert.match(page, /special-receipt\.js/);
     assert.match(page, /receiptSpecialItems\(sendwashSettings, currentHotel\)/);
+    assert.match(page, /這次沒有，可留白/);
+    assert.equal(page.includes('id="specialItem"'), false);
     assert.equal(page.includes('DEFAULT_SPECIAL_ITEMS'), false);
     assert.equal(page.includes('FALLBACK_ITEMS'), false);
     assert.equal(page.includes('parseSpecialEntry'), false);

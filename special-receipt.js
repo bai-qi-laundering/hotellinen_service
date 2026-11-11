@@ -22,16 +22,19 @@ export function isSpecialReceiptRow(row) {
 export function receiptSpecialItems(settings, hotel) {
     const page = String(hotel || '').trim();
     if (!page) return [];
-    const names = [];
+    const rows = [];
     const seen = new Set();
     for (const row of settings || []) {
         if (String(row?.hotel || '').trim() !== page || !isSpecialReceiptRow(row)) continue;
-        const shown = displayItemName(row.item);
-        if (!shown || seen.has(shown)) continue;
-        seen.add(shown);
-        names.push(shown);
+        const item = displayItemName(row.item);
+        if (!item || seen.has(item)) continue;
+        seen.add(item);
+        const unit = String(row.unit || '').trim() || '件';
+        const preset = row.defaultQuantity;
+        const defaultQuantity = preset === '' || preset == null ? '' : String(preset).trim();
+        rows.push({ item, unit, defaultQuantity });
     }
-    return names;
+    return rows;
 }
 
 export function sameReceiptHotel(pageHotel, ...candidates) {
@@ -41,21 +44,22 @@ export function sameReceiptHotel(pageHotel, ...candidates) {
 }
 
 export function normalizeReceiptLines(lines, catalog) {
-    const allowed = new Set(catalog || []);
-    const totals = new Map();
-    const order = [];
+    const allowed = new Set((catalog || []).map(row => typeof row === 'string' ? row : row.item));
+    const result = [];
+    const seen = new Set();
     for (const line of lines || []) {
         const item = String(line?.item || '').trim();
-        if (!allowed.has(item)) throw new Error(item ? `品項不在特處清單：${item}` : '請選擇特處品項');
+        if (!item || (catalog && !allowed.has(item))) throw new Error(item ? `品項不在特處清單：${item}` : '品項不在特處清單');
         const raw = String(line?.qty ?? '').trim();
+        if (raw === '' || raw === '0') continue;
         if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) <= 0) {
-            throw new Error('數量要填大於 0 的整數');
+            throw new Error(`${item} 的數量要填大於 0 的整數，沒有的話留白`);
         }
-        if (!totals.has(item)) order.push(item);
-        totals.set(item, (totals.get(item) || 0) + Number(raw));
+        if (seen.has(item)) throw new Error(`品項重複：${item}`);
+        seen.add(item);
+        result.push({ item, qty: Number(raw) });
     }
-    if (!order.length) throw new Error('請先加入特處品項');
-    return order.map(item => ({ item, qty: totals.get(item) }));
+    return result;
 }
 
 export function receiptSpecialId(receivedDate, hotel, item) {

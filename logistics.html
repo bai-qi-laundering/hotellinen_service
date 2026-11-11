@@ -53,17 +53,12 @@
 
         <!-- 點交清單區 -->
         <div id="sendwashLinks"></div>
-        <section id="specialReceipt" data-hotel="" class="hidden bg-white p-4 rounded-2xl shadow-md border border-teal-200 mb-6">
-            <h2 class="text-2xl font-black text-teal-900">特處對點</h2>
-            <p class="text-base font-bold text-teal-800 mt-1 mb-3">飯店或司機都可以填。送出後直接出現在特處頁，可以摺疊、簽名、出貨，不用再傳 LINE。</p>
-            <div class="flex gap-2 items-stretch">
-                <select id="specialItem" class="flex-1 min-w-0 p-3 text-lg font-bold border-2 border-teal-200 rounded-xl bg-white"></select>
-                <input id="specialQty" type="number" inputmode="numeric" min="1" step="1" placeholder="數量" class="w-24 p-3 text-lg font-black text-center border-2 border-teal-200 rounded-xl">
-                <button type="button" id="specialAdd" class="px-4 bg-teal-700 text-white rounded-xl font-black text-lg">加入</button>
-            </div>
-            <ul id="specialLines" class="mt-3 space-y-2"></ul>
-            <button type="button" id="specialSubmit" class="w-full mt-3 p-4 bg-teal-800 text-white rounded-xl font-black text-xl">送出特處對點</button>
-            <p id="specialStatus" class="hidden mt-2 text-base font-bold text-teal-900"></p>
+        <section id="specialReceipt" data-hotel="" class="hidden bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
+            <h2 class="text-2xl font-black text-gray-800">特處對點</h2>
+            <p class="text-base font-bold text-gray-600 mt-1">只填這次有的品項，其他可留白。送出後直接出現在特處頁。</p>
+            <div id="specialItems" class="mt-2"></div>
+            <button type="button" id="specialSubmit" class="w-full mt-4 p-4 bg-blue-600 text-white rounded-xl font-black text-xl">送出特處對點</button>
+            <p id="specialStatus" class="hidden mt-2 text-base font-bold text-blue-900"></p>
         </section>
         <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
         <div id="departmentsContainer" class="space-y-6">
@@ -149,7 +144,6 @@
         
         let currentHotel = "";
         let currentDate = "";
-        let specialDraft = [];
         let specialSaving = false;
         let groupedData = {}; 
         let outletDetailGroups = [];
@@ -253,9 +247,9 @@
         function dateChanged() {
             if (signatureSaving) { document.getElementById('datePicker').value = currentDate; return; }
             closeSignModal();
-            const hadSpecialLines = specialDraft.length > 0;
+            const hadSpecialLines = specialFormFilled();
             updateDateDisplay();
-            clearSpecialDraft();
+            refreshSpecialReceipt({ reset: true });
             if (hadSpecialLines) showToastMsg('已改日期，特處對點請照新日期重填。');
             fetchData(false); 
         }
@@ -337,78 +331,44 @@
             return templatePromise;
         }
 
-        function clearSpecialDraft() {
-            specialDraft = [];
-            renderSpecialLines();
+        function specialFormFilled() {
+            return [...document.querySelectorAll('#specialItems input[data-item]')].some(input => String(input.value).trim() !== '');
         }
 
-        function renderSpecialLines() {
-            const list = document.getElementById('specialLines');
-            if (!list) return;
-            list.replaceChildren();
-            specialDraft.forEach((line, index) => {
-                const row = document.createElement('li');
-                row.className = 'flex items-center justify-between gap-2 bg-teal-50 rounded-xl px-3 py-2';
-                const label = document.createElement('span');
-                label.className = 'font-black text-lg text-teal-950';
-                label.textContent = `${line.item} × ${line.qty}`;
-                const remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'px-3 py-2 text-red-600 font-black';
-                remove.textContent = '移除';
-                remove.onclick = () => {
-                    specialDraft.splice(index, 1);
-                    renderSpecialLines();
-                };
-                row.append(label, remove);
-                list.append(row);
-            });
-        }
-
-        function refreshSpecialReceipt() {
+        function refreshSpecialReceipt(options = {}) {
             const section = document.getElementById('specialReceipt');
-            if (!section) return;
-            const names = receiptSpecialItems(sendwashSettings, currentHotel);
-            if (!currentHotel || !names.length) {
+            const host = document.getElementById('specialItems');
+            if (!section || !host) return;
+            const rows = receiptSpecialItems(sendwashSettings, currentHotel);
+            const previous = new Map();
+            if (!options.reset) {
+                host.querySelectorAll('input[data-item]').forEach(input => previous.set(input.dataset.item, input.value));
+            }
+            host.replaceChildren();
+            if (!currentHotel || !rows.length) {
                 section.classList.add('hidden');
                 section.dataset.hotel = '';
-                clearSpecialDraft();
                 return;
             }
             section.dataset.hotel = currentHotel;
             section.classList.remove('hidden');
-            const select = document.getElementById('specialItem');
-            const selected = select.value;
-            select.replaceChildren();
-            const placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = '選擇品項';
-            select.append(placeholder);
-            for (const name of names) {
-                const option = document.createElement('option');
-                option.value = name;
-                option.textContent = name;
-                if (name === selected) option.selected = true;
-                select.append(option);
-            }
-            document.getElementById('specialAdd').onclick = addSpecialLine;
+            rows.forEach(row => {
+                const label = document.createElement('label');
+                label.className = 'block mt-4 text-xl font-bold text-gray-800 break-words';
+                label.textContent = `${row.item}（${row.unit}）`;
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = '0';
+                input.step = '1';
+                input.inputMode = 'numeric';
+                input.placeholder = '這次沒有，可留白';
+                input.dataset.item = row.item;
+                input.value = options.blank ? '' : (previous.has(row.item) ? previous.get(row.item) : row.defaultQuantity);
+                input.className = 'mt-2 w-full rounded-lg border border-slate-400 bg-white p-3 text-3xl font-black text-gray-900';
+                label.append(input);
+                host.append(label);
+            });
             document.getElementById('specialSubmit').onclick = submitSpecialReceipt;
-            specialDraft = specialDraft.filter(line => names.includes(line.item));
-            renderSpecialLines();
-        }
-
-        function addSpecialLine() {
-            const item = document.getElementById('specialItem').value;
-            const qty = document.getElementById('specialQty').value;
-            const catalog = receiptSpecialItems(sendwashSettings, currentHotel);
-            try {
-                specialDraft = normalizeReceiptLines([...specialDraft, { item, qty }], catalog);
-            } catch (error) {
-                showToastMsg(error.message || '這項沒有加入', true);
-                return;
-            }
-            document.getElementById('specialQty').value = '';
-            renderSpecialLines();
         }
 
         function receiptHotelMatches() {
@@ -426,9 +386,15 @@
             }
             const hotel = currentHotel;
             const receivedDate = document.getElementById('datePicker').value;
+            const catalog = receiptSpecialItems(sendwashSettings, hotel);
+            const filled = [...document.querySelectorAll('#specialItems input[data-item]')].map(input => ({ item: input.dataset.item, qty: input.value }));
             let docs;
             try {
-                const lines = normalizeReceiptLines(specialDraft, receiptSpecialItems(sendwashSettings, hotel));
+                const lines = normalizeReceiptLines(filled, catalog);
+                if (!lines.length) {
+                    showToastMsg('沒有填數量，沒有寫入。', true);
+                    return;
+                }
                 docs = buildReceiptSpecialDocs({
                     hotel,
                     receivedDate,
@@ -459,7 +425,7 @@
                     });
                     return next;
                 });
-                clearSpecialDraft();
+                refreshSpecialReceipt({ blank: true });
                 const status = document.getElementById('specialStatus');
                 const summary = docs.map(row => `${row.item}×${row.qty}`).join('、');
                 status.textContent = decisions.every(row => row.action === 'same')
