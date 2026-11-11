@@ -43,6 +43,15 @@ export function sameReceiptHotel(pageHotel, ...candidates) {
     return candidates.every(value => String(value ?? '').trim() === page);
 }
 
+export function specialLinesFromSubmission(department, items) {
+    if (!isSpecialReceiptRow({ department })) return [];
+    const mapped = (items || []).map(row => ({
+        item: displayItemName(row.item),
+        qty: row.quantity ?? row.qty,
+    }));
+    return normalizeReceiptLines(mapped, mapped.map(row => row.item));
+}
+
 export function normalizeReceiptLines(lines, catalog) {
     const allowed = new Set((catalog || []).map(row => typeof row === 'string' ? row : row.item));
     const result = [];
