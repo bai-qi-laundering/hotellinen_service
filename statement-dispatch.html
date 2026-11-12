@@ -204,7 +204,7 @@ import {
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261102-sent-invoice';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261104-split-customers';
-import { quoteInvoice } from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-uec';
+import { missingTaxIdMessage, quoteInvoice } from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
 
 const params = new URLSearchParams(location.search);
 const localOnly = params.get('store') === 'local';
@@ -354,6 +354,7 @@ function render() {
         );
         const activeInvoice = item.invoiceStatus === 'invoiced' && (item.invoiceNumber || item.invoiceRecord?.number);
         const invoicedThisVersion = activeInvoice && Number(item.invoicedVersion) === Number(item.latestVersion);
+        const taxIdError = !invoicedThisVersion && !activeInvoice && version ? missingTaxIdMessage(version.snapshot?.profile) : '';
         if (activeInvoice) meta.append(metaRow('發票號碼', invoicedThisVersion ? (item.invoiceNumber || item.invoiceRecord.number) : `${item.invoiceNumber || item.invoiceRecord.number}（上一版）`));
         if (invoiceReviewPending(item)) meta.append(metaRow('發票狀態', '開票後有變，待處理'));
         const older = (item.versions || []).filter(row => row.version < item.latestVersion && row.sentAt);
@@ -379,6 +380,10 @@ function render() {
         } else if (activeInvoice) {
             invoiceBtn.disabled = true;
             invoiceBtn.textContent = '請先作廢上一版發票';
+        } else if (taxIdError) {
+            invoiceBtn.disabled = true;
+            invoiceBtn.textContent = '沒有統編，不能開立';
+            invoiceBtn.title = taxIdError;
         } else {
             invoiceBtn.textContent = '開立發票';
             invoiceBtn.onclick = () => showInvoice(item);
@@ -399,6 +404,7 @@ function render() {
         if (unsignedReceipts > 0) notes.push(`產生時有 ${unsignedReceipts} 張簽收單還沒簽名，金額仍含這些出貨。之後補簽名不會自動改這份帳單；要更新請到結帳戰情系統手動產生新版本。`);
         if (item.cloudPending) notes.push('這份還在補送雲端，其他電腦暫時看不到。請按重新整理。');
         if (older.length) notes.push(`上一版 V${older[older.length - 1].version} 已於 ${taipeiStamp(older[older.length - 1].sentAt)} 登記寄出。`);
+        if (taxIdError) notes.push(taxIdError);
         if (invoiceReviewPending(item)) notes.push('原發票為舊版，仍待處理；新版帳單可取得檔案並登記寄出，寄送紀錄不會解除發票提醒。');
         if (item.state === 'sent') notes.push(`已於 ${taipeiStamp(version?.sentAt)} 登記寄出。再次取得檔案不會改掉這個紀錄。`);
         else notes.push('核對的是這一份帳單。Excel 或 PDF 在送出時選擇，傳完 LINE 再登記。');
@@ -633,9 +639,25 @@ async function staffCallable(name) {
     }
     return fnMod.httpsCallable(fnMod.getFunctions(firebaseApp, 'asia-east1'), name);
 }
+function showInvoiceBlocked(item, message) {
+    selected = item;
+    $('dialogTitle').textContent = `無法開立發票 · ${dispatchHotelName(item)}`;
+    $('cancel').textContent = '返回';
+    $('dialogBody').replaceChildren();
+    const intro = document.createElement('p');
+    intro.textContent = message || '這位客戶沒有統編，不能開立發票。';
+    $('dialogBody').append(intro);
+    $('next').hidden = true;
+    $('overlay').classList.add('show');
+}
 function showInvoice(item) {
     const version = latestVersion(item);
     if (!version) return;
+    const taxIdError = missingTaxIdMessage(version.snapshot?.profile);
+    if (taxIdError) {
+        showInvoiceBlocked(item, taxIdError);
+        return;
+    }
     let quote;
     try { quote = quoteInvoice(version.snapshot); }
     catch (error) { alert(error.message || String(error)); return; }
@@ -649,7 +671,7 @@ function showInvoice(item) {
     facts.className = 'meta';
     facts.append(
         metaRow('發票抬頭', quote.buyer.name),
-        metaRow('統編', quote.buyer.kind === 'b2b' ? quote.buyer.taxId : '無統編（開立 B2C）'),
+        metaRow('統編', quote.buyer.taxId),
         metaRow('對帳期間', quote.period),
         metaRow('未稅銷售額', money(quote.sales)),
         metaRow('營業稅 5%', money(quote.tax)),
@@ -670,6 +692,11 @@ function showInvoice(item) {
 }
 async function confirmIssue(item, version) {
     if (busy) return;
+    const taxIdError = missingTaxIdMessage(latestVersion(item)?.snapshot?.profile);
+    if (taxIdError) {
+        showInvoiceBlocked(item, taxIdError);
+        return;
+    }
     const description = $('invoiceDescription')?.value.trim() || '';
     if (!description) { alert('請填品項說明。'); return; }
     busy = true;
