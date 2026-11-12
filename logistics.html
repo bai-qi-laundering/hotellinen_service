@@ -104,6 +104,7 @@
     </script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
+        import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
@@ -556,7 +557,11 @@
                 finishBoot();
                 processAndRenderData(rawData);
                 outletDetailError='';
-                try { outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings); }
+                try {
+                    outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings);
+                    if (currentHotel==='洲際' && savedReceiptDetails.some(receipt=>receipt.outletCorrections?.length))
+                        outletDetailGroups=correctedOutletGroups(outletDetailGroups,savedReceiptDetails);
+                }
                 catch(error) { outletDetailGroups=[];outletDetailError='部門明細暫時無法顯示，仍可在上方簽收總數。';console.warn('餐廳明細讀取失敗',error); }
                 renderOutletDetails();
             } catch (err) {
@@ -999,6 +1004,7 @@
     </script>
 </body>
 </html>
+
 
 
 

@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const loadModule=()=>import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8')));
 async function receiptFixture(inventory,receipts,settings=[],hotel='洲際'){
  const module=await loadModule(),source=fs.readFileSync('logistics.html','utf8');let displayed;const elements=new Map(),reads=[];const element=id=>{if(!elements.has(id))elements.set(id,{hidden:true,innerHTML:'',classList:{remove(){},add(){}}});return elements.get(id);};
- const context=vm.createContext({...module,console:{...console,warn(){}},window:{},sendwashSettings:settings,currentHotel:hotel,currentDate:'2026-10-17',signatureSaving:false,dataReady:false,fetchSequence:0,db:{},document:{getElementById:element},collection:(_,name)=>name,where(){},query:name=>name,getDocsFromServer:async name=>{reads.push(name);return{forEach:visit=>(name==='inventory_records'?inventory:receipts).forEach(data=>visit({data:()=>structuredClone(data)}))};},withReadTimeout:p=>p,finishBoot(){},showToastMsg(){},processAndRenderData:data=>displayed=structuredClone(data),loadingHtml:'loading'});
+ const context=vm.createContext({...module,...await import('../outlet-corrections.js'),console:{...console,warn(){}},window:{},sendwashSettings:settings,currentHotel:hotel,currentDate:'2026-10-17',signatureSaving:false,dataReady:false,fetchSequence:0,db:{},document:{getElementById:element},collection:(_,name)=>name,where(){},query:name=>name,getDocsFromServer:async name=>{reads.push(name);return{forEach:visit=>(name==='inventory_records'?inventory:receipts).forEach(data=>visit({data:()=>structuredClone(data)}))};},withReadTimeout:p=>p,finishBoot(){},showToastMsg(){},processAndRenderData:data=>displayed=structuredClone(data),loadingHtml:'loading'});
  vm.runInContext(source.slice(source.indexOf('        function escapeHtml('),source.indexOf('        function finishBoot(')),context);
  vm.runInContext(source.slice(source.indexOf('        function extractQty(obj)'),source.indexOf('        const loadingHtml')),context);
  vm.runInContext(source.slice(source.indexOf('        async function fetchData('),source.indexOf('        function processAndRenderData(')),context);await context.fetchData();return{displayed,context,module,elements,reads};
@@ -94,4 +94,17 @@ test('receipt department detail hides zero items and empty outlets without delet
  assert(html.includes('大地'));assert(html.includes('口布'));assert(!html.includes('方巾'));assert(!html.includes('WARA'));assert(!html.includes('服務巾'));assert(!html.includes('>0</td>'));
  assert(f.context.outletDetailGroups.find(g=>g.outlet==='大地').items.some(i=>i.itemName==='方巾'&&i.quantity==='0'));assert.equal(f.displayed.find(i=>i.itemName==='方巾').originalQty,'0');
  const zero=await receiptFixture([{hotel:'洲際 餐廳',item:'【WARA】服務巾',doubleCount:'0'}],[]);assert(!zero.elements.get('outletDetails').innerHTML.includes('<article'));assert(zero.elements.get('outletDetails').innerHTML.includes('本日尚無數量大於 0'));
+});
+
+
+test('receipt loader displays corrected outlet allocation without changing signed counts, price or signatures',async()=>{
+ const date='2026-10-17';
+ const inventory=[{hotel:'洲際 餐廳',item:'【CLUB】椅套',doubleCount:'17'},{hotel:'洲際 餐廳',item:'【宴會廳】椅套',doubleCount:'4'}];
+ const receipt={date,hotelKeyword:'洲際',deptName:'餐廳',clientSig:'hotel',driverSig:'driver',items:[{itemName:'椅套',originalQty:'21',actualQty:'20',price:8}],outletCorrections:[{id:'move',date,from:'俱樂部',to:'宴會廳',item:'椅套',quantity:17}]};
+ const f=await receiptFixture(inventory,[receipt]);
+ assert.deepEqual(f.displayed.map(row=>[row.itemName,row.originalQty,row.actualQty,row.price,row.clientSig,row.driverSig]),[['椅套','21','20',8,'hotel','driver']]);
+ const html=f.elements.get('outletDetails').innerHTML;
+ assert.match(html,/宴會廳/);
+ assert.match(html,/>21<\/td>/);
+ assert.doesNotMatch(html,/CLUB/);
 });

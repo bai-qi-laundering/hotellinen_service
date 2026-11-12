@@ -374,8 +374,9 @@
     <!-- Firebase 模組載入 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity } from './logistics-items.js?v=20261019-same-names';
+        import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
+        import { isRestaurant, outletKey, restaurantInventoryRows, correctedOutletGroups, outletCorrectionPatch } from './outlet-corrections.js?v=20261112';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
         import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
 
@@ -1206,6 +1207,113 @@
             }
         };
 
+        let outletCorrectionDialog, outletCorrectionLoading=false;
+        window.openOutletCorrection = async function(index, trigger) {
+            const record = logFiltered[index];
+            if (!record || !isRestaurant(record.hotelKeyword,record.deptName) || !record.clientSig || !record.driverSig) return;
+            if (outletCorrectionLoading || outletCorrectionDialog?.open) return;
+            outletCorrectionLoading=true;
+            trigger.disabled=true;
+            try {
+                const receiptRef=doc(db,'logistics_records',record.id);
+                const [snapshot, inventory, config]=await Promise.all([
+                    adminReadTimeout(getDocFromServer(receiptRef),'簽收單'),
+                    readAdminPeriod('inventory_records',record.date,record.date),
+                    adminReadTimeout(getDocFromServer(doc(db,'inventory_config','master_template')),'餐廳設定')
+                ]);
+                const receipt=snapshot.data();
+                if (!receipt || standardizeDate(receipt.date)!==record.date || !isRestaurant(receipt.hotelKeyword,receipt.deptName) ||
+                    !receipt.clientSig || !receipt.driverSig || receipt.manualDeletedReceipt) throw new Error('單據已變更，請重新載入。');
+                const entries=new Map();
+                inventory.forEach(snap=>snap.forEach(entry=>entries.set(entry.id,entry.data())));
+                const settings=(config.data()?.sendwashSettings || []).filter(row=>isRestaurant(row.hotel,row.department)&&row.outlet);
+                const base=outletReceiptDetails(restaurantInventoryRows([...entries.values()]),[receipt],'洲際',settings);
+                const groups=correctedOutletGroups(base,[receipt]).filter(group=>isRestaurant('洲際',group.deptName));
+                const sourceRows=groups.flatMap(group=>group.items.filter(item=>Number(item.quantity)>0).map(item=>({...item,outlet:group.outlet})));
+                if (!sourceRows.length) throw new Error('這張單沒有可更正的部門明細。');
+                const outlets=new Map();
+                for (const name of [...settings.map(row=>row.outlet),...groups.map(group=>group.outlet)]) {
+                    if (!outlets.has(outletKey(name))) outlets.set(outletKey(name),name);
+                }
+                const label=name=>outletKey(name)==='CLUB'?'俱樂部（CLUB）':name;
+                const dialog=document.createElement('dialog');
+                outletCorrectionDialog=dialog;
+                dialog.className='rounded-2xl p-5 w-[calc(100%-2rem)] max-w-md shadow-xl backdrop:bg-black/50';
+                dialog.setAttribute('aria-labelledby','outletCorrectionTitle');
+                const options=sourceRows.map((row,i)=>`<option value="${i}">${escapeAttr(label(row.outlet))}／${escapeAttr(row.itemName)}（${escapeAttr(row.quantity)} 件）</option>`).join('');
+                const history=(receipt.outletCorrections || []).map(move=>`<li>${escapeAttr(label(move.from))} → ${escapeAttr(label(move.to))}：${escapeAttr(move.item)} ${escapeAttr(move.quantity)} 件｜${escapeAttr(move.reason)}｜${escapeAttr(formatTaipeiStamp(move.createdAt))}</li>`).join('');
+                dialog.innerHTML=`
+                    <form class="space-y-3">
+                        <h3 id="outletCorrectionTitle" class="text-xl font-black text-emerald-800">更正部門明細</h3>
+                        <p class="font-bold">${escapeAttr(record.date)} 洲際餐廳</p>
+                        <p class="text-sm text-gray-600">移轉同一品項的部門歸屬，簽收與請款總數不變。</p>
+                        <label class="block">來源部門／品項<select name="source" required class="block w-full border rounded p-2"><option value="">請選擇</option>${options}</select></label>
+                        <label class="block">移到哪個部門<select name="destination" required class="block w-full border rounded p-2"></select></label>
+                        <label class="block">移轉件數<input name="quantity" type="number" inputmode="numeric" min="1" step="1" required class="block w-full border rounded p-2"></label>
+                        <label class="block">更正原因<input name="reason" maxlength="120" required placeholder="例如：部門歸屬填錯" class="block w-full border rounded p-2"></label>
+                        ${history ? '<details><summary>查看更正紀錄</summary><ul class="text-sm">' + history + '</ul></details>' : ''}
+                        <p class="text-sm font-bold" role="status" data-status></p>
+                        <div class="flex gap-3 justify-end"><button type="button" data-close class="px-4 py-2 border rounded">關閉</button><button type="submit" class="px-4 py-2 bg-emerald-700 text-white rounded font-bold">儲存更正</button></div>
+                    </form>`;
+                const form=dialog.querySelector('form');
+                const {source,destination,quantity,reason}=form.elements;
+                const status=dialog.querySelector('[data-status]');
+                const submit=form.querySelector('[type="submit"]');
+                const close=form.querySelector('[data-close]');
+                source.onchange=()=>{
+                    const row=source.value===''?null:sourceRows[Number(source.value)];
+                    destination.replaceChildren(new Option('請選擇',''));
+                    if (row) for (const [key,name] of outlets) if (key!==outletKey(row.outlet)) destination.add(new Option(label(name),name));
+                    quantity.max=row?.quantity || '';
+                };
+                source.onchange();
+                close.onclick=()=>dialog.close();
+                dialog.onclose=()=>{dialog.remove();outletCorrectionDialog=null;};
+                let busy=false, done=false, attempt;
+                dialog.oncancel=event=>{if(busy)event.preventDefault();};
+                form.onsubmit=async event=>{
+                    event.preventDefault();
+                    if(busy||done)return;
+                    const row=sourceRows[Number(source.value)];
+                    if(source.value===''||!row||!destination.value||!reason.value.trim()){
+                        status.textContent='請選擇來源、目的部門，並填寫更正原因。';return;
+                    }
+                    const values={date:record.date,from:row.outlet,to:destination.value,item:row.itemName,quantity:Number(quantity.value),reason:reason.value.trim()};
+                    const fingerprint=JSON.stringify(values);
+                    if (attempt?.fingerprint!==fingerprint) attempt={fingerprint,move:{...values,id:crypto.randomUUID(),createdAt:new Date().toISOString()}};
+                    busy=true;
+                    for(const el of [source,destination,quantity,reason,submit,close])el.disabled=true;
+                    status.textContent='正在儲存更正…';
+                    try {
+                        await runTransaction(db,async tx=>{
+                            const latest=(await tx.get(receiptRef)).data();
+                            if (!latest || latest.clientSig!==receipt.clientSig || latest.driverSig!==receipt.driverSig)
+                                throw new Error('簽收狀態已變更，請關閉後重新開啟。');
+                            const patch=outletCorrectionPatch(latest,standardizeDate(latest.date),base,attempt.move);
+                            if (!patch) return;
+                            if ((latest.outletCorrections || []).length!==(receipt.outletCorrections || []).length)
+                                throw new Error('已有其他更正，請關閉後重新開啟。');
+                            tx.update(receiptRef,patch);
+                        });
+                        done=true;
+                        status.textContent=`已從${label(row.outlet)}移 ${values.quantity} 件${row.itemName}到${label(values.to)}。雙方簽名與請款總數已保留。`;
+                    } catch(error) {
+                        status.textContent=error.message || '更正未能確認，請重試。';
+                    } finally {
+                        busy=false;close.disabled=false;
+                        if(!done)for(const el of [source,destination,quantity,reason,submit])el.disabled=false;
+                    }
+                };
+                document.body.append(dialog);
+                dialog.showModal();
+            } catch(error) {
+                await window.customAlert(escapeAttr(error.message || '無法載入部門明細。'));
+            } finally {
+                outletCorrectionLoading=false;
+                trigger.disabled=false;
+            }
+        };
+
         function populateLogDropdowns() {
             const dates = [...new Set(logRecords.map(r => r.date))].sort();
             const hotels = [...new Set(logRecords.map(r => r.hotel))].sort();
@@ -1341,6 +1449,7 @@
                         </td>
                         <td class="font-mono text-sm text-gray-600">${timeDisplay}</td>
                         <td class="text-right pr-6 text-emerald-600 font-bold" onclick="event.stopPropagation()">
+                            ${isRestaurantDept(r.hotelKeyword,r.deptName) && r.clientSig && r.driverSig ? `<button type="button" onclick="openOutletCorrection(${index},this)" class="bg-emerald-700 text-white px-3 py-1 rounded text-sm mr-2">更正部門明細</button>` : ''}
                             <button onclick="changeLogisticsDate('${r.id}', '${r.date}', '${r.hotelKeyword}', '${r.deptName}', event)" class="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 transition-colors mr-2">📅 改日期</button>
                             <button onclick="deleteRecord('logistics_records', '${r.id}', event)" class="bg-red-50 border border-red-200 text-red-500 px-3 py-1 rounded text-sm hover:bg-red-100 transition-colors mr-2">刪除</button>
                             <span id="icon_log_detail_${index}" class="bg-emerald-50 px-3 py-1 rounded text-sm hover:bg-emerald-100 transition-colors cursor-pointer" onclick="toggleLogDetail('log_detail_${index}', '${safeDocId}')">${isOpen ? '▲ 收起明細' : '▼ 展開明細'}</span>
@@ -2812,3 +2921,4 @@
     </script>
 </body>
 </html>
+
