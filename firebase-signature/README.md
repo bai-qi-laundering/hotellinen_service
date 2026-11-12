@@ -101,7 +101,7 @@ npx --yes firebase-tools@latest functions:log --only autoStatementOnBillingDay -
 
 ## 電子發票（汎宇電子發票 API）
 
-送件中心每一張帳單有「開立發票」。員工先看抬頭、統編、期間、未稅、稅額、含稅實付和品項說明，按「確認開立」才會送到汎宇。結帳日排程和「我已寄出」都不會開立。只開立 B2B：`process_type` 為 B，買方代號是 8 碼統編。沒有 8 碼統編時後端拒絕，送件中心的按鈕停用並寫「沒有統編，不能開立」，不會送出請求。作廢要再確認並填原因（20 字以內），打 `/cancelInvoice`，同樣只走 B2B。右上角「測試電子發票連線」只打 `/queryInvoice`（訂單號 `connection-check`，`process_type` B），不開票。
+送件中心不開立發票。開立在旁邊的「貨款登記」：已寄出的帳單按「開立發票」。百麒國際是電子發票，員工先看抬頭、統編、未稅、稅金、含稅和品項說明，按「確認開立」才會送到汎宇。只開立 B2B：`process_type` 為 B，買方代號是對帳單上的 8 碼統編。沒有 8 碼統編時對話框顯示不能開立，「確認開立」停用，不會送出。百麒、百富、日聖仍是手開，照舊填號碼登記，不打汎宇。結帳日排程和「我已寄出」都不會開立。作廢仍是貨款登記的「登記已作廢」，只登記結果，不向汎宇送出作廢。貨款登記的「測試電子發票連線」只打 `/queryInvoice`（訂單號 `connection-check`，`process_type` B），不開票。
 
 帳號不放在網頁，也不要寫進 git。函式是 `issueStatementInvoice`、`voidStatementInvoice`、`testEInvoiceConnection`，都在 codebase `signature-statements`，地區沿用 `FUNCTION_REGION`（預設 `asia-east1`）。呼叫的人必須先用 Google 登入，而且信箱在 `EINVOICE_STAFF_EMAILS` 裡。舊的 `EINVOICE_SELLER_ID`、`EINVOICE_POS_ID`、`EINVOICE_POS_SN` 和 `EINVOICE_BASE_URL` 不再讀取。
 
