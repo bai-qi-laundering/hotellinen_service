@@ -7,6 +7,7 @@ import * as logger from 'firebase-functions/logger';
 import { taipeiDate } from './lib/auto-close.js';
 import { BILLING_CRON, BILLING_TIME_ZONE } from './lib/billing-schedule.js';
 import { handleBillingSchedule } from './lib/billing-run.js';
+import { hostForEnv } from './lib/einvoice-client.js';
 import { issueStatement, testConnection, voidStatement } from './lib/einvoice-issue.js';
 
 if (BILLING_CRON !== '30 9 1,25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
@@ -18,16 +19,13 @@ const db = getFirestore();
 const enabled = defineBoolean('AUTO_STATEMENTS_ENABLED', { default: false });
 const masterUrl = defineString('FINANCE_MASTER_URL');
 const region = defineString('FUNCTION_REGION', { default: 'asia-east1' });
-const einvoiceSellerId = defineSecret('EINVOICE_SELLER_ID');
-const einvoicePosId = defineSecret('EINVOICE_POS_ID');
-const einvoicePosSn = defineSecret('EINVOICE_POS_SN');
+const uecUserId = defineSecret('UEC_USER_ID');
+const uecAuth = defineSecret('UEC_AUTH');
+const uecApiKey = defineSecret('UEC_API_KEY');
+const uecCompanyId = defineSecret('UEC_COMPANY_ID');
+const uecEnv = defineSecret('UEC_ENV');
 const einvoiceStaffEmails = defineSecret('EINVOICE_STAFF_EMAILS');
-const einvoiceBaseUrl = defineString('EINVOICE_BASE_URL', {
-    default: 'https://epostw.einvoice.com.tw/GetInvoice.ashx',
-});
-const einvoiceSellerName = defineString('EINVOICE_SELLER_NAME', { default: '百麒國際股份有限公司' });
-const einvoiceSellerAddress = defineString('EINVOICE_SELLER_ADDRESS', { default: '' });
-const einvoiceSecrets = [einvoiceSellerId, einvoicePosId, einvoicePosSn, einvoiceStaffEmails];
+const einvoiceSecrets = [uecUserId, uecAuth, uecApiKey, uecCompanyId, uecEnv, einvoiceStaffEmails];
 
 // 簽收當下不產單。Cloud Scheduler 只在結帳日 09:30（台北）啟動；
 // 不是結帳日、或開關沒開時，函式直接結束，不讀 Firestore。
@@ -73,47 +71,56 @@ function staffEmail(request) {
 }
 
 function einvoiceConfig() {
-    const url = String(einvoiceBaseUrl.value() || '').trim();
-    if (!url.startsWith('https://')) throw new HttpsError('failed-precondition', '電子發票網址未設定。');
     const creds = {
-        SELLERID: String(einvoiceSellerId.value() || '').trim(),
-        POSID: String(einvoicePosId.value() || '').trim(),
-        POSSN: String(einvoicePosSn.value() || '').trim(),
+        companyID: String(uecCompanyId.value() || '').trim() || '96842769',
+        userID: String(uecUserId.value() || '').trim(),
+        authPlain: String(uecAuth.value() || '').trim(),
+        apiKey: String(uecApiKey.value() || '').trim(),
     };
-    if (!creds.SELLERID || !creds.POSID || !creds.POSSN) {
+    if (!creds.userID || !creds.authPlain || !creds.apiKey) {
         throw new HttpsError('failed-precondition', '電子發票帳號未設定完整。');
     }
-    return {
-        creds,
-        seller: {
-            id: creds.SELLERID,
-            name: String(einvoiceSellerName.value() || '百麒國際股份有限公司').trim(),
-            address: String(einvoiceSellerAddress.value() || '').trim(),
-        },
-        url,
-    };
+    if (!/^\d{8}$/.test(creds.companyID)) {
+        throw new HttpsError('failed-precondition', '賣方統編需為 8 碼。');
+    }
+    const env = String(uecEnv.value() || '').trim().toLowerCase();
+    return { creds, host: hostForEnv(env) };
 }
 
+// 開立與作廢都不自動重送。逾時改由 /queryInvoice 確認，避免同一張 orderID 送兩次。
 async function postEinvoice(url, body) {
-    let lastError;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(20000),
+        });
+    } catch (error) {
+        error.uncertain = true;
+        throw error;
+    }
+    const text = await response.text();
+    let json = null;
+    if (text) {
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify(body),
-                signal: AbortSignal.timeout(20000),
-            });
-            const text = await response.text();
-            if (!response.ok) throw new Error(`電子發票服務回應 HTTP ${response.status}`);
-            return text ? JSON.parse(text) : {};
-        } catch (error) {
-            lastError = error;
-            if (String(error?.message || '').startsWith('電子發票服務回應')) throw error;
-            await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+            json = JSON.parse(text);
+        } catch {
+            const error = new Error(response.ok ? '電子發票服務回應不是 JSON。' : `電子發票服務回應 HTTP ${response.status}`);
+            error.httpStatus = response.status;
+            if (!response.ok && response.status >= 500) error.uncertain = true;
+            if (response.ok) error.uncertain = true;
+            throw error;
         }
     }
-    throw lastError || new Error('電子發票服務連線失敗。');
+    if (!response.ok) {
+        const error = new Error(String(json?.statusDesc || '').trim() || `電子發票服務回應 HTTP ${response.status}`);
+        error.httpStatus = response.status;
+        if (response.status >= 500) error.uncertain = true;
+        throw error;
+    }
+    return json || {};
 }
 
 function callableError(error) {
@@ -141,9 +148,8 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
         const config = einvoiceConfig();
         return await issueStatement({
             db,
-            send: body => postEinvoice(config.url, body),
+            send: (path, body) => postEinvoice(`${config.host}${path}`, body),
             creds: config.creds,
-            seller: config.seller,
             caseId,
             version,
             description: request.data?.description,
@@ -163,9 +169,8 @@ export const voidStatementInvoice = onCall(einvoiceOptions, async request => {
         const config = einvoiceConfig();
         return await voidStatement({
             db,
-            send: body => postEinvoice(config.url, body),
+            send: (path, body) => postEinvoice(`${config.host}${path}`, body),
             creds: config.creds,
-            seller: config.seller,
             caseId,
             version,
             reason: request.data?.reason,
@@ -181,7 +186,7 @@ export const testEInvoiceConnection = onCall(einvoiceOptions, async request => {
         staffEmail(request);
         const config = einvoiceConfig();
         return await testConnection({
-            send: body => postEinvoice(config.url, body),
+            send: (path, body) => postEinvoice(`${config.host}${path}`, body),
             creds: config.creds,
         });
     } catch (error) {

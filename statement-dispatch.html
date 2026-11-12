@@ -139,6 +139,7 @@ p{line-height:1.6}
   </div>
   <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
    <div class="live">正式送件清單</div>
+   <button class="btn" id="einvoiceTest" type="button">測試電子發票連線</button>
   </div>
  </div>
 </header>
@@ -203,6 +204,7 @@ import {
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261102-sent-invoice';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261104-split-customers';
+import { quoteInvoice } from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-uec';
 
 const params = new URLSearchParams(location.search);
 const localOnly = params.get('store') === 'local';
@@ -368,7 +370,28 @@ function render() {
         send.textContent = item.state === 'sent' ? '再次取得檔案' : '確認送出';
         send.disabled = !version;
         send.onclick = () => showSend(item);
-        actions.append(preview, send);
+        const invoiceBtn = document.createElement('button');
+        invoiceBtn.type = 'button';
+        invoiceBtn.className = 'btn wide';
+        if (invoicedThisVersion) {
+            invoiceBtn.disabled = true;
+            invoiceBtn.textContent = `已開立 ${item.invoiceNumber || item.invoiceRecord?.number || ''}`.trim();
+        } else if (activeInvoice) {
+            invoiceBtn.disabled = true;
+            invoiceBtn.textContent = '請先作廢上一版發票';
+        } else {
+            invoiceBtn.textContent = '開立發票';
+            invoiceBtn.onclick = () => showInvoice(item);
+        }
+        actions.append(preview, send, invoiceBtn);
+        if (activeInvoice && item.provider === 'universalec') {
+            const voidBtn = document.createElement('button');
+            voidBtn.type = 'button';
+            voidBtn.className = 'btn wide';
+            voidBtn.textContent = '作廢發票';
+            voidBtn.onclick = () => showVoid(item);
+            actions.append(voidBtn);
+        }
         const note = document.createElement('div');
         note.className = 'note';
         const notes = [];
@@ -595,7 +618,137 @@ async function reload() {
 function money(value) {
     return `$${Number(value || 0).toLocaleString('zh-TW')}`;
 }
+function callableMessage(error) {
+    return String(error?.message || error || '電子發票沒有完成。').replace(/^FirebaseError:\s*/i, '');
+}
+async function staffCallable(name) {
+    if (localOnly || !firebaseApp) throw new Error('本機檢查模式不能開立發票。請開正式送件中心。');
+    const authMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js');
+    const fnMod = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js');
+    const auth = authMod.getAuth(firebaseApp);
+    if (!auth.currentUser) {
+        const provider = new authMod.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        await authMod.signInWithPopup(auth, provider);
+    }
+    return fnMod.httpsCallable(fnMod.getFunctions(firebaseApp, 'asia-east1'), name);
+}
+function showInvoice(item) {
+    const version = latestVersion(item);
+    if (!version) return;
+    let quote;
+    try { quote = quoteInvoice(version.snapshot); }
+    catch (error) { alert(error.message || String(error)); return; }
+    selected = item;
+    $('dialogTitle').textContent = `確認開立發票 · ${dispatchHotelName(item)}`;
+    $('cancel').textContent = '返回';
+    $('dialogBody').replaceChildren();
+    const intro = document.createElement('p');
+    intro.textContent = '請核對下面的內容。按下「確認開立」才會向汎宇電商開立電子發票。系統不會在結帳日或登記寄出時自動開立。';
+    const facts = document.createElement('div');
+    facts.className = 'meta';
+    facts.append(
+        metaRow('發票抬頭', quote.buyer.name),
+        metaRow('統編', quote.buyer.kind === 'b2b' ? quote.buyer.taxId : '無統編（開立 B2C）'),
+        metaRow('對帳期間', quote.period),
+        metaRow('未稅銷售額', money(quote.sales)),
+        metaRow('營業稅 5%', money(quote.tax)),
+        metaRow('含稅實付', money(quote.total)),
+    );
+    const label = document.createElement('label');
+    label.htmlFor = 'invoiceDescription';
+    label.innerHTML = '<strong>品項說明（可修改）</strong>';
+    const input = document.createElement('textarea');
+    input.id = 'invoiceDescription';
+    input.maxLength = 100;
+    input.value = quote.description;
+    $('dialogBody').append(intro, facts, label, input);
+    $('next').hidden = false;
+    $('next').textContent = '確認開立';
+    $('next').onclick = () => confirmIssue(item, version.version);
+    $('overlay').classList.add('show');
+}
+async function confirmIssue(item, version) {
+    if (busy) return;
+    const description = $('invoiceDescription')?.value.trim() || '';
+    if (!description) { alert('請填品項說明。'); return; }
+    busy = true;
+    $('next').disabled = true;
+    try {
+        const call = await staffCallable('issueStatementInvoice');
+        const response = await call({ caseId: item.id, version, description });
+        const data = response?.data || {};
+        alert(data.already
+            ? `這一版已經開過，發票號碼 ${data.invoiceNumber}。沒有再向汎宇送一次。`
+            : `已開立發票 ${data.invoiceNumber}。系統沒有自動寄給客戶。`);
+        $('overlay').classList.remove('show');
+        window.parent.postMessage({ type: 'baiqi-ledger-updated' }, location.origin);
+        unsentDashboard?.reload();
+        await reload();
+    } catch (error) {
+        alert(callableMessage(error));
+    } finally {
+        busy = false;
+        $('next').disabled = false;
+    }
+}
+function showVoid(item) {
+    const version = latestVersion(item);
+    if (!version) return;
+    selected = item;
+    $('dialogTitle').textContent = `確認作廢發票 · ${item.invoiceNumber || ''}`;
+    $('cancel').textContent = '返回';
+    $('dialogBody').replaceChildren();
+    const intro = document.createElement('p');
+    intro.textContent = `作廢後這張 ${item.invoiceNumber || ''} 會向汎宇電商註記作廢，送件中心改回未開發票。按下確認才會送出。`;
+    const label = document.createElement('label');
+    label.htmlFor = 'voidReason';
+    label.innerHTML = '<strong>作廢原因</strong>';
+    const input = document.createElement('textarea');
+    input.id = 'voidReason';
+    input.maxLength = 20;
+    input.placeholder = '例如：抬頭開錯';
+    $('dialogBody').append(intro, label, input);
+    $('next').hidden = false;
+    $('next').textContent = '確認作廢';
+    $('next').onclick = () => confirmVoid(item, version.version);
+    $('overlay').classList.add('show');
+}
+async function confirmVoid(item, version) {
+    if (busy) return;
+    const reason = $('voidReason')?.value.trim() || '';
+    if (!reason) { alert('請填寫作廢原因。'); return; }
+    busy = true;
+    $('next').disabled = true;
+    try {
+        const call = await staffCallable('voidStatementInvoice');
+        await call({ caseId: item.id, version, reason });
+        alert('發票已作廢。若要重開，請再按「開立發票」。');
+        $('overlay').classList.remove('show');
+        window.parent.postMessage({ type: 'baiqi-ledger-updated' }, location.origin);
+        unsentDashboard?.reload();
+        await reload();
+    } catch (error) {
+        alert(callableMessage(error));
+    } finally {
+        busy = false;
+        $('next').disabled = false;
+    }
+}
 $('cancel').onclick = () => $('overlay').classList.remove('show');
+$('einvoiceTest').onclick = async () => {
+    const button = $('einvoiceTest');
+    button.disabled = true;
+    try {
+        const call = await staffCallable('testEInvoiceConnection');
+        const data = (await call({})).data || {};
+        alert(data.ok ? `電子發票連線成功。${data.message || ''} ${data.time || ''}`.trim() : '電子發票連線失敗。');
+    } catch (error) {
+        alert(callableMessage(error));
+    } finally {
+        button.disabled = false;
+    }
+};
 $('filterMonth').addEventListener('input', () => { hasLoaded = false; render(); reload(); });
 $('filterHotel').addEventListener('input', render);
 $('clearSearch').onclick = () => {
