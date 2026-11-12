@@ -1,18 +1,18 @@
 import { cleanDescription, quoteInvoice } from './einvoice-amount.js';
 import {
-    b2bCreatePayload,
-    b2bVoidPayload,
-    b2cCreatePayload,
-    b2cVoidPayload,
-    buildRequestBody,
-    fourDigitRandom,
+    buildEnvelope,
+    cancelInvoicePayload,
+    hostForEnv,
     isDuplicate,
-    isSuccess,
-    numbersFromZ21,
+    isUncertain,
+    issuedFrom,
+    normalizeCreds,
+    openInvoicePayload,
+    orderIdFor,
+    parseResponse,
     publicResponse,
-    rangeFromA01,
-    replyOf,
-    taipeiParts,
+    queryInvoicePayload,
+    taipeiDateTime,
     ymdCompact,
 } from './einvoice-client.js';
 
@@ -20,10 +20,6 @@ const LOCK_MS = 120000;
 
 function caseRef(db, id) {
     return db.collection('statement_cases').doc(id);
-}
-
-function poolRef(db) {
-    return db.collection('inventory_config').doc('einvoice_number_pool');
 }
 
 function latestOf(doc) {
@@ -61,6 +57,7 @@ export function markInvoiced(doc, patch) {
     next.invoiceBuyerId = patch.buyerId;
     next.invoiceBuyerName = patch.buyerName;
     next.invoiceDescription = patch.description || '';
+    next.invoiceOrderId = patch.orderID || null;
     next.invoiceRaw = patch.raw;
     next.invoiceRecord = {
         number: patch.invoiceNumber,
@@ -70,6 +67,8 @@ export function markInvoiced(doc, patch) {
         version: patch.version,
         at: patch.at,
         provider: 'universalec',
+        randomNumber: patch.randomNumber || '',
+        orderID: patch.orderID || '',
     };
     next.invoiceDraft = null;
     next.invoiceLock = null;
@@ -94,6 +93,7 @@ export function markVoided(doc, patch) {
         at: patch.at,
         provider: 'universalec',
         kind: doc.invoiceKind || '',
+        orderID: doc.invoiceOrderId || '',
         raw: patch.raw,
     });
     next.invoiceHistory = history;
@@ -105,6 +105,7 @@ export function markVoided(doc, patch) {
     next.invoiceKind = null;
     next.invoiceBuyerId = null;
     next.invoiceBuyerName = null;
+    next.invoiceOrderId = null;
     next.invoiceRaw = null;
     next.invoiceRecord = null;
     next.invoiceDraft = null;
@@ -122,58 +123,6 @@ export function markVoided(doc, patch) {
     return next;
 }
 
-async function takeNumber(db, caseId, now) {
-    const ref = poolRef(db);
-    return db.runTransaction(async tx => {
-        const snap = await tx.get(ref);
-        const data = snap.exists ? snap.data() : { unused: [], used: {} };
-        const unused = [...(data.unused || [])];
-        const used = { ...(data.used || {}) };
-        while (unused.length && used[unused[0].number]) unused.shift();
-        if (!unused.length) return null;
-        const next = unused.shift();
-        used[next.number] = caseId;
-        tx.set(ref, { unused, used, updatedAt: now }, { merge: true });
-        return next;
-    });
-}
-
-async function rememberNumbers(db, numbers, now) {
-    const ref = poolRef(db);
-    await db.runTransaction(async tx => {
-        const snap = await tx.get(ref);
-        const data = snap.exists ? snap.data() : { unused: [], used: {} };
-        const used = { ...(data.used || {}) };
-        const unused = [...(data.unused || [])];
-        const have = new Set([...unused.map(row => row.number), ...Object.keys(used)]);
-        for (const row of numbers) {
-            if (!row?.number || have.has(row.number)) continue;
-            unused.push({ number: row.number, random: row.random || '' });
-            have.add(row.number);
-        }
-        tx.set(ref, { unused, used, updatedAt: now }, { merge: true });
-    });
-}
-
-async function allocateNumber(db, send, creds, systime, caseId, now) {
-    const ready = await takeNumber(db, caseId, now);
-    if (ready) return ready;
-    const z21 = await send(buildRequestBody({ functionCode: 'Z21', payload: {}, wrapper: 'INDEX', creds, systime }));
-    let numbers = isSuccess(z21) ? numbersFromZ21(z21) : [];
-    if (!numbers.length) {
-        const a01 = await send(buildRequestBody({ functionCode: 'A01', payload: {}, wrapper: 'INDEX', creds, systime }));
-        if (!isSuccess(a01) && !isSuccess(z21)) {
-            throw new Error(replyOf(a01).message || replyOf(z21).message || '取不到發票號碼。');
-        }
-        numbers = rangeFromA01(a01);
-    }
-    if (!numbers.length) throw new Error('汎宇沒有回傳可用的發票號碼。');
-    await rememberNumbers(db, numbers, now);
-    const taken = await takeNumber(db, caseId, now);
-    if (!taken) throw new Error('發票號碼剛被用完，請再按一次。');
-    return taken;
-}
-
 function kindOf(doc) {
     if (doc?.invoiceKind === 'b2b' || doc?.invoiceKind === 'b2c') return doc.invoiceKind;
     const id = String(doc?.invoiceBuyerId || '');
@@ -189,119 +138,145 @@ function alreadyResult(doc) {
     };
 }
 
-export async function issueStatement({ db, send, creds, seller, caseId, version, description, actor, now = new Date().toISOString(), clock = () => new Date() }) {
+async function post(creds, send, clock, path, reqData) {
+    const stamp = taipeiDateTime(clock());
+    const body = buildEnvelope({ ...creds, createDateTime: stamp.createDateTime, reqData });
+    const json = await send(path, body);
+    return { json, stamp, body };
+}
+
+async function queryState(creds, send, clock, orderID, kind, fallbackDate) {
+    const { json } = await post(creds, send, clock, '/queryInvoice', queryInvoicePayload({
+        orderID,
+        kind,
+        sellerId: creds.companyID,
+    }));
+    const parsed = parseResponse(json);
+    const raw = publicResponse(json);
+    if (parsed.statusCode === '3') return { state: 'missing', raw };
+    if (!parsed.ok) throw new Error(parsed.statusDesc || '查詢已開立發票失敗。');
+    const data = parsed.respData && typeof parsed.respData === 'object' ? parsed.respData : {};
+    const status = data.status == null || data.status === '' ? '0' : String(data.status);
+    if (status === '1') return { state: 'void', raw };
+    if (status === '3') return { state: 'rejected', raw };
+    const issued = issuedFrom(data, fallbackDate);
+    if (!issued) return { state: 'missing', raw };
+    return { state: 'issued', issued, raw };
+}
+
+async function releaseLock(db, ref) {
+    await db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return;
+        const data = snap.data();
+        if (data.invoiceStatus === 'invoiced') return;
+        tx.set(ref, { ...data, invoiceLock: null });
+    }).catch(() => {});
+}
+
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, now = new Date().toISOString(), clock = () => new Date() }) {
+    const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
     const prepared = await db.runTransaction(async tx => {
         const snap = await tx.get(ref);
         const data = snap.exists ? snap.data() : null;
         const latest = assertCase(data, version);
-        if (data.invoiceStatus === 'invoiced' && Number(data.invoicedVersion) === Number(version)) return { done: alreadyResult(data) };
-        if (data.invoiceStatus === 'invoiced' && invoiceNumberOf(data)) {
+        if (invoiceNumberOf(data) && Number(data.invoicedVersion) === Number(version)) return { done: alreadyResult(data) };
+        if (invoiceNumberOf(data)) {
             throw new Error(`上一版已開立發票 ${invoiceNumberOf(data)}，請先作廢再為這一版開立。`);
         }
         if (lockHeld(data.invoiceLock, actor, now)) throw new Error('這張帳單正在開立發票，請稍後再看結果，不要重複按。');
         const quote = quoteInvoice(latest.snapshot);
         const text = cleanDescription(description, latest.snapshot);
-        const draft = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.number ? data.invoiceDraft : null;
-        tx.set(ref, { ...data, invoiceLock: { version: Number(version), at: now, uid: actor } });
-        return { quote, text, draft, kind: quote.buyer.kind };
+        const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
+        const orderID = orderIdFor(caseId, version, reissue);
+        const hadDraft = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.orderID === orderID;
+        const payload = openInvoicePayload({
+            orderID,
+            sellerId: creds.companyID,
+            buyer: quote.buyer,
+            description: text,
+            sales: quote.sales,
+            tax: quote.tax,
+            total: quote.total,
+        });
+        tx.set(ref, {
+            ...data,
+            invoiceLock: { version: Number(version), at: now, uid: actor },
+            invoiceDraft: { version: Number(version), orderID, at: now },
+        });
+        return { quote, text, orderID, hadDraft, payload };
     });
     if (prepared.done) return prepared.done;
 
-    const stamp = taipeiParts(clock());
-    let draft = prepared.draft;
-    try {
-        if (!draft) {
-            const taken = await allocateNumber(db, send, creds, stamp.systime, caseId, now);
-            draft = {
-                version: Number(version),
-                number: taken.number,
-                random: taken.random || fourDigitRandom(taken.number),
-                kind: prepared.kind,
-            };
-            const raced = await db.runTransaction(async tx => {
-                const snap = await tx.get(ref);
-                const data = snap.data();
-                if (data.invoiceStatus === 'invoiced' && Number(data.invoicedVersion) === Number(version)) return alreadyResult(data);
-                const current = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.number ? data.invoiceDraft : draft;
-                draft = current;
-                tx.set(ref, { ...data, invoiceDraft: { ...current, at: now } });
-                return null;
-            });
-            if (raced) return raced;
-        }
-        const buyer = prepared.quote.buyer;
-        const payload = buyer.kind === 'b2b'
-            ? b2bCreatePayload({
-                number: draft.number,
-                ymd: stamp.ymd,
-                hms: stamp.hms,
-                seller,
-                buyer,
-                description: prepared.text,
-                sales: prepared.quote.sales,
-                tax: prepared.quote.tax,
-                total: prepared.quote.total,
-                address: seller.address,
-            })
-            : b2cCreatePayload({
-                number: draft.number,
-                ymd: stamp.ymd,
-                hms: stamp.hms,
-                seller,
-                buyer,
-                description: prepared.text,
-                sales: prepared.quote.sales,
-                tax: prepared.quote.tax,
-                total: prepared.quote.total,
-                random: draft.random || fourDigitRandom(draft.number),
-            });
-        const response = await send(buildRequestBody({
-            functionCode: payload.INVOICE_CODE,
-            payload,
-            wrapper: 'Invoice',
-            creds,
-            systime: stamp.systime,
-        }));
-        if (!isSuccess(response) && !isDuplicate(response)) {
-            throw new Error(replyOf(response).message || '汎宇沒有接受這張發票。');
-        }
-        const saved = await db.runTransaction(async tx => {
-            const snap = await tx.get(ref);
-            const data = snap.data();
-            if (data.invoiceStatus === 'invoiced' && Number(data.invoicedVersion) === Number(version)) return alreadyResult(data);
-            const next = markInvoiced(data, {
-                version: Number(version),
-                invoiceNumber: draft.number,
-                invoiceDate: stamp.isoDate,
-                kind: buyer.kind,
-                buyerId: buyer.taxId,
-                buyerName: buyer.name,
-                total: prepared.quote.total,
-                description: prepared.text,
-                at: now,
-                raw: publicResponse(response),
-            });
-            tx.set(ref, next);
-            return { already: false, invoiceNumber: draft.number, invoiceDate: stamp.isoDate, kind: buyer.kind };
+    const finish = async (issued, raw) => db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        const data = snap.data();
+        if (invoiceNumberOf(data) && Number(data.invoicedVersion) === Number(version)) return alreadyResult(data);
+        const next = markInvoiced(data, {
+            version: Number(version),
+            invoiceNumber: issued.number,
+            invoiceDate: issued.date || taipeiDateTime(clock()).isoDate,
+            kind: prepared.quote.buyer.kind,
+            buyerId: prepared.quote.buyer.taxId,
+            buyerName: prepared.quote.buyer.name,
+            total: prepared.quote.total,
+            description: prepared.text,
+            orderID: prepared.orderID,
+            randomNumber: issued.randomNumber,
+            at: now,
+            raw,
         });
-        return saved;
+        tx.set(ref, next);
+        return {
+            already: false,
+            invoiceNumber: issued.number,
+            invoiceDate: next.invoiceDate,
+            kind: prepared.quote.buyer.kind,
+        };
+    });
+
+    try {
+        const fallbackDate = taipeiDateTime(clock()).isoDate;
+        if (prepared.hadDraft) {
+            const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+            if (found.state === 'issued') return finish(found.issued, found.raw);
+        }
+        let response;
+        try {
+            response = await post(creds, send, clock, '/openInvoice', prepared.payload);
+        } catch (error) {
+            if (!isUncertain(error)) throw error;
+            try {
+                const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+                if (found.state === 'issued') return finish(found.issued, found.raw);
+            } catch (queryError) {
+                if (!isUncertain(queryError)) throw queryError;
+            }
+            throw error;
+        }
+        const parsed = parseResponse(response.json);
+        if (!parsed.ok) {
+            if (isDuplicate(parsed)) {
+                const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+                if (found.state === 'issued') return finish(found.issued, found.raw);
+            }
+            throw new Error(parsed.statusDesc || '汎宇沒有接受這張發票。');
+        }
+        const issued = issuedFrom(parsed.respData, response.stamp.isoDate);
+        if (!issued) throw new Error(parsed.statusDesc || '汎宇沒有回傳發票號碼。');
+        return finish(issued, publicResponse(response.json));
     } catch (error) {
-        await db.runTransaction(async tx => {
-            const snap = await tx.get(ref);
-            if (!snap.exists) return;
-            const data = snap.data();
-            if (data.invoiceStatus === 'invoiced') return;
-            tx.set(ref, { ...data, invoiceLock: null });
-        }).catch(() => {});
+        await releaseLock(db, ref);
         throw error;
     }
 }
 
-export async function voidStatement({ db, send, creds, seller, caseId, version, reason, actor, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function voidStatement({ db, send, creds: rawCreds, caseId, version, reason, actor, now = new Date().toISOString(), clock = () => new Date() }) {
+    const creds = normalizeCreds(rawCreds);
     const why = String(reason || '').trim();
     if (!why) throw new Error('請填寫作廢原因。');
-    if (why.length > 100) throw new Error('作廢原因請在 100 字以內。');
+    if (why.length > 20) throw new Error('作廢原因請在 20 字以內。');
     const ref = caseRef(db, caseId);
     const prepared = await db.runTransaction(async tx => {
         const snap = await tx.get(ref);
@@ -310,52 +285,56 @@ export async function voidStatement({ db, send, creds, seller, caseId, version, 
         if (data.invoiceStatus !== 'invoiced' || !invoiceNumberOf(data)) throw new Error('這一版沒有可作廢的發票。');
         if (data.provider !== 'universalec') throw new Error('這張是在貨款登記手開的，請在原處處理，這裡不能作廢。');
         if (lockHeld(data.invoiceLock, actor, now)) throw new Error('這張帳單正在處理發票，請稍後再試。');
+        const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         tx.set(ref, { ...data, invoiceLock: { version: Number(version), at: now, uid: actor, op: 'void' } });
         return {
             number: invoiceNumberOf(data),
             invoiceDate: data.invoiceDate || data.invoiceRecord?.date,
             kind: kindOf(data),
             buyerId: data.invoiceBuyerId,
+            orderID: data.invoiceOrderId || orderIdFor(caseId, version, reissue),
         };
     });
-    const stamp = taipeiParts(clock());
-    const invoiceYmd = ymdCompact(prepared.invoiceDate);
-    const payload = prepared.kind === 'b2c'
-        ? b2cVoidPayload({
-            number: prepared.number,
-            invoiceYmd,
-            buyerId: prepared.buyerId || '0000000000',
-            sellerId: seller.id,
-            cancelYmd: stamp.ymd,
-            cancelHms: stamp.hms,
-            reason: why,
-        })
-        : b2bVoidPayload({
-            number: prepared.number,
-            invoiceYmd,
-            buyerId: prepared.buyerId,
-            sellerId: seller.id,
-            cancelYmd: stamp.ymd,
-            cancelHms: stamp.hms,
-            reason: why,
-        });
+    const payload = cancelInvoicePayload({
+        orderID: prepared.orderID,
+        kind: prepared.kind,
+        sellerId: creds.companyID,
+        buyerId: prepared.buyerId,
+        invNo: prepared.number,
+        invDate: ymdCompact(prepared.invoiceDate),
+        reason: why,
+    });
+    const responseHolder = { raw: null };
+    const finish = () => db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        const data = snap.data();
+        if (data.invoiceStatus !== 'invoiced') return;
+        tx.set(ref, markVoided(data, { reason: why, at: now, raw: responseHolder.raw }));
+    });
     try {
-        const response = await send(buildRequestBody({
-            functionCode: payload.INVOICE_CODE,
-            payload,
-            wrapper: 'Invoice',
-            creds,
-            systime: stamp.systime,
-        }));
-        if (!isSuccess(response) && !isDuplicate(response)) {
-            throw new Error(replyOf(response).message || '汎宇沒有接受作廢。');
+        let response;
+        try {
+            response = await post(creds, send, clock, '/cancelInvoice', payload);
+        } catch (error) {
+            if (!isUncertain(error)) throw error;
+            let found;
+            try {
+                found = await queryState(creds, send, clock, prepared.orderID, prepared.kind, prepared.invoiceDate);
+            } catch (queryError) {
+                if (!isUncertain(queryError)) throw queryError;
+                throw error;
+            }
+            if (found?.state === 'void') {
+                responseHolder.raw = found.raw;
+                await finish();
+                return { voided: true, invoiceNumber: prepared.number };
+            }
+            throw error;
         }
-        await db.runTransaction(async tx => {
-            const snap = await tx.get(ref);
-            const data = snap.data();
-            if (data.invoiceStatus !== 'invoiced') return;
-            tx.set(ref, markVoided(data, { reason: why, at: now, raw: publicResponse(response) }));
-        });
+        const parsed = parseResponse(response.json);
+        if (!parsed.ok && !isDuplicate(parsed)) throw new Error(parsed.statusDesc || '汎宇沒有接受作廢。');
+        responseHolder.raw = publicResponse(response.json);
+        await finish();
         return { voided: true, invoiceNumber: prepared.number };
     } catch (error) {
         await db.runTransaction(async tx => {
@@ -367,10 +346,16 @@ export async function voidStatement({ db, send, creds, seller, caseId, version, 
     }
 }
 
-export async function testConnection({ send, creds, clock = () => new Date() }) {
-    const stamp = taipeiParts(clock());
-    const response = await send(buildRequestBody({ functionCode: 'Y01', payload: {}, wrapper: 'INDEX', creds, systime: stamp.systime }));
-    const { reply, message } = replyOf(response);
-    if (reply !== '1') throw new Error(message || '電子發票連線失敗。');
-    return { ok: true, message: message || '連線成功', time: response?.INDEX?.SYSTIME || stamp.systime };
+export async function testConnection({ send, creds: rawCreds, clock = () => new Date() }) {
+    const creds = normalizeCreds(rawCreds);
+    const response = await post(creds, send, clock, '/queryInvoice', queryInvoicePayload({
+        orderID: 'connection-check',
+        kind: 'b2c',
+        sellerId: creds.companyID,
+    }));
+    const parsed = parseResponse(response.json);
+    if (parsed.statusCode !== '0' && parsed.statusCode !== '3') {
+        throw new Error(parsed.statusDesc || '電子發票連線失敗。');
+    }
+    return { ok: true, message: parsed.statusDesc || '連線成功', time: response.stamp.createDateTime };
 }
