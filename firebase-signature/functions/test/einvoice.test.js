@@ -15,6 +15,7 @@ import {
     orderIdFor,
     parseResponse,
     PROD_HOST,
+    queryInvoicePayload,
     signatureValue,
     taipeiDateTime,
     TEST_HOST,
@@ -29,7 +30,6 @@ const creds = {
 };
 const clock = () => new Date('2026-10-31T01:30:00.000Z');
 const buyerB2B = { kind: 'b2b', taxId: '87654321', name: '驗證飯店股份有限公司' };
-const buyerB2C = { kind: 'b2c', taxId: '0000000000', name: '驗證飯店股份有限公司' };
 
 function memoryFirestore(seed = {}) {
     const docs = new Map(Object.entries(seed));
@@ -106,9 +106,10 @@ test('含稅總額四捨五入後拆成未稅與 5% 稅，兩者加回總額', (
     const snapshot = statementDoc().versions[0].snapshot;
     assert.equal(quoteInvoice(snapshot).total, payableAmount(snapshot));
     assert.equal(quoteInvoice(snapshot).buyer.kind, 'b2b');
-    assert.equal(quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '' } }).buyer.kind, 'b2c');
-    assert.equal(quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '' } }).buyer.taxId, '0000000000');
-    assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '123' } }), /8 碼/);
+    assert.equal(quoteInvoice(snapshot).buyer.taxId, '87654321');
+    assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '' } }), /沒有 8 碼統編/);
+    assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '123' } }), /沒有 8 碼統編/);
+    assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '散客', taxId: '0000000000' } }), /沒有 8 碼統編/);
     assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '0000', taxId: '' } }), /不可為 0/);
 });
 
@@ -144,7 +145,7 @@ test('簽章是 HMAC-SHA256(APIKey, createDateTime) 再 base64；範例 PDF 對�
     assert.equal(hostForEnv('PROD'), PROD_HOST);
 });
 
-test('B2B 與 B2C 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
+test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
     const b2b = openInvoicePayload({
         orderID: 'case_1-v1', sellerId: '96842769', buyer: buyerB2B,
         description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
@@ -169,34 +170,38 @@ test('B2B 與 B2C 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', ()
     assert.equal(b2b.Details[0].sequenceNumber, '0001');
     assert.equal(b2b.Details[0].taxType, '1');
     assert.equal(b2b.notifyEmail, undefined);
-
-    const b2c = openInvoicePayload({
-        orderID: 'case_2-v1', sellerId: '96842769', buyer: buyerB2C,
-        description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
-    });
-    assert.equal(b2c.process_type, 'C');
-    assert.equal(b2c.buyerID, '0000000000');
-    assert.equal(b2c.buyerName, '驗證飯店股份有限公司');
-    assert.notEqual(b2c.buyerName, '0');
-    assert.equal(b2c.Details[0].unitprice, 1840);
-    assert.equal(b2c.Details[0].amount, 1840);
-    assert.equal(b2c.salesAmount, 1752);
     assert.throws(() => openInvoicePayload({
-        orderID: 'x', sellerId: '96842769', buyer: { kind: 'b2c', taxId: '0000000000', name: '0' },
+        orderID: 'x', sellerId: '96842769', buyer: { taxId: '87654321', name: '0' },
         description: '品項', sales: 100, tax: 5, total: 105,
     }), /不可為 0/);
+    assert.throws(() => openInvoicePayload({
+        orderID: 'case_2-v1', sellerId: '96842769', buyer: { kind: 'b2c', taxId: '0000000000', name: '驗證飯店股份有限公司' },
+        description: '布品洗滌費', sales: 1752, tax: 88, total: 1840,
+    }), /沒有 8 碼統編/);
+    assert.throws(() => openInvoicePayload({
+        orderID: 'case_2-v1', sellerId: '96842769', buyer: { taxId: '', name: '驗證飯店股份有限公司' },
+        description: '布品洗滌費', sales: 1752, tax: 88, total: 1840,
+    }), /沒有 8 碼統編/);
 
     const cancel = cancelInvoicePayload({
-        orderID: 'case_1-v1', kind: 'b2b', sellerId: '96842769', buyerId: '87654321',
+        orderID: 'case_1-v1', sellerId: '96842769', buyerId: '87654321',
         invNo: 'AB12345678', invDate: '20261031', reason: '開錯抬頭',
     });
     assert.equal(cancel.process_type, 'B');
+    assert.equal(cancel.buyerID, '87654321');
     assert.equal(cancel.invNo, 'AB12345678');
     assert.equal(cancel.cancelReason, '開錯抬頭');
     assert.throws(() => cancelInvoicePayload({
-        orderID: 'x', kind: 'b2c', sellerId: '96842769', buyerId: '0000000000',
+        orderID: 'x', sellerId: '96842769', buyerId: '87654321',
         invNo: 'AB12345678', invDate: '20261031', reason: '一二三四五六七八九十一二三四五六七八九十一',
     }), /20 字/);
+    assert.throws(() => cancelInvoicePayload({
+        orderID: 'x', kind: 'b2c', sellerId: '96842769', buyerId: '0000000000',
+        invNo: 'AB12345678', invDate: '20261031', reason: '開錯抬頭',
+    }), /沒有 8 碼統編/);
+    const queried = queryInvoicePayload({ orderID: 'case_1-v1', kind: 'b2c', sellerId: '96842769' });
+    assert.equal(queried.process_type, 'B');
+    assert.equal(queried.sellerID, '96842769');
     assert.equal(orderIdFor('case_1', 1, 0), 'case_1-v1');
     assert.equal(orderIdFor('case_1', 1, 0), orderIdFor('case_1', 1, 0));
     assert.equal(orderIdFor('case_1', 1, 1), 'case_1-v1-r1');
@@ -317,6 +322,7 @@ test('已有發票號碼就拒絕，逾時後用 orderID 查到已開立的那�
     assert.equal(recovered.already, false);
     assert.equal(calls.filter(call => call.path === '/openInvoice').length, 1);
     assert.equal(calls.filter(call => call.path === '/queryInvoice').at(-1).body.reqData.orderID, 'case_1-v1');
+    assert.equal(calls.filter(call => call.path === '/queryInvoice').at(-1).body.reqData.process_type, 'B');
     assert.equal(db.read('statement_cases/case_1').invoiceStatus, 'invoiced');
 });
 
@@ -334,8 +340,50 @@ test('汎宇拒絕時把 statusDesc 原樣丟回，沒有寫入發票號碼', as
     assert.equal(calls.filter(call => call.path === '/openInvoice').length, 1);
 });
 
-test('沒有統編走 B2C，作廢後狀態清掉，同一版用新的 orderID 再開', async () => {
-    const db = memoryFirestore({ 'statement_cases/case_2': statementDoc('') });
+test('沒有 8 碼統編就拒絕開立，不會向汎宇送出', async () => {
+    for (const taxId of ['', '123', '0000000000']) {
+        const id = `case_${taxId || 'blank'}`;
+        const db = memoryFirestore({ [`statement_cases/${id}`]: statementDoc(taxId) });
+        const { calls, send } = gateway(() => { throw new Error('不該送出'); });
+        await assert.rejects(
+            () => issueStatement({
+                db, send, creds, caseId: id, version: 1, description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
+            }),
+            /這位客戶沒有 8 碼統編，不能開立發票/,
+        );
+        assert.equal(calls.length, 0);
+        const saved = db.read(`statement_cases/${id}`);
+        assert.equal(saved.invoiceStatus, 'ready');
+        assert.equal(saved.invoiceNumber ?? null, null);
+        assert.equal(saved.invoiceLock ?? null, null);
+        assert.equal(saved.invoiceDraft ?? null, null);
+    }
+});
+
+test('沒有 8 碼統編的發票不能作廢，不會送出', async () => {
+    const doc = statementDoc('');
+    doc.invoiceStatus = 'invoiced';
+    doc.invoicedVersion = 1;
+    doc.invoiceNumber = 'AB12345678';
+    doc.invoiceDate = '2026-10-31';
+    doc.provider = 'universalec';
+    doc.invoiceKind = 'b2c';
+    doc.invoiceBuyerId = '0000000000';
+    doc.invoiceOrderId = 'case_blank-v1';
+    doc.invoiceRecord = { number: 'AB12345678', method: 'electronic', date: '2026-10-31', amount: 1840, version: 1, provider: 'universalec' };
+    const db = memoryFirestore({ 'statement_cases/case_blank': doc });
+    const { calls, send } = gateway(() => { throw new Error('不該送出'); });
+    await assert.rejects(
+        () => voidStatement({ db, send, creds, caseId: 'case_blank', version: 1, reason: '開錯', actor: 'staff@baiqi.test', clock }),
+        /沒有 8 碼統編，不能作廢/,
+    );
+    assert.equal(calls.length, 0);
+    assert.equal(db.read('statement_cases/case_blank').invoiceNumber, 'AB12345678');
+    assert.equal(db.read('statement_cases/case_blank').invoiceLock ?? null, null);
+});
+
+test('作廢後狀態清掉，同一版用新的 orderID 再開，而且只走 B2B', async () => {
+    const db = memoryFirestore({ 'statement_cases/case_2': statementDoc() });
     let issued = 0;
     const { calls, send } = gateway(path => {
         if (path === '/openInvoice') {
@@ -350,13 +398,13 @@ test('沒有統編走 B2C，作廢後狀態清掉，同一版用新的 orderID �
     const opened = await issueStatement({
         db, send, creds, caseId: 'case_2', version: 1, description: '', actor: 'staff@baiqi.test', clock,
     });
-    assert.equal(opened.kind, 'b2c');
+    assert.equal(opened.kind, 'b2b');
     const created = calls.find(call => call.path === '/openInvoice');
-    assert.equal(created.body.reqData.process_type, 'C');
-    assert.equal(created.body.reqData.buyerID, '0000000000');
+    assert.equal(created.body.reqData.process_type, 'B');
+    assert.equal(created.body.reqData.buyerID, '87654321');
     assert.equal(created.body.reqData.buyerName, '驗證飯店股份有限公司');
     assert.equal(created.body.reqData.Details[0].description, '布品洗滌費 2026/10/01–2026/10/31');
-    assert.equal(created.body.reqData.Details[0].unitprice, 1840);
+    assert.equal(created.body.reqData.Details[0].unitprice, 1752);
     assert.equal(created.body.reqData.printMark, 'Y');
     assert.equal(created.body.reqData.donateMark, '0');
 
@@ -371,8 +419,8 @@ test('沒有統編走 B2C，作廢後狀態清掉，同一版用新的 orderID �
     assert.equal(after.invoicedVersion, null);
     assert.equal(after.invoiceHistory[0].number, 'AB12345678');
     const cancel = calls.find(call => call.path === '/cancelInvoice');
-    assert.equal(cancel.body.reqData.process_type, 'C');
-    assert.equal(cancel.body.reqData.buyerID, '0000000000');
+    assert.equal(cancel.body.reqData.process_type, 'B');
+    assert.equal(cancel.body.reqData.buyerID, '87654321');
     assert.equal(cancel.body.reqData.cancelReason, '開錯抬頭');
     assert.equal(cancel.body.reqData.invDate, '20261031');
 
@@ -380,7 +428,9 @@ test('沒有統編走 B2C，作廢後狀態清掉，同一版用新的 orderID �
         db, send, creds, caseId: 'case_2', version: 1, description: '布品洗滌費 2026/10/01–2026/10/31', actor: 'staff@baiqi.test', clock,
     });
     assert.equal(again.invoiceNumber, 'AB12345679');
+    assert.equal(again.kind, 'b2b');
     assert.equal(calls.filter(call => call.path === '/openInvoice').at(-1).body.reqData.orderID, 'case_2-v1-r1');
+    assert.equal(calls.filter(call => call.path === '/openInvoice').at(-1).body.reqData.process_type, 'B');
     assert.equal(db.read('statement_cases/case_2').invoiceStatus, 'invoiced');
 });
 
@@ -409,6 +459,7 @@ test('手開發票不能從這裡作廢，連線測試只查不開票', async ()
     assert.equal(ping.message, '連線成功');
     assert.equal(calls.at(-1).path, '/queryInvoice');
     assert.equal(calls.at(-1).body.reqData.orderID, 'connection-check');
+    assert.equal(calls.at(-1).body.reqData.process_type, 'B');
     assert.equal(calls.some(call => call.path === '/openInvoice'), false);
 });
 
@@ -437,9 +488,23 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     const billing = readFileSync(new URL('../lib/billing-run.js', import.meta.url), 'utf8');
     const auto = readFileSync(new URL('../lib/auto-close.js', import.meta.url), 'utf8');
     const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-    assert.match(dispatch, /開立發票/);
-    assert.match(dispatch, /issueStatementInvoice/);
-    assert.match(dispatch, /不會在結帳日或登記寄出時自動開立/);
+    assert.doesNotMatch(dispatch, /開立發票|issueStatementInvoice|測試電子發票連線|quoteInvoice/);
+    const payments = readFileSync(new URL('../../../receivables-ui.js', import.meta.url), 'utf8');
+    assert.match(payments, /確認開立/);
+    assert.match(payments, /issueStatementInvoice/);
+    assert.match(payments, /missingTaxIdMessage/);
+    assert.match(payments, /手開發票/);
+    assert.match(payments, /不會向汎宇送出作廢/);
+    assert.match(payments, /結帳與寄出都不會自動開立/);
+    assert.doesNotMatch(payments, /尚未串接|B2C|b2c/);
+    assert.doesNotMatch(dispatch, /B2C|b2c|0000000000/);
+    const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+    assert.match(readme, /只開立 B2B/);
+    assert.doesNotMatch(readme, /B2C|b2c/);
+    const client = readFileSync(new URL('../lib/einvoice-client.js', import.meta.url), 'utf8');
+    const issue = readFileSync(new URL('../lib/einvoice-issue.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(client, /process_type: kind === 'b2b' \? 'B' : 'C'|0000000000|process_type: b2b \? 'B' : 'C'/);
+    assert.match(issue, /沒有 8 碼統編，不能開立發票/);
     assert.equal(dispatch.includes('EINVOICE_POS'), false);
     assert.equal(dispatch.includes('GetInvoice.ashx'), false);
     assert.equal(dispatch.includes('UEC_API_KEY'), false);

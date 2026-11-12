@@ -123,11 +123,11 @@ export function markVoided(doc, patch) {
     return next;
 }
 
-function kindOf(doc) {
-    if (doc?.invoiceKind === 'b2b' || doc?.invoiceKind === 'b2c') return doc.invoiceKind;
-    const id = String(doc?.invoiceBuyerId || '');
-    if (!id || id === '0000000000') return 'b2c';
-    return 'b2b';
+function buyerIdForVoid(doc) {
+    if (doc?.invoiceKind === 'b2c') throw new Error('這張發票沒有 8 碼統編，不能作廢。');
+    const id = String(doc?.invoiceBuyerId || '').replace(/\D/g, '');
+    if (!/^\d{8}$/.test(id)) throw new Error('這張發票沒有 8 碼統編，不能作廢。');
+    return id;
 }
 
 function alreadyResult(doc) {
@@ -145,10 +145,9 @@ async function post(creds, send, clock, path, reqData) {
     return { json, stamp, body };
 }
 
-async function queryState(creds, send, clock, orderID, kind, fallbackDate) {
+async function queryState(creds, send, clock, orderID, fallbackDate) {
     const { json } = await post(creds, send, clock, '/queryInvoice', queryInvoicePayload({
         orderID,
-        kind,
         sellerId: creds.companyID,
     }));
     const parsed = parseResponse(json);
@@ -187,6 +186,9 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         }
         if (lockHeld(data.invoiceLock, actor, now)) throw new Error('這張帳單正在開立發票，請稍後再看結果，不要重複按。');
         const quote = quoteInvoice(latest.snapshot);
+        if (quote.buyer?.kind !== 'b2b' || !/^\d{8}$/.test(String(quote.buyer?.taxId || ''))) {
+            throw new Error('這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。');
+        }
         const text = cleanDescription(description, latest.snapshot);
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         const orderID = orderIdFor(caseId, version, reissue);
@@ -217,7 +219,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             version: Number(version),
             invoiceNumber: issued.number,
             invoiceDate: issued.date || taipeiDateTime(clock()).isoDate,
-            kind: prepared.quote.buyer.kind,
+            kind: 'b2b',
             buyerId: prepared.quote.buyer.taxId,
             buyerName: prepared.quote.buyer.name,
             total: prepared.quote.total,
@@ -232,14 +234,14 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             already: false,
             invoiceNumber: issued.number,
             invoiceDate: next.invoiceDate,
-            kind: prepared.quote.buyer.kind,
+            kind: 'b2b',
         };
     });
 
     try {
         const fallbackDate = taipeiDateTime(clock()).isoDate;
         if (prepared.hadDraft) {
-            const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+            const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
             if (found.state === 'issued') return finish(found.issued, found.raw);
         }
         let response;
@@ -248,7 +250,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         } catch (error) {
             if (!isUncertain(error)) throw error;
             try {
-                const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
                 if (found.state === 'issued') return finish(found.issued, found.raw);
             } catch (queryError) {
                 if (!isUncertain(queryError)) throw queryError;
@@ -258,7 +260,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         const parsed = parseResponse(response.json);
         if (!parsed.ok) {
             if (isDuplicate(parsed)) {
-                const found = await queryState(creds, send, clock, prepared.orderID, prepared.quote.buyer.kind, fallbackDate);
+                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
                 if (found.state === 'issued') return finish(found.issued, found.raw);
             }
             throw new Error(parsed.statusDesc || '汎宇沒有接受這張發票。');
@@ -285,19 +287,18 @@ export async function voidStatement({ db, send, creds: rawCreds, caseId, version
         if (data.invoiceStatus !== 'invoiced' || !invoiceNumberOf(data)) throw new Error('這一版沒有可作廢的發票。');
         if (data.provider !== 'universalec') throw new Error('這張是在貨款登記手開的，請在原處處理，這裡不能作廢。');
         if (lockHeld(data.invoiceLock, actor, now)) throw new Error('這張帳單正在處理發票，請稍後再試。');
+        const buyerId = buyerIdForVoid(data);
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         tx.set(ref, { ...data, invoiceLock: { version: Number(version), at: now, uid: actor, op: 'void' } });
         return {
             number: invoiceNumberOf(data),
             invoiceDate: data.invoiceDate || data.invoiceRecord?.date,
-            kind: kindOf(data),
-            buyerId: data.invoiceBuyerId,
+            buyerId,
             orderID: data.invoiceOrderId || orderIdFor(caseId, version, reissue),
         };
     });
     const payload = cancelInvoicePayload({
         orderID: prepared.orderID,
-        kind: prepared.kind,
         sellerId: creds.companyID,
         buyerId: prepared.buyerId,
         invNo: prepared.number,
@@ -319,7 +320,7 @@ export async function voidStatement({ db, send, creds: rawCreds, caseId, version
             if (!isUncertain(error)) throw error;
             let found;
             try {
-                found = await queryState(creds, send, clock, prepared.orderID, prepared.kind, prepared.invoiceDate);
+                found = await queryState(creds, send, clock, prepared.orderID, prepared.invoiceDate);
             } catch (queryError) {
                 if (!isUncertain(queryError)) throw queryError;
                 throw error;
@@ -350,7 +351,6 @@ export async function testConnection({ send, creds: rawCreds, clock = () => new 
     const creds = normalizeCreds(rawCreds);
     const response = await post(creds, send, clock, '/queryInvoice', queryInvoicePayload({
         orderID: 'connection-check',
-        kind: 'b2c',
         sellerId: creds.companyID,
     }));
     const parsed = parseResponse(response.json);

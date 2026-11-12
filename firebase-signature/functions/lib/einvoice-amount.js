@@ -43,17 +43,21 @@ export function cleanDescription(input, snapshot) {
     return text;
 }
 
-// 8 碼統編走 B2B。空白走 B2C，買方代號用 10 個 0（財政部對無統編的慣例）。其他長度當成填錯，不開立。
+// 百麒只開 B2B。買方必須是 8 碼統編；空白、10 個 0 或其他長度都不開立。
+export const MISSING_TAX_ID_MESSAGE = '這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。';
+
+export function missingTaxIdMessage(profile) {
+    const digits = String(profile?.taxId || '').replace(/\D/g, '');
+    return /^\d{8}$/.test(digits) ? '' : MISSING_TAX_ID_MESSAGE;
+}
+
 export function buyerFromProfile(profile) {
     const name = String(profile?.name || '').trim();
     const digits = String(profile?.taxId || '').replace(/\D/g, '');
     if (!name) throw new Error('沒有發票抬頭，請先到結帳系統填好再開發票。');
     if (/^0+$/.test(name)) throw new Error('買方名稱不可為 0。請先到結帳系統改抬頭。');
     if (name.length > 60) throw new Error('發票抬頭請在 60 字以內。請先到結帳系統改。');
-    if (!digits) return { kind: 'b2c', taxId: '0000000000', name };
-    if (!/^\d{8}$/.test(digits)) {
-        throw new Error('統編需為 8 碼。這一筆不是 8 碼，沒有開立，請先到結帳系統改抬頭。');
-    }
+    if (!/^\d{8}$/.test(digits)) throw new Error(MISSING_TAX_ID_MESSAGE);
     return { kind: 'b2b', taxId: digits, name };
 }
 

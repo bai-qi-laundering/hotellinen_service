@@ -117,10 +117,11 @@ function intAmount(value, label) {
 }
 
 export function openInvoicePayload({ orderID, sellerId, buyer, description, sales, tax, total }) {
-    const b2b = buyer?.kind === 'b2b';
     const buyerName = String(buyer?.name || '').trim();
     if (!buyerName || /^0+$/.test(buyerName)) throw new Error('買方名稱不可為 0。');
     if (buyerName.length > 60) throw new Error('發票抬頭請在 60 字以內。');
+    const buyerID = String(buyer?.taxId || '').replace(/\D/g, '');
+    if (!/^\d{8}$/.test(buyerID)) throw new Error('這位客戶沒有 8 碼統編，不能開立發票。');
     const text = String(description || '').trim();
     if (!text) throw new Error('請填品項說明。');
     if (text.length > 500) throw new Error('品項說明請在 500 字以內。');
@@ -129,12 +130,11 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
     const totalAmount = intAmount(total, '含稅金額');
     if (totalAmount < 1) throw new Error('含稅金額需為 1 元以上的整數，這張沒有開立。');
     if (salesAmount + taxAmount !== totalAmount) throw new Error('未稅加稅額必須等於含稅金額，這張沒有開立。');
-    const lineAmount = b2b ? salesAmount : totalAmount;
     return {
         orderID,
-        process_type: b2b ? 'B' : 'C',
+        process_type: 'B',
         sellerID: sellerId,
-        buyerID: b2b ? String(buyer.taxId) : '0000000000',
+        buyerID,
         buyerName,
         invoiceType: '07',
         donateMark: '0',
@@ -149,34 +149,35 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
         Details: [{
             description: text,
             quantity: 1,
-            unitprice: lineAmount,
-            amount: lineAmount,
+            unitprice: salesAmount,
+            amount: salesAmount,
             sequenceNumber: '0001',
             taxType: '1',
         }],
     };
 }
 
-export function cancelInvoicePayload({ orderID, kind, sellerId, buyerId, invNo, invDate, reason }) {
+export function cancelInvoicePayload({ orderID, sellerId, buyerId, invNo, invDate, reason }) {
     const why = String(reason || '').trim();
     if (!why) throw new Error('請填寫作廢原因。');
     if (why.length > 20) throw new Error('作廢原因請在 20 字以內。');
-    const b2c = kind === 'b2c';
+    const buyerID = String(buyerId || '').replace(/\D/g, '');
+    if (!/^\d{8}$/.test(buyerID)) throw new Error('這張發票沒有 8 碼統編，不能作廢。');
     return {
         orderID,
-        process_type: b2c ? 'C' : 'B',
+        process_type: 'B',
         sellerID: sellerId,
-        buyerID: String(buyerId || (b2c ? '0000000000' : '')),
+        buyerID,
         invNo: String(invNo || '').trim(),
         invDate: String(invDate || ''),
         cancelReason: why,
     };
 }
 
-export function queryInvoicePayload({ orderID, kind, sellerId }) {
+export function queryInvoicePayload({ orderID, sellerId }) {
     return {
         orderID,
-        process_type: kind === 'b2b' ? 'B' : 'C',
+        process_type: 'B',
         sellerID: sellerId,
     };
 }
