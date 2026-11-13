@@ -385,7 +385,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
 <div>
 <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
-<p class="text-sm text-gray-500 font-bold mt-1">物流簽收查帳台手動指定的負責司機（含舊資料已有司機、但還沒寫來源的單）為最終依據。沒有手動指定時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，較長關鍵字優先），再沿用「司機排班表」該路線生效日當天或之前最近一筆司機。按開始計算會重讀這兩張表，並把排班結果回寫到物流單的負責司機；已經是同一位就不再寫。排班表改了之後，來源為排班的單會更新，手動指定的不會被蓋過。回洗、特處、客衣不計入業績，也不回寫。明細來源顯示「手動」或「排班表 · 自 生效日」。</p>
+<p class="text-sm text-gray-500 font-bold mt-1">物流簽收查帳台手動指定的負責司機（含舊資料已有司機、但還沒寫來源的單）為最終依據，沒簽名也照手動算。查帳台選「未指派」會手動鎖成沒有司機，排班不再覆蓋，這張單不計業績，未歸屬原因是「手動設為未指派」。沒有手動鎖、而且司機還沒簽名的單不依排班歸屬，原因是「司機未簽名」；若先前是排班寫入的司機會清掉，只寫有變動的欄位。司機有簽名且沒有手動鎖時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，較長關鍵字優先），再沿用「司機排班表」該路線生效日當天或之前最近一筆司機。按開始計算會重讀這兩張表，並把排班結果回寫到物流單的負責司機；已經一樣就不再寫。排班表改了之後，來源為排班的單會更新，手動指定的不會被蓋過。回洗、特處、客衣不計入業績，也不回寫。明細來源顯示「手動」或「排班表 · 自 生效日」。</p>
 </div>
 <div class="flex flex-col sm:flex-row sm:items-end gap-3">
 <label class="block text-sm font-black text-indigo-900">統計起始日
@@ -407,7 +407,7 @@ body { background: white; padding: 0; margin: 0; }
 
 <div id="unassignedBox" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-5 mb-6 shadow-sm">
 <h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未歸屬／未指派的單據</h4>
-<p class="text-sm text-red-600 font-bold mb-1">以下單據沒有後台指派的司機，也沒有可沿用的排班，因此未計入任何人的業績。排班列是生效日起一路沿用，早於該路線第一筆的日期不會歸屬。</p>
+<p class="text-sm text-red-600 font-bold mb-1">以下單據沒有計入任何人的業績。原因可能是司機未簽名、手動設為未指派、對不到路線，或該路線還沒有可沿用的排班。排班列是生效日起一路沿用，早於該路線第一筆的日期不會歸屬。</p>
 <p id="unassignedReasons" class="text-xs text-red-800 font-black mb-3"></p>
 <div class="flex justify-between items-end">
 <div id="unassignedAmount" class="text-3xl font-black text-red-800">$0</div>
@@ -516,7 +516,7 @@ import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parseP
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
-import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-driver-writeback';
+import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -2692,6 +2692,7 @@ assignedDriver: data.assignedDriver,
 driverSource: data.driverSource,
 driverRoute: data.driverRoute,
 driverEffectiveDate: data.driverEffectiveDate,
+driverSig: data.driverSig,
 hotelKeyword: data.hotelKeyword,
 deptName: data.deptName,
 date: recordDate
@@ -2705,10 +2706,10 @@ schedulesLoaded: driverScheduleReady
 if (driverPlans.length) {
 try {
 await commitDriverWritebacks(driverPlans, { writeBatch, doc, db });
-showToast(`已把 ${driverPlans.length} 張物流單的負責司機回寫為排班結果`);
+showToast(`已更新 ${driverPlans.length} 張物流單的負責司機`);
 } catch (writeErr) {
 console.warn('司機回寫失敗', writeErr);
-alert('業績已算出，但排班司機沒有回寫到物流單：' + (writeErr.message || writeErr));
+alert('業績已算出，但負責司機沒有寫回物流單：' + (writeErr.message || writeErr));
 }
 }
 
@@ -2722,11 +2723,12 @@ if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
 if (isDriverPerformanceExcluded({ hotelKeyword: d.hotelKeyword, deptName: d.deptName })) return;
 
-// 手動（含舊資料已有司機但沒有 driverSource）以單上的 assignedDriver 為準。
-// 排班來源則用當下排班重算，與上面的回寫一致。
+// 手動（含舊資料已有司機但沒有 driverSource，以及手動鎖定的未指派）以單上的來源為準。
+// 沒有司機簽名且不是手動的，不依排班歸屬。已簽名的排班來源則用當下排班重算，與上面的回寫一致。
 const attribution = attributeDriver({
     assignedDriver: d.assignedDriver,
     driverSource: d.driverSource,
+    driverSig: d.driverSig,
     hotelKeyword: d.hotelKeyword,
     deptName: d.deptName,
     date: dDate,
