@@ -80,4 +80,4 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 老闆不用自己算。程式用 API Key 對「送出當下的台灣時間」簽名，再放進同一份請求。
 
-時間例子：`2026/07/01 17:22:08`。格式是 `yyyy/MM/dd HH:mm:ss`，台灣時間，24 小時制，月、日、時、分、秒不足兩位會補 0。拿去簽名的那一串，和請求裡的 `createDateTime` 是同一串。
+時間例子：`20260701172208`。格式是 14 碼的 `YYYYMMDDHHMMSS`，台灣時間，24 小時制，中間沒有斜線、空格或冒號，月、日、時、分、秒不足兩位會補 0。用 `yyyy/MM/dd HH:mm:ss` 會被汎宇回「[createDateTime]資料長度錯誤」。拿去簽名的那一串，和請求裡的 `createDateTime` 是同一串。

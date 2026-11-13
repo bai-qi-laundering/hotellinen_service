@@ -155,4 +155,4 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 網頁上的送件中心假設函式在 `asia-east1`。若 `SIGNATURE_FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
 
-簽章是標準 Base64 的 HMAC-SHA256：金鑰為 UTF-8 的 `UEC_API_KEY`（APIKey，不是 AESKEY），訊息為同一段送出的 `createDateTime`。時間是台北時區 `yyyy/MM/dd HH:mm:ss`，例如 `2026/07/01 17:22:08`，月日時分秒都補 0、24 小時制。給老闆照做的設定步驟在 `docs/uec-einvoice-deploy.md`。
+簽章是標準 Base64 的 HMAC-SHA256：金鑰為 UTF-8 的 `UEC_API_KEY`（APIKey，不是 AESKEY），訊息為同一段送出的 `createDateTime`。時間是台北時區 14 碼的 `YYYYMMDDHHMMSS`，例如 `20260701172208`，月日時分秒都補 0、24 小時制，不含斜線、空格或冒號。給老闆照做的設定步驟在 `docs/uec-einvoice-deploy.md`。
