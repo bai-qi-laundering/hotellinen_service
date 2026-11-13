@@ -125,3 +125,22 @@ test('the receipt page no longer expands 特處, and the sendwash form writes sp
     const webhook = fs.readFileSync(new URL('../line-webhook/Code.gs', import.meta.url), 'utf8');
     assert.equal(webhook.includes('簽收單'), false);
 });
+
+
+test('clearing a wrong line hides the old folding item and resubmitting it restores only the corrected quantity', async () => {
+    const {removedReceiptWrite}=await import('../special-receipt.js');
+    const {foldCards}=await import('../special-flow.js');
+    const input={hotel:'巨蛋',receivedDate:'2026-11-13',time:'2026-11-13T02:00:00Z'};
+    const [old]=buildReceiptSpecialDocs({...input,lines:[{item:'特處床單',qty:9}]});
+    const removal=removedReceiptWrite(old,{...input,item:old.item});
+    assert.equal(removal.action,'delete');
+    const deleted={...old,...removal.doc};
+    assert.deepEqual(foldCards([deleted]),[]);
+    const [corrected]=buildReceiptSpecialDocs({...input,lines:[{item:'特處床單',qty:3}]});
+    const result=nextReceiptWrite(deleted,corrected);
+    assert.equal(result.doc.id,old.id);
+    assert.equal(result.doc.deleted,false);
+    assert.equal(result.doc.qty,3);
+    assert.equal(removedReceiptWrite({...old,status:'已送出'},{...input,item:old.item}).action,'skip');
+    assert.equal(removedReceiptWrite({...old,source:'line'},{...input,item:old.item}),null);
+});

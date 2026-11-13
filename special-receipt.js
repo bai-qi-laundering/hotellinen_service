@@ -140,3 +140,20 @@ export function nextReceiptWrite(existing, nextDoc) {
     const same = existing.qty === nextDoc.qty && existing.receivedDate === nextDoc.receivedDate;
     return { action: same ? 'same' : 'update', doc };
 }
+
+
+// Reconcile the whole receipt, including lines the user cleared.
+// Signed, rework and shipped records keep their existing protection.
+export function removedReceiptWrite(existing, { hotel, receivedDate, item, time }) {
+    if (!existing || existing.deleted) return null;
+    if (existing.source !== RECEIPT_SOURCE || existing.hotel !== hotel ||
+        existing.receivedDate !== receivedDate || existing.item !== item) return null;
+    if (existing.status !== '待摺疊' || existing.foldSignature || existing.foldSignedAt) {
+        return { action: 'skip' };
+    }
+    return { action: 'delete', doc: {
+        deleted: true,
+        deletedAt: time,
+        history: [...(existing.history || []), { type: 'deleted', time, qty: existing.qty, round: existing.round || 1 }],
+    } };
+}

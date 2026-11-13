@@ -3,8 +3,8 @@
 // (2) otherwise any row for that hotel, using 收件後的下一個收送日
 // (3) otherwise the same fallback as index.html getTargetDateStr
 //     (same-day list, 捷中正 previous day, everyone else next day)
-// Fixed delivery days start searching the day AFTER the fold-sign date.
-// The sign date itself is never used, even when it is a delivery weekday.
+// Fixed delivery days start searching the day AFTER the office submission date.
+// The office submission date itself is never used, even when it is a delivery weekday.
 
 import { formatMd } from './special-time.js';
 
@@ -110,15 +110,15 @@ export function legacyTargetDate(hotel, refDate) {
     return { shipDate: addDays(refDate, 1), shipRule: '沿用盤點規則・隔日打單' };
 }
 
-export function computeShipDate(hotel, signedDate, schedules) {
+export function computeShipDate(hotel, officeDate, schedules) {
     const name = String(hotel || '').trim();
     if (!name) throw new Error('缺少飯店');
-    calendarDate(signedDate);
+    calendarDate(officeDate);
     const rows = usableRows(schedules).filter(row => normalizeName(row.hotel) === normalizeName(name));
     const special = rows.find(row => isSpecialDept(row.department));
     const chosen = special || rows[0];
     if (chosen) {
-        const shipDate = nextDeliveryDate(signedDate, chosen.days);
+        const shipDate = nextDeliveryDate(officeDate, chosen.days);
         if (shipDate) {
             const who = special ? '特處' : chosen.department;
             return {
@@ -128,10 +128,11 @@ export function computeShipDate(hotel, signedDate, schedules) {
             };
         }
     }
-    return { ...legacyTargetDate(name, signedDate), step: 3 };
+    return { ...legacyTargetDate(name, officeDate), step: 3 };
 }
 
 export function shipDateLabel(shipDate, shipRule) {
     if (!shipDate) return '';
     return `出貨單日期 ${formatMd(shipDate)}・${shipRule || ''}`;
 }
+

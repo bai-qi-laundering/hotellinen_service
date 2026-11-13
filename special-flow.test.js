@@ -359,3 +359,20 @@ test('an older split without splitOf is still reused instead of duplicated', () 
     assert.equal(liveRework(again.docs)[0].qty, 1);
     assert.equal(liveRework(again.docs)[0].id, signed.docs.find(doc => doc.status === '重工中').id);
 });
+
+
+test('office confirmation after midnight Taipei time recalculates the final date used by inventory',async()=>{
+    const {buildInventoryWrites,inventoryCatalog}=await import('./special-inventory.js');
+    const idFactory=ids();
+    const created=addParsedEntry([],entry('驛館枕頭','2026-10-26'),{time:'2026-10-26T01:00:00Z',idFactory});
+    const original=created.docs[0];
+    const signed=signItem(created.docs,original.id,{shipQty:1,signature:'fold',time:'2026-10-27T07:59:00Z',idFactory});
+    assert.equal(signed.docs[0].shipDate,'');
+    const legacy={...signed.docs[0],shipDate:'2026-10-29',shipRule:'舊預算日期'};
+    const sent=sendSheet([legacy],[legacy.id],{signature:'office',time:'2026-10-29T16:01:00Z',schedules});
+    assert.equal(sent.upserts[0].shipDate,'2026-10-31');
+    assert.equal(sent.upserts[0].receivedDate,'2026-10-26');
+    const catalog=inventoryCatalog([{baseName:'驛館',deptName:'特處',hotel:'驛館 特處',item:legacy.item}]);
+    const [record]=buildInventoryWrites(sent.upserts,catalog.get('驛館'),{signature:'office',timestamp:'t'});
+    assert.equal(record.date,'2026-10-31');
+});

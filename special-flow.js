@@ -1,7 +1,8 @@
 // Pure state changes for one special_items line. The page persists the upserts.
 
 import { displayItemName } from './special-parser.js';
-import { formatMd, formatTaipeiStamp } from './special-time.js';
+import { computeShipDate } from './special-shipdate.js';
+import { formatMd, formatTaipeiStamp, taipeiParts } from './special-time.js';
 
 export const FOLD_STATUS = '待摺疊';
 export const REWORK_STATUS = '重工中';
@@ -184,7 +185,6 @@ export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipR
     const qty = Number(shipQty);
     if (!Number.isInteger(qty) || qty < 1 || qty > pool) throw new Error('可出貨數量不正確');
     if (!signature) throw new Error('請先簽名');
-    if (!shipDate || !shipRule) throw new Error('出貨單日期還沒算出來');
     if (!time) throw new Error('缺少簽名時間');
     const why = String(reason || '').trim();
     if (qty < pool && !why) throw new Error('數量沒有全部出貨，請選擇退回原因');
@@ -221,8 +221,8 @@ export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipR
     signed.status = SIGNED_STATUS;
     signed.foldSignature = signature;
     signed.foldSignedAt = time;
-    signed.shipDate = shipDate;
-    signed.shipRule = shipRule;
+    signed.shipDate = shipDate || '';
+    signed.shipRule = shipRule || '';
     signed.officeName = signed.officeName || signed.item;
     if (qty < pool) signed.history.push({ type: 'split', time, qty, reason: why, round: current.round });
     signed.history.push({ type: 'signed', time, qty, signature, round: current.round });
@@ -402,7 +402,7 @@ export function updateOfficeName(docs, id, name) {
     return { docs: replace(docs, nextDoc), upserts: [nextDoc] };
 }
 
-export function sendSheet(docs, ids, { signature, time }) {
+export function sendSheet(docs, ids, { signature, time, schedules }) {
     if (!signature) throw new Error('請先簽名');
     if (!time) throw new Error('缺少送出時間');
     const wanted = [...new Set(ids || [])];
@@ -413,6 +413,11 @@ export function sendSheet(docs, ids, { signature, time }) {
     if (targets.some(doc => !String(doc.officeName || '').trim())) throw new Error('請填寫出貨品名');
     const upserts = targets.map(doc => {
         const next = clone(doc);
+        if (schedules !== undefined) {
+            const { shipDate, shipRule } = computeShipDate(doc.hotel, taipeiParts(time).date, schedules);
+            next.shipDate = shipDate;
+            next.shipRule = shipRule;
+        }
         next.status = SENT_STATUS;
         next.officeSignature = signature;
         next.sentAt = time;
@@ -454,12 +459,12 @@ export function officeSheets(docs) {
     for (const row of docs || []) {
         if (row.deleted || (row.status !== SIGNED_STATUS && row.status !== SENT_STATUS)) continue;
         const sent = row.status === SENT_STATUS;
-        const key = JSON.stringify([row.hotel, row.shipDate || '', row.shipRule || '', sent ? row.sentAt || '' : 'open']);
+        const key = JSON.stringify([row.hotel, sent ? row.shipDate || '' : '', sent ? row.shipRule || '' : '', sent ? row.sentAt || '' : 'open']);
         if (!groups.has(key)) {
             groups.set(key, {
                 hotel: row.hotel,
-                shipDate: row.shipDate || '',
-                shipRule: row.shipRule || '',
+                shipDate: sent ? row.shipDate || '' : '',
+                shipRule: sent ? row.shipRule || '' : '',
                 sent,
                 sentAt: sent ? row.sentAt || '' : '',
                 officeSignature: row.officeSignature || '',
@@ -475,3 +480,4 @@ export function officeSheets(docs) {
         || String(a.shipDate).localeCompare(String(b.shipDate))
         || a.hotel.localeCompare(b.hotel, 'zh-Hant'));
 }
+

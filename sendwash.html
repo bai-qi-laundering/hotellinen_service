@@ -309,15 +309,20 @@ async function markNoSendwash(sourceDate,outlet=''){
  busy=true;
  try{
   const ref=doc(db,'sendwash_records',id);
-  await runTransaction(db,async tx=>{
+  const plan=await specialDocsFor(dept,sourceDate,[]);
+  const skipped=await runTransaction(db,async tx=>{
    const snap=await tx.get(ref);
-   if(!snap.exists())return;
+   if(!snap.exists())return [];
    const old=snap.data();
    if(!adminMode && rawLocked(old)){
     throw new Error('此日單據場內已點收鎖定！如需強制歸零，請連點網頁最上方標題 5 下開啟管理員模式。');
    }
+   const changes=await prepareSpecialWrites(tx,plan,old.items);
    tx.set(ref,{...old,items:[],noSendwash:true,revision:(old.revision||0)+1,submittedAt:new Date().toISOString()});
+   writeSpecialChanges(tx,changes);
+   return changes.skipped;
   });
+  if(skipped.length)alert(`以下特處品項已有作業紀錄，未更動：${skipped.join('、')}`);
   batchDrafts.delete(id);
   busy=false;
   await loadReconcile();
@@ -698,14 +703,40 @@ $('btnLast7Days').onclick=()=>{
 
 async function specialDocsFor(dept, sourceDate, submittedItems) {
  const name = String(dept || '').normalize('NFKC').replace(/\s+/g, '').trim();
- if (name !== '特處' && name !== '特處部') return { docs: [], write: null };
+ if (name !== '特處' && name !== '特處部') return null;
  if (params.get('hotel') !== hotel) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
- const mod = await import('./special-receipt.js?v=20261111-special-send');
- const lines = mod.specialLinesFromSubmission(dept, submittedItems);
- if (!lines.length) return { docs: [], write: mod.nextReceiptWrite };
- const docs = mod.buildReceiptSpecialDocs({ hotel, receivedDate: sourceDate, lines, time: new Date().toISOString() });
- if (docs.some(row => row.hotel !== hotel)) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
- return { docs, write: mod.nextReceiptWrite };
+ const mod = await import('./special-receipt.js?v=20261113-reconcile');
+ const time=new Date().toISOString();
+ const lines=mod.specialLinesFromSubmission(dept,submittedItems);
+ const docs=mod.buildReceiptSpecialDocs({hotel,receivedDate:sourceDate,lines,time});
+ return {mod,docs,time,sourceDate,dept};
+}
+async function prepareSpecialWrites(tx, plan, previousItems) {
+ if(!plan)return {writes:[],skipped:[]};
+ const {mod,docs,time,sourceDate,dept}=plan;
+ const wanted=new Map(docs.map(row=>[row.item,row]));
+ const names=new Set([...wanted.keys(),...settings.filter(row=>row.hotel===hotel&&row.department===dept).map(row=>row.item),
+  ...(previousItems || []).map(row=>row.item)].map(item=>mod.specialLinesFromSubmission(dept,[{item,qty:1}])[0]?.item).filter(Boolean));
+ const writes=[],skipped=[];
+ for(const item of names){
+  const ref=doc(db,'special_items',mod.receiptSpecialId(sourceDate,hotel,item));
+  const snap=await tx.get(ref),existing=snap.exists()?snap.data():null;
+  let decision;
+  if(wanted.has(item)){
+   try { decision=mod.nextReceiptWrite(existing,wanted.get(item)); }
+   catch { decision={action:'skip'}; }
+  } else {
+   decision=mod.removedReceiptWrite(existing,{hotel,receivedDate:sourceDate,item,time});
+  }
+  if(decision?.action==='skip'){skipped.push(item);continue;}
+  if(!decision || decision.action==='same')continue;
+  const {id,...fields}=decision.doc;
+  writes.push({ref,fields,merge:decision.action==='delete'});
+ }
+ return {writes,skipped};
+}
+function writeSpecialChanges(tx, changes) {
+ for(const {ref,fields,merge} of changes.writes)tx.set(ref,fields,{merge});
 }
 $('department').onchange=()=>{activeOutlet='';if(currentMode==='reconcile')loadReconcile();else load();};
 $('sourceDate').onchange=load;
@@ -729,25 +760,17 @@ $('form').onsubmit=async e=>{
   await runTransaction(db,async tx=>{
    skipped.length=0;
    const snap=await tx.get(ref),signed=outlet?await tx.get(doc(db,'logistics_records',`${target}_${hotel}_${dept}`)):null;
-   const specialSnaps=[];
-   for (const planned of specialPlan.docs) specialSnaps.push(await tx.get(doc(db,'special_items',planned.id)));
    const old=snap.exists()?snap.data():{};
    if(!adminMode&&signed?.exists()&&(signed.data().driverSig||signed.data().clientSig))throw new Error('餐廳總單已簽收，不能新增或修改送洗數量');
    if(!adminMode&&(old.acceptedAt || Object.keys(old.receivedItems || {}).length))throw new Error('場內已確認，不能修改');
    if((old.revision || 0)!==expected)throw new Error('其他人已更新本次對點單，請重新載入');
+   const changes=await prepareSpecialWrites(tx,specialPlan,old.items);
+   skipped.push(...changes.skipped);
    tx.set(ref,{...old,hotel,department:dept,inventoryHotel:rows[0].inventoryHotel,...(outlet?{outlet}:{}),sourceDate,targetDate:target,items,notes:old.notes || {},noSendwash:items.length===0,revision:expected+1,submittedAt:new Date().toISOString()});
-   specialSnaps.forEach((specialSnap,index)=>{
-    let decision;
-    try { decision=specialPlan.write(specialSnap.exists()?specialSnap.data():null, specialPlan.docs[index]); }
-    catch (error) { decision={ action:'skip', message:error.message }; }
-    if (decision.action==='same' || decision.action==='skip') { if (decision.action==='skip') skipped.push(specialPlan.docs[index].item); return; }
-    const { id:specialId, ...fields }=decision.doc;
-    if (fields.hotel!==hotel) throw new Error('飯店名稱和這張對點單不一致，沒有寫入。');
-    tx.set(doc(db,'special_items',specialPlan.docs[index].id), fields);
-   });
+   writeSpecialChanges(tx,changes);
   });
   shownBatchId=null;batchDrafts.delete(id);await load();
-  const specialNote=specialPlan.docs.length ? (skipped.length ? '已摺疊或簽名的特處品項沒有覆寫。' : '特處品項已送到特處頁。') : '';
+  const specialNote=skipped.length ? `以下特處品項已有作業紀錄，未更動：${skipped.join('、')}` : specialPlan ? '特處頁的待摺疊品項已同步。' : '';
   $('message').textContent=(items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。')+(specialNote ? '\n'+specialNote : '');
  }catch(e){showError(e);disable(false);rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=locked(current);});}finally{busy=false;}
 };
@@ -769,4 +792,5 @@ try{
  }
 }catch(e){showError(e);$('items').textContent='請由場內管理人員確認試算表對點設定。';}
 </script></body></html>
+
 

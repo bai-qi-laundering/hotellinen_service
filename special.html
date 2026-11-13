@@ -83,8 +83,8 @@
 
     <script type="module">
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
-        import { computeShipDate, shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261027-resign';
+        import { shipDateLabel } from './special-shipdate.js?v=20261027-special';
+        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261113-office-date';
         import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261113-received-date';
         import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-inventory';
 
@@ -99,6 +99,14 @@
         let catalogReady = false;
         let mode = 'fold';
         let saving = false;
+        let deferredDocs = null;
+        function finishSaving() {
+            saving = false;
+            if (deferredDocs === null) return;
+            docs = deferredDocs;
+            deferredDocs = null;
+            render();
+        }
         let popupId = null;
         let shipQty = 1;
         let reworkQty = 1;
@@ -358,7 +366,7 @@
                     ? `<div class="mt-3 rounded-xl bg-green-50 border border-green-200 p-3 text-green-800 font-black">已送出 ${esc(formatTaipeiStamp(sheet.sentAt))}${sheet.officeSignature ? `<img src="${esc(sheet.officeSignature)}" alt="辦公室簽名" class="mt-2 h-16 bg-white border rounded">` : ''}</div>`
                     : `<button type="button" data-action="open-office" data-sheet="${index}" data-testid="office-send" class="w-full mt-3 py-4 rounded-xl bg-blue-700 text-white font-black text-lg">匯入出貨單</button>`;
                 return `<article class="bg-white rounded-2xl shadow border border-slate-200 overflow-hidden mb-4" data-sheet-index="${index}">
-                    <header class="bg-blue-800 text-white p-4"><h2 class="text-3xl font-black">${esc(sheet.hotel)}</h2><p class="text-blue-100 text-sm font-bold mt-1">${esc(shipDateLabel(sheet.shipDate, sheet.shipRule))}</p></header>
+                    <header class="bg-blue-800 text-white p-4"><h2 class="text-3xl font-black">${esc(sheet.hotel)}</h2><p class="text-blue-100 text-sm font-bold mt-1">${sheet.sent ? esc(shipDateLabel(sheet.shipDate, sheet.shipRule)) : "打單日期於辦公室送出時計算"}</p></header>
                     <div class="px-4 pb-4">${rows}${footer}</div>
                 </article>`;
             }).join('');
@@ -464,6 +472,7 @@
             return reason;
         }
         async function saveOfficeName(input) {
+            if (saving) return;
             try {
                 const result = updateOfficeName(docs, input.dataset.officeFor, input.value);
                 if (!result.upserts.length) return;
@@ -474,7 +483,7 @@
                 toast(error.message || '品名沒有存好');
                 if (permissionDenied(error) || /權限不足/.test(error.message || '')) showBanner(error.message);
             } finally {
-                saving = false;
+                finishSaving();
             }
         }
         async function flushOfficeNames() {
@@ -499,11 +508,9 @@
             try {
                 saving = true;
                 const time = new Date().toISOString();
-                const signedDate = taipeiParts(time).date;
-                const ship = computeShipDate(doc.hotel, signedDate, schedules);
                 const signature = await storeSignature(foldPad.dataUrl(), doc.id, 'fold');
                 const applied = signItem(docs, doc.id, {
-                    shipQty, signature, reason: chosenReason(), shipDate: ship.shipDate, shipRule: ship.shipRule, time, idFactory: newSpecialId,
+                    shipQty, signature, reason: chosenReason(), time, idFactory: newSpecialId,
                 });
                 await persist(applied.upserts);
                 docs = applied.docs;
@@ -514,7 +521,7 @@
                 toast(error.message || '簽名沒有存好');
                 if (/權限不足/.test(error.message || '')) showBanner(error.message);
             } finally {
-                saving = false;
+                finishSaving();
             }
         }
         async function confirmRework() {
@@ -535,7 +542,7 @@
                 toast(error.message || '重工沒有存好');
                 if (/權限不足/.test(error.message || '')) showBanner(error.message);
             } finally {
-                saving = false;
+                finishSaving();
             }
         }
         function openOffice(index) {
@@ -567,12 +574,13 @@
                     return;
                 }
                 const signature = await storeSignature(officePad.dataUrl(), officeIds[0] || 'sheet', 'office');
+                await loadConfig(true);
                 const time = new Date().toISOString();
-                const records = buildInventoryWrites(lines, catalog.get(hotel), {
+                const applied = sendSheet(docs, officeIds, { signature, time, schedules });
+                const records = buildInventoryWrites(applied.upserts, catalog.get(hotel), {
                     signature,
                     timestamp: new Date().toLocaleString(),
                 });
-                const applied = sendSheet(docs, officeIds, { signature, time });
                 await persistSent(applied.upserts, records);
                 docs = applied.docs;
                 document.getElementById('officePopup').classList.add('hidden');
@@ -590,7 +598,7 @@
                 toast(error.message || '沒有送出');
                 if (/權限不足/.test(error.message || '')) showBanner(error.message);
             } finally {
-                saving = false;
+                finishSaving();
             }
         }
         document.body.addEventListener('click', event => {
@@ -636,13 +644,13 @@
         });
         document.getElementById('foldSearch').addEventListener('input', renderCards);
 
-        async function loadConfig() {
+        async function loadConfig(fromServer = false) {
             if (!db) {
                 document.getElementById('configStatus').textContent = `離線清單 ${hotels.length} 間`;
                 return;
             }
-            const { doc, getDoc } = window.__specialFs;
-            const snap = await getDoc(doc(db, 'inventory_config', 'master_template'));
+            const { doc, getDoc, getDocFromServer } = window.__specialFs;
+            const snap = await (fromServer ? getDocFromServer : getDoc)(doc(db, 'inventory_config', 'master_template'));
             if (!snap.exists()) throw new Error('沒有飯店清單');
             const data = snap.data();
             const template = Array.isArray(data.items) ? data.items : [];
@@ -678,8 +686,9 @@
                 await loadConfig();
                 if (!useMock) {
                     fsMod.onSnapshot(fsMod.collection(db, 'special_items'), snap => {
-                        if (saving) return;
-                        docs = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
+                        const nextDocs = snap.docs.map(row => ({ history: [], ...row.data(), id: row.id }));
+                        if (saving) { deferredDocs = nextDocs; return; }
+                        docs = nextDocs;
                         render();
                     }, error => {
                         console.error(error);
@@ -697,4 +706,5 @@
     </script>
 </body>
 </html>
+
 
