@@ -385,7 +385,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
 <div>
 <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
-<p class="text-sm text-gray-500 font-bold mt-1">系統將根據「物流查帳後台」中所指派的司機，自動計算各司機業績。</p>
+<p class="text-sm text-gray-500 font-bold mt-1">有指派負責司機時，以物流簽收查帳台的指派為準；沒有指派時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，日航制服單獨對到較長的關鍵字），再沿用「司機排班表」該路線生效日當天或之前最近一筆司機，不必每天重填。每次按開始計算都會重讀這兩張表。回洗、特處、客衣不計入業績。明細會標示判定路線、來源，以及未歸屬的原因。</p>
 </div>
 <div class="flex flex-col sm:flex-row sm:items-end gap-3">
 <label class="block text-sm font-black text-indigo-900">統計起始日
@@ -406,11 +406,12 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 
 <div id="unassignedBox" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-5 mb-6 shadow-sm">
-<h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未指派司機的單據</h4>
-<p class="text-sm text-red-600 font-bold mb-3">以下的單據，在物流後台尚未指派負責的司機，因此未計入任何人的業績中。請至物流後台補上指派並重新計算。</p>
+<h4 class="text-red-700 font-black text-lg mb-2 flex items-center gap-2"><span>⚠️</span> 發現未歸屬／未指派的單據</h4>
+<p class="text-sm text-red-600 font-bold mb-1">以下單據沒有後台指派的司機，也沒有可沿用的排班，因此未計入任何人的業績。排班列是生效日起一路沿用，早於該路線第一筆的日期不會歸屬。</p>
+<p id="unassignedReasons" class="text-xs text-red-800 font-black mb-3"></p>
 <div class="flex justify-between items-end">
 <div id="unassignedAmount" class="text-3xl font-black text-red-800">$0</div>
-<button onclick="showDriverDetails('unassigned')" class="text-sm bg-white text-red-600 border border-red-300 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 font-bold transition">查看未指派明細</button>
+<button onclick="showDriverDetails('unassigned')" class="text-sm bg-white text-red-600 border border-red-300 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 font-bold transition">查看未歸屬明細</button>
 </div>
 </div>
 
@@ -422,6 +423,9 @@ body { background: white; padding: 0; margin: 0; }
 <tr>
 <th style="background-color: #4f46e5;" class="w-32 text-center">出貨日期</th>
 <th style="background-color: #4f46e5;" class="w-40">飯店名稱</th>
+<th style="background-color: #4f46e5;" class="w-28">判定路線</th>
+<th style="background-color: #4f46e5;" class="w-24 text-center">來源</th>
+<th style="background-color: #4f46e5;" class="w-36 text-center">未歸屬原因</th>
 <th style="background-color: #4f46e5;" class="w-40">品項名稱</th>
 <th style="background-color: #4f46e5;" class="w-24 text-center">實收數量</th>
 <th style="background-color: #4f46e5;" class="w-24 text-center">單價(未稅)</th>
@@ -512,6 +516,7 @@ import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parseP
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
+import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet } from './driver-attribution.js?v=20261113-driver-carry';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -536,6 +541,9 @@ let sheetPrices = {};
 let sheetClients = {};
 let currentDriverStats = {};
 let currentUnassignedStats = {};
+let sheetRoutes = {};
+let sheetSchedules = {};
+let driverScheduleReady = false;
 let customPrices = {};
 let currentStatementSnapshot = null;
 let statementGenerationPending = false;
@@ -552,13 +560,39 @@ const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 const LOCAL_CACHE_KEYS = {
     financeMaster: 'baiqi_finance_master_v3',
     pricingRules: 'baiqi_pricing_rules_v2',
-    itemOrder: 'baiqi_item_order_v2'
+    itemOrder: 'baiqi_item_order_v2',
+    driverSchedule: 'baiqi_driver_schedule_v2'
 };
 function readLocalJson(key) {
     try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
 }
 function writeLocalJson(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) { console.warn('本機快取寫入失敗', key, e); }
+}
+const cachedDriverSchedule = readLocalJson(LOCAL_CACHE_KEYS.driverSchedule);
+if (cachedDriverSchedule?.ready && cachedDriverSchedule.routes && cachedDriverSchedule.schedules) {
+    sheetRoutes = cachedDriverSchedule.routes;
+    sheetSchedules = cachedDriverSchedule.schedules;
+    driverScheduleReady = true;
+}
+function persistDriverSchedule() {
+    writeLocalJson(LOCAL_CACHE_KEYS.driverSchedule, { at: Date.now(), ready: true, routes: sheetRoutes, schedules: sheetSchedules });
+}
+function financeMasterCacheFresh() {
+    return !!(financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS && priceCatalogReady());
+}
+async function refreshDriverRoutesFromSheet() {
+    try { applyDriverMasterRows(await readSheetPrices()); }
+    catch (err) { console.warn('路線與排班讀取失敗，沿用上次成功的路線與排班', err); }
+}
+function applyDriverMasterRows(json) {
+    if (!json || typeof json !== 'object') return;
+    let changed = false;
+    if (Array.isArray(json.routes)) { sheetRoutes = parseRouteSheet(json.routes); changed = true; }
+    if (Array.isArray(json.schedules)) { sheetSchedules = parseScheduleSheet(json.schedules); changed = true; }
+    if (!changed) return;
+    driverScheduleReady = true;
+    persistDriverSchedule();
 }
 function withTimeout(promise, ms, label='遠端資料') {
     let timer;
@@ -1453,6 +1487,7 @@ if (sheetResult.status === 'fulfilled') {
         const clients = parseFinanceClientRows(json.clients);
         if (Object.keys(clients).length) sheetClients = clients;
     }
+    applyDriverMasterRows(json);
 } else {
     problems.push(`價目表：${sheetResult.reason?.message || '讀取失敗'}`);
     console.warn('價目表讀取失敗，沿用上次成功的資料', sheetResult.reason);
@@ -2634,10 +2669,11 @@ if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～
 
 try {
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
+const priceCacheFresh = financeMasterCacheFresh();
 await Promise.all([
     ensurePricingRules().catch(err => console.warn('春節／回饋設定稍後再試', err)),
     ensureEffectivePrices(),
-    syncMasterDataFromSheet()
+    priceCacheFresh ? refreshDriverRoutesFromSheet() : syncMasterDataFromSheet()
 ]);
 
 currentDriverStats = {};
@@ -2652,12 +2688,22 @@ if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
+if (isDriverPerformanceExcluded({ hotelKeyword: d.hotelKeyword, deptName: d.deptName })) return;
 
-let driverName = d.assignedDriver || null;
+// 後台已指派的負責司機優先；沒有指派才用路線關鍵字，並沿用該路線生效日當天或之前最近一筆排班。只計算，不寫回單據。
+const attribution = attributeDriver({
+    assignedDriver: d.assignedDriver,
+    hotelKeyword: d.hotelKeyword,
+    deptName: d.deptName,
+    date: dDate,
+    routes: sheetRoutes,
+    schedules: sheetSchedules,
+    schedulesLoaded: driverScheduleReady
+});
+const driverName = attribution.driver;
 billingReceiptItems(d).forEach(item => {
 const actual = resolveItemBillingQty(item);
-if (actual > 0 && !String(item.itemName).includes("回洗")) {
+if (actual > 0 && !isDriverPerformanceExcluded({ itemName: item.itemName })) {
 let price = reportRecordPrice({
     hotel: hotelName, item: item.itemName, date: dDate,
     parentCompany: d.hotelKeyword || hotelName,
@@ -2665,7 +2711,7 @@ let price = reportRecordPrice({
 });
 if (price === null || !Number.isFinite(price)) { missingDriverPrices++; return; }
 let amt = actual * price;
-let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt };
+let detailObj = { date: dDate, hotel: hotelName, item: item.itemName, qty: actual, price: price, amt: amt, route: attribution.route, source: attribution.source || '', reason: attribution.reason || '', effectiveDate: attribution.effectiveDate || '' };
 if (driverName) {
 if (!currentDriverStats[driverName]) currentDriverStats[driverName] = { totalAmt: 0, details: [] };
 currentDriverStats[driverName].totalAmt += amt;
@@ -2715,12 +2761,23 @@ html += `
 if (html === "") html = `<div class="text-gray-400 font-bold w-full col-span-4 text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">區間內沒有計算到任何司機的業績</div>`;
 container.innerHTML = html;
 
+const reasonBox = document.getElementById('unassignedReasons');
 if (currentUnassignedStats.details.length > 0) {
 unassignedBox.classList.remove('hidden');
 let roundedUnassigned = Math.round(currentUnassignedStats.totalAmt);
 unassignedAmt.innerText = `$${roundedUnassigned.toLocaleString()}`;
-} else unassignedBox.classList.add('hidden');
+const counts = {};
+for (const row of currentUnassignedStats.details) counts[row.reason || '未歸屬'] = (counts[row.reason || '未歸屬'] || 0) + 1;
+if (reasonBox) reasonBox.textContent = Object.entries(counts).map(([reason, count]) => `${reason} ${count} 筆`).join('、');
+} else {
+unassignedBox.classList.add('hidden');
+if (reasonBox) reasonBox.textContent = '';
+}
 document.getElementById('driverDetailSection').classList.add('hidden');
+}
+
+function driverCell(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
 function showDriverDetails(target) {
@@ -2730,10 +2787,10 @@ const tbody = document.getElementById('driverDetailBody');
 section.classList.remove('hidden');
 let details = [];
 if (target === 'unassigned') {
-title.innerHTML = `⚠️ <span class="text-red-700">未指派司機 明細清單</span>`;
+title.innerHTML = `⚠️ <span class="text-red-700">未歸屬／未指派 明細清單</span>`;
 details = currentUnassignedStats.details;
 } else {
-title.innerHTML = `🧑‍✈️ <span class="text-indigo-900">${target} 的配送明細清單</span>`;
+title.innerHTML = `🧑‍✈️ <span class="text-indigo-900">${driverCell(target)} 的配送明細清單</span>`;
 details = currentDriverStats[target].details;
 }
 
@@ -2745,13 +2802,18 @@ return a.hotel < b.hotel ? -1 : 1;
 let html = ""; let grandTotal = 0;
 details.forEach(r => {
 grandTotal += r.amt;
-let pDisplay = r.price === 0 ? '<span class="text-red-500 font-bold text-xs bg-red-100 px-1 rounded border border-red-200">缺報價</span>' : `$${r.price}`;
+let pDisplay = r.price === 0 ? '<span class="text-red-500 font-bold text-xs bg-red-100 px-1 rounded border border-red-200">缺報價</span>' : `$${driverCell(r.price)}`;
+const sourceLabel = r.source === '排班表' && r.effectiveDate && r.effectiveDate !== r.date ? `排班表 · 自 ${r.effectiveDate}` : (r.source || '—');
+const sourceClass = r.source === '後台指派' ? 'text-amber-700' : r.source === '排班表' ? 'text-indigo-700' : 'text-gray-400';
 html += `
 <tr class="hover:bg-indigo-50">
-<td class="text-center font-mono text-gray-600">${r.date}</td>
-<td class="font-bold text-gray-800">${r.hotel}</td>
-<td class="text-gray-700 font-bold">${r.item}</td>
-<td class="text-center font-black">${r.qty}</td>
+<td class="text-center font-mono text-gray-600">${driverCell(r.date)}</td>
+<td class="font-bold text-gray-800">${driverCell(r.hotel)}</td>
+<td class="text-indigo-600 font-bold">${driverCell(r.route || '—')}</td>
+<td class="text-center font-bold ${sourceClass}">${driverCell(sourceLabel)}</td>
+<td class="text-center font-bold ${r.reason ? 'text-red-700' : 'text-gray-300'}">${driverCell(r.reason || '—')}</td>
+<td class="text-gray-700 font-bold">${driverCell(r.item)}</td>
+<td class="text-center font-black">${driverCell(r.qty)}</td>
 <td class="text-center">${pDisplay}</td>
 <td class="text-right pr-6 font-bold text-indigo-900">$${r.amt.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
 </tr>
@@ -2761,7 +2823,7 @@ html += `
 let roundedGrandTotal = Math.round(grandTotal);
 html += `
 <tr class="bg-indigo-100 border-t-4 border-indigo-400">
-<td colspan="5" class="text-right font-black text-indigo-900 py-4 text-lg">明細總計 (未稅)：</td>
+<td colspan="8" class="text-right font-black text-indigo-900 py-4 text-lg">明細總計 (未稅)：</td>
 <td class="text-right pr-6 font-black text-indigo-900 text-2xl py-4">$${roundedGrandTotal.toLocaleString()}</td>
 </tr>
 `;
