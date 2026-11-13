@@ -2,8 +2,6 @@
 // index.html stores each line at inventory_records/{date}_{hotel}_{item}
 // where hotel is master_template.hotel (「驛館 特處」), not the short base name.
 
-export const INVENTORY_NOTE = '特處匯入';
-
 function deptRank(dept) {
     if (dept === '特處') return 0;
     if (dept === '房務') return 1;
@@ -49,7 +47,7 @@ function inventoryHotel(entry, item) {
     return matches[0]?.hotel || '';
 }
 
-export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp, note = INVENTORY_NOTE } = {}) {
+export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp, note } = {}) {
     if (!signature) throw new Error('請先簽名');
     if (!timestamp) throw new Error('缺少送出時間');
     const valid = new Set(catalogEntry?.names || []);
@@ -66,10 +64,12 @@ export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp
         const date = String(line.shipDate || '');
         if (!date || !hotel) throw new Error('出貨單日期還沒算出來');
         const key = `${date}\0${hotel}\0${item}`;
-        const group = groups.get(key) || { date, hotel, item, qty: 0 };
+        const group = groups.get(key) || { date, hotel, item, qty: 0, receivedDates: new Set() };
         const qty = Number(line.qty);
         if (!Number.isFinite(qty)) throw new Error('數量不正確');
         group.qty += qty;
+        const receivedDate = String(line.receivedDate || "").trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) group.receivedDates.add(receivedDate);
         groups.set(key, group);
     }
     return [...groups.values()].map(group => ({
@@ -79,7 +79,8 @@ export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp
         item: group.item,
         count: String(group.qty),
         signature,
-        note,
+        note: note ?? (group.receivedDates.size ? `收件日期：${[...group.receivedDates].sort().join("、")}` : ""),
         timestamp,
     }));
 }
+

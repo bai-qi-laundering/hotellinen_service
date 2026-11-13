@@ -85,7 +85,7 @@
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { computeShipDate, shipDateLabel } from './special-shipdate.js?v=20261027-special';
         import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261027-resign';
-        import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261027-inventory';
+        import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261113-received-date';
         import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-inventory';
 
         const useMock = new URLSearchParams(location.search).get('mock') === '1';
@@ -350,6 +350,7 @@
                         : '<span class="text-xs text-slate-400">無簽名</span>';
                     return `<div class="py-3 border-b border-slate-100" data-office-row="${esc(item.id)}">
                         <div class="flex items-center gap-3">${field}<span class="text-2xl font-black text-slate-700">${item.qty}</span></div>
+                        <p class="mt-1 text-sm font-bold text-slate-700">收件日期：${esc(item.receivedDate || "未記錄")}</p>
                         <div class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500">${thumb}<span>摺疊 ${esc(formatTaipeiStamp(item.foldSignedAt))}</span></div>
                     </div>`;
                 }).join('');
@@ -696,3 +697,4 @@
     </script>
 </body>
 </html>
+

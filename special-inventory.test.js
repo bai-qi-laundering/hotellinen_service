@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inventoryCatalog, inventoryDocId, buildInventoryWrites, INVENTORY_NOTE } from './special-inventory.js';
+import { inventoryCatalog, inventoryDocId, buildInventoryWrites } from './special-inventory.js';
 
 const template = [
     { baseName: '驛館', deptName: '房務', hotel: '驛館 房務', item: '床單' },
@@ -26,9 +26,9 @@ test('doc id matches index.html, including the slash replacement', () => {
 
 test('same sheet sums rows that land on one 盤點 item and keeps the other', () => {
     const writes = buildInventoryWrites([
-        { id: 'a', officeName: '特處床單', qty: 2, shipDate: '2026-10-29' },
-        { id: 'b', officeName: ' 特處床單 ', qty: 3, shipDate: '2026-10-29' },
-        { id: 'c', officeName: '床單', qty: 1, shipDate: '2026-10-29' },
+        { id: 'a', officeName: '特處床單', qty: 2, receivedDate: '2026-10-27', shipDate: '2026-10-29' },
+        { id: 'b', officeName: ' 特處床單 ', qty: 3, receivedDate: '2026-10-26', shipDate: '2026-10-29' },
+        { id: 'c', officeName: '床單', qty: 1, receivedDate: '2026-10-28', shipDate: '2026-10-29' },
     ], yiguan, { signature: 'sig-office', timestamp: '2026/10/27 下午4:00:00' });
     assert.deepEqual(writes, [
         {
@@ -38,7 +38,7 @@ test('same sheet sums rows that land on one 盤點 item and keeps the other', ()
             item: '特處床單',
             count: '5',
             signature: 'sig-office',
-            note: INVENTORY_NOTE,
+            note: '收件日期：2026-10-26、2026-10-27',
             timestamp: '2026/10/27 下午4:00:00',
         },
         {
@@ -48,7 +48,7 @@ test('same sheet sums rows that land on one 盤點 item and keeps the other', ()
             item: '床單',
             count: '1',
             signature: 'sig-office',
-            note: INVENTORY_NOTE,
+            note: '收件日期：2026-10-28',
             timestamp: '2026/10/27 下午4:00:00',
         },
     ]);
@@ -62,6 +62,7 @@ test('a 特處 name is written to the 特處 department, and a slash stays in th
     assert.equal(writes[0].hotel, '驛館 特處');
     assert.equal(writes[0].item, '頭套/頭巾');
     assert.equal(writes[0].count, '4');
+    assert.equal(writes[0].note, '', '舊單缺收件日期時不拿出貨日期代替');
 });
 
 test('a name that is not on that hotel blocks the whole sheet', () => {
@@ -86,3 +87,4 @@ test('send still requires a signature and a time', () => {
     assert.throws(() => buildInventoryWrites(line, yiguan, { timestamp: 't' }), /簽名/);
     assert.throws(() => buildInventoryWrites(line, yiguan, { signature: 'sig' }), /時間/);
 });
+
