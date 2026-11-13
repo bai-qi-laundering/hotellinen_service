@@ -116,19 +116,7 @@ export function hotelRouteText(hotelKeyword, deptName) {
 }
 
 function compactKey(value) {
-    let text = String(value ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-    text = text.replace(/[－—–\-]/g, '');
-    const aliases = [
-        ['候工所', '侯工所'],
-        ['高廬', '高盧'],
-        ['文旅一心館', '文一'],
-        ['文旅七賢館', '文七'],
-        ['好地方六合館', '好六'],
-        ['塩旅', '泊思行旅'],
-        ['鹽旅', '泊思行旅'],
-    ];
-    for (const [from, to] of aliases) text = text.split(from).join(to);
-    return text;
+    return String(value ?? '').normalize('NFKC').replace(/\s+/g, '').replace(/[－—–\-]/g, '').toLowerCase();
 }
 
 export function scheduleEntries(schedules) {

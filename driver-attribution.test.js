@@ -198,9 +198,14 @@ test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，
     assert.match(fn, /resolveItemBillingQty/);
     assert.match(fn, /reportRecordPrice/);
     assert.match(fn, /getLogisticsDocsForPeriod\(startDate, endDate, true\)/);
-    assert.match(fn, /syncMasterDataFromSheet\(\)/);
-    assert.match(fn, /if \(!driverScheduleReady\)/);
-    assert.match(fn, /readSheetPrices\(\)/);
+    assert.match(fn, /financeMasterCacheFresh\(\)/);
+    assert.match(fn, /priceCacheFresh \? refreshDriverRoutesFromSheet\(\) : syncMasterDataFromSheet\(\)/);
+    assert.equal(fn.includes('if (!driverScheduleReady)'), false);
+    const refreshFn = html.slice(html.indexOf('async function refreshDriverRoutesFromSheet'), html.indexOf('function applyDriverMasterRows'));
+    assert.match(refreshFn, /readSheetPrices\(\)/);
+    assert.match(refreshFn, /applyDriverMasterRows/);
+    assert.equal(refreshFn.includes('getDoc'), false);
+    assert.equal(refreshFn.includes('getDocs'), false);
     assert.equal(fn.includes('setDoc'), false);
     assert.equal(fn.includes('updateDoc'), false);
     assert.equal(fn.includes('addDoc'), false);
@@ -282,25 +287,28 @@ test('排班列是生效日起沿用，早於該路線第一列的紀錄不歸�
     assert.equal(unloaded.driver, null);
 });
 
-test('物流上的飯店別名對得上路線表用字', () => {
+test('飯店只依試算表關鍵字歸屬，程式不內建路線或飯店清單', () => {
     const routes = parseRouteSheet(ownerRoutes);
     const schedules = parseScheduleSheet(ownerScheduleRows);
-    const hou = attributeDriver({ hotelKeyword: '候工所', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const gao = attributeDriver({ hotelKeyword: '高廬', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const liang = attributeDriver({ hotelKeyword: '良站前', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const wen = attributeDriver({ hotelKeyword: '文旅一心館', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const hao = attributeDriver({ hotelKeyword: '好地方六合館', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const yan = attributeDriver({ hotelKeyword: '塩旅', deptName: '房務', date: '2026-11-03', routes, schedules });
-    const hua = attributeDriver({ hotelKeyword: '鴨點棧-華夏', deptName: '房務', date: '2026-11-03', routes, schedules });
-    assert.equal(hou.route, '9739');
-    assert.equal(hou.driver, '羅金賢');
-    assert.equal(gao.route, '9739');
-    assert.equal(liang.route, '3109-2');
-    assert.equal(liang.driver, '吳宏鴻');
-    assert.equal(wen.route, '3109');
-    assert.equal(hao.route, '6759');
-    assert.equal(hao.driver, '鄭弘裕');
-    assert.equal(yan.route, '3109');
-    assert.equal(yan.driver, '劉硯茹');
-    assert.equal(hua.route, '3109-2');
+    const missing = attributeDriver({ hotelKeyword: '萊特薇庭', deptName: '房務', date: '2026-11-05', routes, schedules });
+    assert.equal(missing.reason, UNATTRIBUTED_NO_ROUTE);
+    assert.equal(missing.driver, null);
+    const sheet = ownerRoutes.map(row => row.slice());
+    sheet.push(['5939', '萊特薇庭']);
+    const added = attributeDriver({
+        hotelKeyword: '萊特薇庭', deptName: '房務', date: '2026-11-05',
+        routes: parseRouteSheet(sheet), schedules,
+    });
+    assert.equal(added.route, '5939');
+    assert.equal(added.driver, '朱韋豪');
+    assert.equal(added.source, DRIVER_SOURCE_SCHEDULE);
+    assert.equal(attributeDriver({ hotelKeyword: '候工所', deptName: '房務', date: '2026-11-03', routes, schedules }).reason, UNATTRIBUTED_NO_ROUTE);
+    assert.equal(attributeDriver({ hotelKeyword: '良站前', deptName: '房務', date: '2026-11-03', routes, schedules }).route, '3109-2');
+    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧-華夏', deptName: '房務', date: '2026-11-03', routes, schedules }).route, '3109-2');
+    const source = fs.readFileSync(new URL('./driver-attribution.js', import.meta.url), 'utf8');
+    const page = fs.readFileSync(new URL('./finance.html', import.meta.url), 'utf8');
+    for (const name of ['萊特薇庭', '候工所', '文旅一心館']) {
+        assert.equal(source.includes(name), false);
+        assert.equal(page.includes(name), false);
+    }
 });

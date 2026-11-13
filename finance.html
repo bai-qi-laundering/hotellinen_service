@@ -385,7 +385,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
 <div>
 <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
-<p class="text-sm text-gray-500 font-bold mt-1">有指派負責司機時，以物流簽收查帳台的指派為準；沒有指派時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，日航制服單獨對到較長的關鍵字），再沿用「司機排班表」該路線生效日當天或之前最近一筆司機，不必每天重填。回洗、特處、客衣不計入業績。明細會標示判定路線、來源，以及未歸屬的原因。</p>
+<p class="text-sm text-gray-500 font-bold mt-1">有指派負責司機時，以物流簽收查帳台的指派為準；沒有指派時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，日航制服單獨對到較長的關鍵字），再沿用「司機排班表」該路線生效日當天或之前最近一筆司機，不必每天重填。每次按開始計算都會重讀這兩張表。回洗、特處、客衣不計入業績。明細會標示判定路線、來源，以及未歸屬的原因。</p>
 </div>
 <div class="flex flex-col sm:flex-row sm:items-end gap-3">
 <label class="block text-sm font-black text-indigo-900">統計起始日
@@ -577,6 +577,13 @@ if (cachedDriverSchedule?.ready && cachedDriverSchedule.routes && cachedDriverSc
 }
 function persistDriverSchedule() {
     writeLocalJson(LOCAL_CACHE_KEYS.driverSchedule, { at: Date.now(), ready: true, routes: sheetRoutes, schedules: sheetSchedules });
+}
+function financeMasterCacheFresh() {
+    return !!(financeMasterFetchedAt && Date.now() - financeMasterFetchedAt < MASTER_CACHE_MS && priceCatalogReady());
+}
+async function refreshDriverRoutesFromSheet() {
+    try { applyDriverMasterRows(await readSheetPrices()); }
+    catch (err) { console.warn('路線與排班讀取失敗，沿用上次成功的路線與排班', err); }
 }
 function applyDriverMasterRows(json) {
     if (!json || typeof json !== 'object') return;
@@ -2662,15 +2669,12 @@ if (periodLabel) periodLabel.textContent = `📅 統計區間：${startDate} ～
 
 try {
 const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
+const priceCacheFresh = financeMasterCacheFresh();
 await Promise.all([
     ensurePricingRules().catch(err => console.warn('春節／回饋設定稍後再試', err)),
     ensureEffectivePrices(),
-    syncMasterDataFromSheet()
+    priceCacheFresh ? refreshDriverRoutesFromSheet() : syncMasterDataFromSheet()
 ]);
-if (!driverScheduleReady) {
-    try { applyDriverMasterRows(await readSheetPrices()); }
-    catch (err) { console.warn('路線與排班讀取失敗，只計算已指派的司機', err); }
-}
 
 currentDriverStats = {};
 currentUnassignedStats = { totalAmt: 0, details: [] };
