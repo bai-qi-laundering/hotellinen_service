@@ -2,18 +2,11 @@
 // 測試機 https://webtest.einvoice.com.tw/einv/<path>
 // 正式機 https://web.einvoice.com.tw/einv/<path>
 //
-// 簽章結論（對過範例 PDF，沒有打正式或測試主機）：
-// 規格寫「用 APIKey 將 createDateTime 做 Shar256 簽章，再 BASE64」。
-// 範例裡 /openInvoice 與 /getInvoiceAssignNo 的 createDateTime 都是
-// 20190820042311，signatureValue 也完全相同，reqData 卻不同，所以簽的是
-// createDateTime，不是整包 JSON。
-// 範例 signatureValue 解 base64 是 32 bytes，符合 SHA-256。
-// 實作採用 HMAC-SHA256，金鑰是 APIKey（UTF-8）、訊息是 createDateTime（UTF-8），
-// 輸出 base64。這和規格文字以及公開的汎宇 Web API 用戶端一致。
-// 範例 PDF 沒有附 APIKey。用範例密碼 A15989995（auth 的 base64 原文）做 HMAC，
-// 或對 createDateTime 做純 SHA-256，都對不上範例的 signatureValue。
-// 因此演算法可以確定是「只簽時間、再 base64」，但位元組要等汎宇提供 APIKey
-// 或一組已知向量才能核對。
+// 汎宇確認的簽章（只簽時間，不簽整包 JSON，也不用 AESKEY）：
+// signature = Base64( HMAC-SHA256( key = UTF-8(APIKEY), message = UTF-8(createDateTime) ) )
+// createDateTime 是 Asia/Taipei 的 yyyy/MM/dd HH:mm:ss，例如 2026/07/01 17:22:08。
+// Base64 用標準字元（+ 與 /）並保留尾端 =，不是 URL-safe。
+// 送出請求裡的 createDateTime 與拿去算簽章的字串是同一段。
 
 import { createHmac } from 'node:crypto';
 
@@ -21,14 +14,7 @@ export const DEFAULT_COMPANY_ID = '96842769';
 export const TEST_HOST = 'https://webtest.einvoice.com.tw/einv';
 export const PROD_HOST = 'https://web.einvoice.com.tw/einv';
 
-const EXAMPLE_SIGNATURES = {
-    '20190820042311': '4lgHKW+oJafFLpPTDmmXXS9sOjkYZQFmJo20OZdzuDg=',
-    '20190820042837': 'Dvq0tNzoQGjB7h/D0Sj+u886jyt7D3bdm/bFxEjDyE0=',
-};
-
-export function exampleSignature(createDateTime) {
-    return EXAMPLE_SIGNATURES[createDateTime] || '';
-}
+const CREATE_DATE_TIME = /^\d{4}\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/;
 
 export function hostForEnv(env) {
     return String(env || '').trim().toLowerCase() === 'prod' ? PROD_HOST : TEST_HOST;
@@ -54,7 +40,7 @@ export function taipeiDateTime(date = new Date()) {
     const minute = get('minute');
     const second = get('second');
     return {
-        createDateTime: `${year}${month}${day}${hour}${minute}${second}`,
+        createDateTime: `${year}/${month}/${day} ${hour}:${minute}:${second}`,
         isoDate: `${year}-${month}-${day}`,
         ymd: `${year}${month}${day}`,
     };
@@ -68,8 +54,8 @@ export function signatureValue(apiKey, createDateTime) {
     const key = String(apiKey ?? '');
     const message = String(createDateTime ?? '');
     if (!key) throw new Error('電子發票 APIKey 未設定。');
-    if (!/^\d{14}$/.test(message)) throw new Error('createDateTime 必須是台北時間 14 碼。');
-    return createHmac('sha256', key).update(message, 'utf8').digest('base64');
+    if (!CREATE_DATE_TIME.test(message)) throw new Error('createDateTime 必須是台北時間 yyyy/MM/dd HH:mm:ss。');
+    return createHmac('sha256', Buffer.from(key, 'utf8')).update(Buffer.from(message, 'utf8')).digest('base64');
 }
 
 export function normalizeCreds(creds) {
