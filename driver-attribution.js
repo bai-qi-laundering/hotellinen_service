@@ -1,7 +1,8 @@
-// 司機業績歸屬：手動指派優先，否則用試算表路線關鍵字，再沿用該路線生效日當天或之前最近一筆排班。
-// logistics_records.driverSource 為 manual，或舊資料已有 assignedDriver 但沒有 driverSource，以後台司機為準，不自動覆蓋。
-// driverSource 為 schedule，或還沒有司機，則用當下排班重算。
-// planDriverWritebacks 只產出「排班有司機、且欄位與目前不同」的回寫；回洗、特處、客衣不回寫。
+// 司機業績歸屬：手動指派優先（含手動鎖定為未指派），否則司機有簽名才用試算表路線關鍵字，
+// 再沿用該路線生效日當天或之前最近一筆排班。沒有 driverSig 或為空的單不自動歸屬。
+// logistics_records.driverSource 為 manual，或舊資料已有 assignedDriver 但沒有 driverSource，以後台為準，不自動覆蓋。
+// driverSource 為 schedule 且司機已簽名，則用當下排班重算。先前由排班寫入、但司機還沒簽名的，清成沒有司機。
+// planDriverWritebacks 只產出欄位有變動的回寫（排班結果，或清掉未簽名的舊排班）；回洗、特處、客衣不回寫。
 // 路線以飯店為單位：hotelKeyword 與 deptName 拼在一起比對，同一家飯店的各部門落在同一條路線。
 // 關鍵字可用半形逗號、全形逗號、頓號分隔；比對時去掉空白、連字號與換行，且不分大小寫。
 // 較長的關鍵字優先，所以「日航制服」會贏過「日航」，與路線在表上的順序無關。
@@ -16,9 +17,12 @@ export const DRIVER_SOURCE_SCHEDULE = '排班表';
 export const UNATTRIBUTED_NO_ROUTE = '對不到路線';
 export const UNATTRIBUTED_NO_SCHEDULE = '路線尚未排班';
 export const UNATTRIBUTED_NO_DATA = '無排班資料載入';
+export const UNATTRIBUTED_UNSIGNED = '司機未簽名';
+export const UNATTRIBUTED_MANUAL_UNASSIGNED = '手動設為未指派';
 export const DRIVER_RECORD_MANUAL = 'manual';
 export const DRIVER_RECORD_SCHEDULE = 'schedule';
 export const RESTORE_SCHEDULE_CHOICE = '__restore_schedule__';
+export const MANUAL_UNASSIGNED_CHOICE = '__manual_unassigned__';
 export const DRIVER_WRITE_BATCH_LIMIT = 500;
 
 const DRIVER_FIELD_KEYS = ['assignedDriver', 'driverSource', 'driverRoute', 'driverEffectiveDate'];
@@ -198,15 +202,43 @@ export function driverFieldsUnchanged(record, fields) {
     return DRIVER_FIELD_KEYS.every(key => cleanSheetCell(record?.[key]) === cleanSheetCell(fields[key]));
 }
 
+export function hasDriverSignature(driverSig) {
+    return !!cleanSheetCell(driverSig);
+}
+
+export function manualUnassignedFields() {
+    return {
+        assignedDriver: '',
+        driverSource: DRIVER_RECORD_MANUAL,
+        driverRoute: '',
+        driverEffectiveDate: '',
+    };
+}
+
+function clearedScheduleFields() {
+    return { assignedDriver: '', driverSource: '', driverRoute: '', driverEffectiveDate: '' };
+}
+
 export function manualDriverPatch(driverName) {
     const name = cleanSheetCell(driverName);
-    if (!name || name === RESTORE_SCHEDULE_CHOICE) return null;
+    if (!name || name === RESTORE_SCHEDULE_CHOICE || name === MANUAL_UNASSIGNED_CHOICE) return null;
     return {
         assignedDriver: name,
         driverSource: DRIVER_RECORD_MANUAL,
         driverRoute: '',
         driverEffectiveDate: '',
     };
+}
+
+// 查帳台司機欄的小標籤：手動未指派也標「手動」；沒有司機簽名另標「未簽名」。
+export function driverStatusLabels(record = {}) {
+    const labels = [];
+    const source = storedDriverSource(record);
+    const name = cleanSheetCell(record?.assignedDriver);
+    if (source === DRIVER_RECORD_MANUAL) labels.push('手動');
+    else if (source === DRIVER_RECORD_SCHEDULE && name) labels.push('排班');
+    if (!hasDriverSignature(record?.driverSig)) labels.push('未簽名');
+    return labels;
 }
 
 // 搬單或補建物流單時保留來源。只有名字、沒有來源的舊資料會帶成 manual。
@@ -253,11 +285,17 @@ function scheduleFieldsFromAttribution(attribution) {
     };
 }
 
-// 自動回寫只在排班算得出司機、而且和目前欄位不同時才有內容。手動與對不到路線／沒排班回傳 null。
+// 已簽名才回寫排班司機。沒簽名不自動歸屬；若先前是排班寫入的，清成沒有司機。手動鎖（含未指派）不覆蓋。
+// 對不到路線、沒排班、回洗特處客衣回傳 null。欄位已經一樣也回傳 null。
 export function driverWritebackFields(record, context = {}) {
     if (!record || record.manualDeletedReceipt) return null;
     if (isDriverPerformanceExcluded({ hotelKeyword: record.hotelKeyword, deptName: record.deptName })) return null;
     if (storedDriverSource(record) === DRIVER_RECORD_MANUAL) return null;
+    if (!hasDriverSignature(record.driverSig)) {
+        if (storedDriverSource(record) !== DRIVER_RECORD_SCHEDULE) return null;
+        const fields = clearedScheduleFields();
+        return driverFieldsUnchanged(record, fields) ? null : fields;
+    }
     const attribution = scheduleAttribution(record, context);
     if (!attribution.driver || attribution.source !== DRIVER_SOURCE_SCHEDULE) return null;
     const fields = scheduleFieldsFromAttribution(attribution);
@@ -276,14 +314,17 @@ export function planDriverWritebacks(records, context = {}) {
     return plans;
 }
 
-// 手動改回未指派，或點「恢復排班」：清掉手動鎖，改回當下排班。已經一樣就不必再寫。
+// 「恢復排班」：清掉手動鎖，改回當下排班。司機未簽名則沒有司機。已經一樣就不必再寫。
 export function scheduleReleasePatch(record, context = {}) {
     const excluded = isDriverPerformanceExcluded({ hotelKeyword: record?.hotelKeyword, deptName: record?.deptName });
-    // 排班表沒讀到時不要清掉現有司機，避免按「恢復排班」把手動指定抹掉。
-    if (!excluded && context.schedulesLoaded === false) return null;
     let fields;
     if (excluded) {
         fields = { assignedDriver: '', driverSource: DRIVER_RECORD_SCHEDULE, driverRoute: '', driverEffectiveDate: '' };
+    } else if (!hasDriverSignature(record?.driverSig)) {
+        fields = clearedScheduleFields();
+    } else if (context.schedulesLoaded === false) {
+        // 排班表沒讀到時不要清掉已簽名的手動司機。
+        return null;
     } else {
         const computed = driverWritebackFields({
             ...record,
@@ -298,9 +339,15 @@ export function scheduleReleasePatch(record, context = {}) {
     return driverFieldsUnchanged(record, fields) ? null : fields;
 }
 
+// 空值或「未指派」是手動鎖成沒有司機。只有「恢復排班」才清掉手動鎖。
 export function driverChoicePatch(record, choice, context = {}) {
     const value = cleanSheetCell(choice);
-    if (!value || value === RESTORE_SCHEDULE_CHOICE) return scheduleReleasePatch(record, context);
+    if (value === RESTORE_SCHEDULE_CHOICE) return scheduleReleasePatch(record, context);
+    if (!value || value === MANUAL_UNASSIGNED_CHOICE) {
+        const fields = manualUnassignedFields();
+        return driverFieldsUnchanged(record, fields) ? null : fields;
+    }
+    if (value.startsWith('__')) return null;
     const fields = manualDriverPatch(value);
     if (!fields || driverFieldsUnchanged(record, fields)) return null;
     return fields;
@@ -332,7 +379,8 @@ export async function commitDriverWritebacks(plans, deps = {}) {
     return written;
 }
 
-export function attributeDriver({ assignedDriver, driverSource, hotelKeyword, deptName, date, routes, schedules, schedulesLoaded = true } = {}) {
+export function attributeDriver(input = {}) {
+    const { assignedDriver, driverSource, hotelKeyword, deptName, date, routes, schedules, schedulesLoaded = true } = input;
     const route = matchRoute(hotelKeyword, deptName, routes);
     const manualName = cleanSheetCell(assignedDriver);
     const sourceKind = cleanSheetCell(driverSource);
@@ -342,9 +390,13 @@ export function attributeDriver({ assignedDriver, driverSource, hotelKeyword, de
             driver: manualName || null,
             route,
             source: DRIVER_SOURCE_MANUAL,
-            reason: null,
+            reason: manualName ? null : UNATTRIBUTED_MANUAL_UNASSIGNED,
             effectiveDate: '',
         };
+    }
+    // 有傳 driverSig 才檢查簽名。沒傳的舊呼叫維持只看排班，避免路線測試被簽名閘門擋下。
+    if (Object.prototype.hasOwnProperty.call(input, 'driverSig') && !hasDriverSignature(input.driverSig)) {
+        return { driver: null, route, source: null, reason: UNATTRIBUTED_UNSIGNED, effectiveDate: '' };
     }
     if (route === UNASSIGNED_ROUTE) {
         return { driver: null, route, source: null, reason: UNATTRIBUTED_NO_ROUTE, effectiveDate: '' };

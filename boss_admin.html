@@ -384,7 +384,7 @@
         import { isRestaurant, outletKey, restaurantInventoryRows, correctedOutletGroups, outletCorrectionPatch } from './outlet-corrections.js?v=20261112';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
         import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
-        import { parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks, driverChoicePatch, driverWritebackFields, copiedDriverFields, storedDriverSource, RESTORE_SCHEDULE_CHOICE } from './driver-attribution.js?v=20261113-driver-writeback';
+        import { parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks, driverChoicePatch, driverWritebackFields, copiedDriverFields, storedDriverSource, driverStatusLabels, isDriverPerformanceExcluded, RESTORE_SCHEDULE_CHOICE, MANUAL_UNASSIGNED_CHOICE } from './driver-attribution.js?v=20261113-unsigned-lock';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -474,13 +474,12 @@
         }
 
         function driverSourceTag(record) {
-            const source = storedDriverSource(record);
-            const name = String(record?.assignedDriver || '').trim();
-            if (!name || source === 'manual') {
-                return name ? '<span class="inline-block mt-1 text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">手動</span>' : '';
-            }
-            if (source === 'schedule') return '<span class="inline-block mt-1 text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-300">排班</span>';
-            return '';
+            return driverStatusLabels(record).map(label => {
+                if (label === '手動') return '<span class="inline-block text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">手動</span>';
+                if (label === '排班') return '<span class="inline-block text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-300">排班</span>';
+                if (label === '未簽名') return '<span class="inline-block text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-300">未簽名</span>';
+                return '';
+            }).join('');
         }
 
         let invRecords = []; let invFiltered = []; 
@@ -1080,6 +1079,7 @@
                             driverSource: d.driverSource,
                             driverRoute: d.driverRoute,
                             driverEffectiveDate: d.driverEffectiveDate,
+                            driverSig: d.driverSig,
                             hotelKeyword: d.hotelKeyword,
                             deptName: d.deptName,
                             date: dDate
@@ -1274,7 +1274,7 @@
                         const fields = byId.get(record.id);
                         if (fields) Object.assign(record, fields);
                     });
-                    showToast(`已回寫 ${driverPlans.length} 張排班司機`);
+                    showToast(`已更新 ${driverPlans.length} 張物流單的負責司機`);
                 })().catch(err => {
                     console.error('排班司機回寫失敗', err);
                     showToast('排班司機沒有全部回寫，請稍後再載入');
@@ -1518,14 +1518,23 @@
                     </tr>
                 `}).join('');
 
+                const driverNameNow = String(r.assignedDriver || '').trim();
+                const manualLockedBlank = storedDriverSource(r) === 'manual' && !driverNameNow;
+                const unassignedPlaceholder = !driverNameNow && !manualLockedBlank
+                    ? `<option value="__keep_driver__" selected disabled hidden>-- 未指派 --</option>`
+                    : '';
+                const driverTone = driverNameNow
+                    ? 'text-indigo-700 bg-indigo-50 border-indigo-300 shadow-sm'
+                    : (manualLockedBlank ? 'text-amber-800 bg-amber-50 border-amber-300 shadow-sm' : 'text-gray-500 bg-gray-50 hover:bg-gray-100');
                 let driverSelectHtml = `
-                    <div class="flex flex-col items-stretch" onclick="event.stopPropagation()">
-                    <select class="border border-gray-300 rounded px-2 py-1.5 font-bold text-sm outline-none transition-colors w-full cursor-pointer ${r.assignedDriver ? 'text-indigo-700 bg-indigo-50 border-indigo-300 shadow-sm' : 'text-gray-500 bg-gray-50 hover:bg-gray-100'}" onchange="updateDriver('${r.id}', this.value, event)">
-                        <option value="">-- 未指派 --</option>
+                    <div class="flex flex-col items-stretch gap-1" onclick="event.stopPropagation()">
+                    <select class="border border-gray-300 rounded px-2 py-1.5 font-bold text-sm outline-none transition-colors w-full cursor-pointer ${driverTone}" onchange="updateDriver('${r.id}', this.value, event)">
+                        ${unassignedPlaceholder}
+                        <option value="${MANUAL_UNASSIGNED_CHOICE}" ${manualLockedBlank ? 'selected' : ''}>-- 未指派 --</option>
                         <option value="${RESTORE_SCHEDULE_CHOICE}">恢復排班</option>
                         ${driverOptionList(r.assignedDriver).map(d => `<option value="${escapeAttr(d)}" ${r.assignedDriver === d ? 'selected' : ''}>${escapeAttr(d)}</option>`).join('')}
                     </select>
-                    ${driverSourceTag(r)}
+                    <span class="inline-flex flex-wrap gap-1">${driverSourceTag(r)}</span>
                     </div>
                 `;
 
@@ -1606,8 +1615,10 @@
             const localRecord = logRecords.find(r => r.id === docId);
             const fields = driverChoicePatch(localRecord || { id: docId }, driverName, driverScheduleContext());
             if (!fields) {
-                const releasing = !String(driverName || '').trim() || driverName === RESTORE_SCHEDULE_CHOICE;
-                showToast(releasing && !driverScheduleReady ? '排班表還沒讀到，沒有改負責司機' : '負責司機沒有變更');
+                const restoring = driverName === RESTORE_SCHEDULE_CHOICE;
+                const signed = !!String(localRecord?.driverSig || '').trim();
+                const excluded = isDriverPerformanceExcluded({ hotelKeyword: localRecord?.hotelKeyword, deptName: localRecord?.deptName });
+                showToast(restoring && !driverScheduleReady && signed && !excluded ? '排班表還沒讀到，沒有改負責司機' : '負責司機沒有變更');
                 applyLogFilters();
                 return;
             }
@@ -1640,8 +1651,8 @@
                 
                 if (localRecord) Object.assign(localRecord, fields);
                 const toast = fields.driverSource === 'manual'
-                    ? `✅ 已手動指定：${fields.assignedDriver}`
-                    : (fields.assignedDriver ? `✅ 已恢復排班：${fields.assignedDriver}` : '已恢復排班，目前沒有可沿用的司機');
+                    ? (fields.assignedDriver ? `✅ 已手動指定：${fields.assignedDriver}` : '✅ 已手動鎖定為未指派')
+                    : (fields.assignedDriver ? `✅ 已恢復排班：${fields.assignedDriver}` : (fields.driverSource ? '已恢復排班，目前沒有可沿用的司機' : '已恢復排班，司機未簽名，沒有自動歸屬'));
                 showToast(toast);
                 applyLogFilters();
 
@@ -1664,7 +1675,8 @@
                 const modal = document.getElementById('customModal');
                 document.getElementById('modalTitle').innerHTML = '🚚 批量指派司機';
                 
-                let options = `<option value="${RESTORE_SCHEDULE_CHOICE}">恢復排班</option>` + 
+                let options = `<option value="${RESTORE_SCHEDULE_CHOICE}" selected>恢復排班</option>` +
+                              `<option value="${MANUAL_UNASSIGNED_CHOICE}">-- 未指派 --</option>` +
                               DRIVER_LIST.map(d => `<option value="${d}">${d}</option>`).join('');
                 
                 document.getElementById('modalBody').innerHTML = `
@@ -1696,7 +1708,10 @@
 
                     const fields = driverChoicePatch(r, driverName, driverScheduleContext());
                     if (!fields) {
-                        if ((!String(driverName || '').trim() || driverName === RESTORE_SCHEDULE_CHOICE) && !driverScheduleReady) scheduleUnread = true;
+                        const restoring = driverName === RESTORE_SCHEDULE_CHOICE;
+                        const signed = !!String(r.driverSig || '').trim();
+                        const excluded = isDriverPerformanceExcluded({ hotelKeyword: r.hotelKeyword, deptName: r.deptName });
+                        if (restoring && !driverScheduleReady && signed && !excluded) scheduleUnread = true;
                         continue;
                     }
                     changed += 1;
@@ -2770,7 +2785,12 @@
                         exportData.push({
                             "日期": r.date,
                             "飯店/部門": r.hotel,
-                            "負責司機": r.assignedDriver ? `${r.assignedDriver}（${storedDriverSource(r) === 'manual' ? '手動' : '排班'}）` : "未指派",
+                            "負責司機": (() => {
+                                const tags = driverStatusLabels(r);
+                                const name = String(r.assignedDriver || '').trim();
+                                if (name) return tags.length ? `${name}（${tags.join('、')}）` : name;
+                                return tags.length ? `未指派（${tags.join('、')}）` : '未指派';
+                            })(),
                             "品項": item.itemName,
                             "百麒數量": item.bqQty || 0,
                             "實收數量": item.actualQty || 0
