@@ -7,6 +7,9 @@ import {
     UNASSIGNED_ROUTE, DRIVER_SOURCE_MANUAL, DRIVER_SOURCE_SCHEDULE,
     UNATTRIBUTED_NO_DATA, UNATTRIBUTED_NO_ROUTE, UNATTRIBUTED_NO_SCHEDULE,
     normalizeRouteName,
+    storedDriverSource, planDriverWritebacks, driverWritebackFields, scheduleReleasePatch,
+    driverChoicePatch, commitDriverWritebacks, copiedDriverFields,
+    DRIVER_RECORD_MANUAL, DRIVER_RECORD_SCHEDULE, RESTORE_SCHEDULE_CHOICE,
 } from './driver-attribution.js';
 
 const routeRows = [
@@ -181,11 +184,14 @@ test('回洗、特處、客衣不計入司機業績，重洗與一般房務仍�
     assert.equal(isDriverPerformanceExcluded({ itemName: '衣服' }), false);
 });
 
-test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，其餘計價維持不變', () => {
+test('finance.html 司機業績以手動為最終，排班則重算並只回寫有變動的單', () => {
     const html = fs.readFileSync(new URL('./finance.html', import.meta.url), 'utf8');
     const fn = html.slice(html.indexOf('async function calculateDriverPerformance()'), html.indexOf('function renderDriverCards()'));
     assert.match(fn, /attributeDriver\(/);
     assert.match(fn, /assignedDriver:\s*d\.assignedDriver/);
+    assert.match(fn, /driverSource:\s*d\.driverSource/);
+    assert.match(fn, /planDriverWritebacks\(/);
+    assert.match(fn, /commitDriverWritebacks\(driverPlans, \{ writeBatch, doc, db \}\)/);
     assert.match(fn, /routes:\s*sheetRoutes/);
     assert.match(fn, /schedules:\s*sheetSchedules/);
     assert.match(fn, /schedulesLoaded:\s*driverScheduleReady/);
@@ -214,6 +220,8 @@ test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，
     assert.match(html, /判定路線/);
     assert.match(html, /<th[^>]*>來源<\/th>/);
     assert.match(html, /後台指派/);
+    assert.match(html, /排班表 · 自 \$\{r\.effectiveDate\}/);
+    assert.match(html, /後台指派' \? '手動'/);
     assert.match(html, /排班表/);
     assert.match(html, /0\.029/);
     assert.match(html, /parseRouteSheet\(json\.routes\)/);
@@ -221,6 +229,13 @@ test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，
     assert.match(html, /baiqi_driver_schedule_v2/);
     const admin = fs.readFileSync(new URL('./boss_admin.html', import.meta.url), 'utf8');
     assert.match(admin, /柯柏丞/);
+    assert.match(admin, /恢復排班/);
+    assert.match(admin, /planDriverWritebacks\(/);
+    assert.match(admin, /commitDriverWritebacks\(/);
+    assert.match(admin, /driverChoicePatch\(/);
+    assert.match(admin, /loadDriverSchedule\(/);
+    assert.match(admin, />排班</);
+    assert.match(admin, />手動</);
 });
 
 const ownerScheduleRows = [
@@ -311,4 +326,120 @@ test('飯店只依試算表關鍵字歸屬，程式不內建路線或飯店清�
         assert.equal(source.includes(name), false);
         assert.equal(page.includes(name), false);
     }
+});
+
+const writeRoutes = parseRouteSheet([
+    ['路線名稱', '包含飯店關鍵字'],
+    ['5739', '巨蛋, 驛館'],
+    ['5939', '帕鉑'],
+]);
+const writeSchedules = parseScheduleSheet([
+    ['日期', '司機', '路線'],
+    ['2026/11/01', '柯柏丞', 5739],
+    ['2026/11/10', '新司機', 5739],
+    ['2026/11/01', '朱韋豪', 5939],
+]);
+const writeContext = { routes: writeRoutes, schedules: writeSchedules, schedulesLoaded: true };
+
+test('driverSource 為 manual 時用指定司機；schedule 則用當下排班，不沿用單上的舊名字', () => {
+    const manual = attributeDriver({
+        assignedDriver: '後台小王', driverSource: 'manual',
+        hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12', ...writeContext,
+    });
+    assert.equal(manual.driver, '後台小王');
+    assert.equal(manual.source, DRIVER_SOURCE_MANUAL);
+
+    const scheduled = attributeDriver({
+        assignedDriver: '柯柏丞', driverSource: 'schedule',
+        hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12', ...writeContext,
+    });
+    assert.equal(scheduled.driver, '新司機');
+    assert.equal(scheduled.source, DRIVER_SOURCE_SCHEDULE);
+    assert.equal(scheduled.effectiveDate, '2026-11-10');
+    assert.equal(scheduled.route, '5739');
+});
+
+test('回寫只針對排班有變動的單；手動、舊資料、回洗特處客衣、對不到路線都不寫', () => {
+    const legacy = { id: 'old', assignedDriver: '後台小王', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' };
+    assert.equal(storedDriverSource(legacy), DRIVER_RECORD_MANUAL);
+    assert.equal(driverWritebackFields(legacy, writeContext), null);
+
+    const manual = { ...legacy, id: 'manual', driverSource: 'manual' };
+    assert.equal(driverWritebackFields(manual, writeContext), null);
+    assert.equal(storedDriverSource({ driverSource: 'manual', assignedDriver: '' }), DRIVER_RECORD_MANUAL);
+
+    const blank = { id: 'blank', assignedDriver: '', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' };
+    assert.deepEqual(driverWritebackFields(blank, writeContext), {
+        assignedDriver: '新司機', driverSource: 'schedule', driverRoute: '5739', driverEffectiveDate: '2026-11-10',
+    });
+
+    const stale = { id: 'stale', assignedDriver: '柯柏丞', driverSource: 'schedule', driverRoute: '5739', driverEffectiveDate: '2026-11-01', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' };
+    assert.equal(driverWritebackFields(stale, writeContext).assignedDriver, '新司機');
+
+    const same = { id: 'same', assignedDriver: '新司機', driverSource: 'schedule', driverRoute: '5739', driverEffectiveDate: '2026-11-10', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' };
+    assert.equal(driverWritebackFields(same, writeContext), null);
+
+    for (const deptName of ['回洗', '特處', '客衣']) {
+        assert.equal(driverWritebackFields({ id: deptName, assignedDriver: '', hotelKeyword: '巨蛋', deptName, date: '2026-11-12' }, writeContext), null);
+    }
+    assert.equal(driverWritebackFields({ id: 'none', assignedDriver: '', hotelKeyword: '不知名', deptName: '房務', date: '2026-11-12' }, writeContext), null);
+    assert.equal(driverWritebackFields({ id: 'early', assignedDriver: '', hotelKeyword: '帕鉑', deptName: '房務', date: '2026-10-01' }, writeContext), null);
+    assert.equal(driverWritebackFields({ id: 'deleted', manualDeletedReceipt: true, assignedDriver: '', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' }, writeContext), null);
+    assert.equal(driverWritebackFields(blank, { ...writeContext, schedulesLoaded: false }), null);
+
+    const plans = planDriverWritebacks([
+        legacy, manual, blank, stale, same,
+        { id: '客衣', assignedDriver: '', hotelKeyword: '然一', deptName: '客衣', date: '2026-11-12' },
+        { assignedDriver: '', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' },
+    ], writeContext);
+    assert.deepEqual(plans.map(plan => plan.id), ['blank', 'stale']);
+
+    const updated = { ...stale, ...plans.find(plan => plan.id === 'stale').fields };
+    assert.equal(planDriverWritebacks([updated], writeContext).length, 0);
+});
+
+test('恢復排班會清掉手動鎖；已經是同一位排班司機就不再寫', () => {
+    const manual = { id: 'm', assignedDriver: '後台小王', driverSource: 'manual', hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-12' };
+    const released = scheduleReleasePatch(manual, writeContext);
+    assert.equal(released.assignedDriver, '新司機');
+    assert.equal(released.driverSource, DRIVER_RECORD_SCHEDULE);
+    assert.equal(driverChoicePatch(manual, '', writeContext).driverSource, DRIVER_RECORD_SCHEDULE);
+    assert.equal(driverChoicePatch(manual, RESTORE_SCHEDULE_CHOICE, writeContext).assignedDriver, '新司機');
+    assert.equal(scheduleReleasePatch({ ...manual, ...released }, writeContext), null);
+    assert.equal(scheduleReleasePatch(manual, { ...writeContext, schedulesLoaded: false }), null);
+
+    const choice = driverChoicePatch(manual, '鄭弘裕', writeContext);
+    assert.deepEqual(choice, { assignedDriver: '鄭弘裕', driverSource: 'manual', driverRoute: '', driverEffectiveDate: '' });
+    assert.equal(driverChoicePatch({ ...manual, ...choice }, '鄭弘裕', writeContext), null);
+
+    const guest = scheduleReleasePatch({ assignedDriver: '後台小王', driverSource: 'manual', hotelKeyword: '然一', deptName: '客衣', date: '2026-11-12' }, writeContext);
+    assert.deepEqual(guest, { assignedDriver: '', driverSource: 'schedule', driverRoute: '', driverEffectiveDate: '' });
+    assert.deepEqual(copiedDriverFields(manual), { assignedDriver: '後台小王', driverSource: 'manual', driverRoute: '', driverEffectiveDate: '' });
+    assert.equal(copiedDriverFields(released).driverSource, 'schedule');
+});
+
+test('回寫用 batch，每批最多 500，而且不讀 Firestore', async () => {
+    const commits = [];
+    const reads = [];
+    const writeBatch = () => {
+        const ops = [];
+        return {
+            set(ref, data, options) { ops.push({ ref, data, options }); },
+            async commit() { commits.push(ops); },
+        };
+    };
+    const doc = (_db, name, id) => ({ name, id });
+    const plans = Array.from({ length: 501 }, (_, index) => ({
+        id: `doc-${index}`,
+        fields: { assignedDriver: '新司機', driverSource: 'schedule', driverRoute: '5739', driverEffectiveDate: '2026-11-10' },
+    }));
+    const written = await commitDriverWritebacks(plans, { writeBatch, doc, db: {}, getDoc: () => reads.push('read') });
+    assert.equal(written, 501);
+    assert.equal(reads.length, 0);
+    assert.equal(commits.length, 2);
+    assert.equal(commits[0].length, 500);
+    assert.equal(commits[1].length, 1);
+    assert.equal(commits[0][0].ref.name, 'logistics_records');
+    assert.deepEqual(commits[0][0].options, { merge: true });
+    assert.equal(await commitDriverWritebacks([], { writeBatch, doc, db: {} }), 0);
 });
