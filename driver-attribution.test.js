@@ -5,6 +5,8 @@ import {
     scheduleDate, parseRouteSheet, parseScheduleSheet, attributeDriver, hotelRouteText,
     isDriverPerformanceExcluded,
     UNASSIGNED_ROUTE, DRIVER_SOURCE_MANUAL, DRIVER_SOURCE_SCHEDULE,
+    UNATTRIBUTED_NO_DATA, UNATTRIBUTED_NO_ROUTE, UNATTRIBUTED_NO_SCHEDULE,
+    normalizeRouteName,
 } from './driver-attribution.js';
 
 const routeRows = [
@@ -69,7 +71,7 @@ test('有指派司機時以後台為準，否則用當日排班，兩邊都沒�
         routes,
         schedules,
     });
-    assert.deepEqual(manual, { driver: '後台小王', route: '南區', source: DRIVER_SOURCE_MANUAL });
+    assert.deepEqual(manual, { driver: '後台小王', route: '南區', source: DRIVER_SOURCE_MANUAL, reason: null, effectiveDate: '' });
 
     const scheduled = attributeDriver({
         assignedDriver: '',
@@ -79,7 +81,7 @@ test('有指派司機時以後台為準，否則用當日排班，兩邊都沒�
         routes,
         schedules,
     });
-    assert.deepEqual(scheduled, { driver: '小張', route: '南區', source: DRIVER_SOURCE_SCHEDULE });
+    assert.deepEqual(scheduled, { driver: '小張', route: '南區', source: DRIVER_SOURCE_SCHEDULE, reason: null, effectiveDate: '2026-08-13' });
 
     const blankManual = attributeDriver({
         assignedDriver: '   ',
@@ -100,7 +102,7 @@ test('有指派司機時以後台為準，否則用當日排班，兩邊都沒�
         routes,
         schedules,
     });
-    assert.deepEqual(unmatched, { driver: null, route: UNASSIGNED_ROUTE, source: null });
+    assert.deepEqual(unmatched, { driver: null, route: UNASSIGNED_ROUTE, source: null, reason: UNATTRIBUTED_NO_ROUTE, effectiveDate: '' });
 
     const routeOnly = attributeDriver({
         hotelKeyword: '承億',
@@ -111,14 +113,22 @@ test('有指派司機時以後台為準，否則用當日排班，兩邊都沒�
     });
     assert.equal(routeOnly.route, '南區');
     assert.equal(routeOnly.driver, null);
+    assert.equal(routeOnly.reason, UNATTRIBUTED_NO_SCHEDULE);
+    const later = attributeDriver({
+        hotelKeyword: '承億', deptName: '房務', date: '2026-08-20', routes, schedules,
+    });
+    assert.equal(later.driver, '小張');
+    assert.equal(later.effectiveDate, '2026-08-13');
 });
 
 const ownerRoutes = [
     ['路線名稱', '包含飯店關鍵字'],
+    ['3109', '文一, 日航, 文旅, 好地方, 泊思行旅, 鼎王, 鉑麗'],
     ['3109-2', '富野, 秝芯, 癮室, 良一, 良西, 駱駝, 良站, 日航制服, 鴨點棧華夏'],
-    ['3109', '文一, 日航, 文旅, 好地方, 泊思行旅, 鴨點棧華夏, 鼎王, 鉑麗'],
-    ['5739', '歐遊, 洲際, 巨蛋, 驛館, 捷中正, 天子閣'],
+    ['5939', '帕鉑, 頭等艙, 鈞怡, 捷站前, 比歐, 然一, 喜達絲'],
+    ['6759', '英迪格, 承億, 林森, 文七, 好六, 花季, 媚力泊'],
     ['9739', '宮賞, 家和, 秝二, 侯工所, 河畔, 老新, 永心, 福客來, 鴨點棧明誠, 高盧, H2O'],
+    ['5739', '歐遊, 洲際, 巨蛋, 驛館, 捷中正, 天子閣'],
 ];
 
 test('日航制服比日航長，所以贏過路線順序；同一家飯店的其他部門仍走日航', () => {
@@ -134,25 +144,23 @@ test('日航制服比日航長，所以贏過路線順序；同一家飯店的�
     const manualUniform = attributeDriver({
         assignedDriver: '後台小王', hotelKeyword: '日航', deptName: '制服', date: '2026-11-02', routes, schedules: {},
     });
-    assert.deepEqual(manualUniform, { driver: '後台小王', route: '3109-2', source: DRIVER_SOURCE_MANUAL });
+    assert.deepEqual(manualUniform, { driver: '後台小王', route: '3109-2', source: DRIVER_SOURCE_MANUAL, reason: null, effectiveDate: '' });
     const yiguanRooms = attributeDriver({ hotelKeyword: '驛館', deptName: '房務', routes, schedules: {} });
     const yiguanRestaurant = attributeDriver({ hotelKeyword: '驛館', deptName: '餐廳', routes, schedules: {} });
     assert.equal(yiguanRooms.route, '5739');
     assert.equal(yiguanRestaurant.route, '5739');
 });
 
-test('鴨點棧華夏兩邊一樣長時，試算表上先列出的路線贏', () => {
-    const laterPlateFirst = parseRouteSheet(ownerRoutes);
-    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧華夏', deptName: '房務', routes: laterPlateFirst, schedules: {} }).route, '3109-2');
-    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧明誠', deptName: '房務', routes: laterPlateFirst, schedules: {} }).route, '9739');
-    const ownerOrder = parseRouteSheet([
-        ownerRoutes[0],
-        ownerRoutes[2],
-        ownerRoutes[1],
-        ownerRoutes[3],
-        ownerRoutes[4],
+test('鴨點棧華夏只在 3109-2；一樣長的關鍵字仍由試算表先列出的路線贏', () => {
+    const routes = parseRouteSheet(ownerRoutes);
+    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧華夏', deptName: '房務', routes, schedules: {} }).route, '3109-2');
+    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧明誠', deptName: '房務', routes, schedules: {} }).route, '9739');
+    const tied = parseRouteSheet([
+        ['路線名稱', '包含飯店關鍵字'],
+        ['3109', '君悅, 北區'],
+        ['後排', '君悅, 南區'],
     ]);
-    assert.equal(attributeDriver({ hotelKeyword: '鴨點棧華夏', deptName: '房務', routes: ownerOrder, schedules: {} }).route, '3109');
+    assert.equal(attributeDriver({ hotelKeyword: '君悅', deptName: '房務', routes: tied, schedules: {} }).route, '3109');
 });
 
 test('回洗、特處、客衣不計入司機業績，重洗與一般房務仍要算', () => {
@@ -180,6 +188,9 @@ test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，
     assert.match(fn, /assignedDriver:\s*d\.assignedDriver/);
     assert.match(fn, /routes:\s*sheetRoutes/);
     assert.match(fn, /schedules:\s*sheetSchedules/);
+    assert.match(fn, /schedulesLoaded:\s*driverScheduleReady/);
+    assert.match(fn, /reason:\s*attribution\.reason/);
+    assert.match(html, /未歸屬原因/);
     assert.match(fn, /manualDeletedReceipt/);
     assert.match(fn, /isDriverPerformanceExcluded\(\{ hotelKeyword: d\.hotelKeyword, deptName: d\.deptName \}\)/);
     assert.match(fn, /isDriverPerformanceExcluded\(\{ itemName: item\.itemName \}\)/);
@@ -203,4 +214,93 @@ test('finance.html 司機業績同時用指派與排班，不寫回 Firestore，
     assert.match(html, /parseRouteSheet\(json\.routes\)/);
     assert.match(html, /parseScheduleSheet\(json\.schedules\)/);
     assert.match(html, /baiqi_driver_schedule_v2/);
+    const admin = fs.readFileSync(new URL('./boss_admin.html', import.meta.url), 'utf8');
+    assert.match(admin, /柯柏丞/);
+});
+
+const ownerScheduleRows = [
+    ['日期', '司機', '路線'],
+    ['2026/11/01', '劉硯茹', 3109],
+    ['2026/11/01', '吳宏鴻', '3109-2'],
+    ['2026/11/01', '朱韋豪', 5939],
+    ['2026/11/01', '鄭弘裕', 6759],
+    ['2026/11/01', '羅金賢', 9739],
+    ['2026/11/01', '柯柏丞', 5739],
+];
+
+test('斜線日期與 UTC 位移都正規化成台北的 YYYY-MM-DD，路線用去空白字串比對', () => {
+    assert.equal(scheduleDate('2026/11/01'), '2026-11-01');
+    assert.equal(scheduleDate(new Date('2026-10-31T16:00:00.000Z')), '2026-11-01');
+    assert.equal(normalizeRouteName(3109), '3109');
+    assert.equal(normalizeRouteName(' 3109-2 '), '3109-2');
+    assert.equal(normalizeRouteName(5939.0), '5939');
+    assert.equal(normalizeRouteName('3109/2/1'), '3109-2');
+    assert.equal(normalizeRouteName('2026/11/01'), '2026/11/01');
+    const schedules = parseScheduleSheet(ownerScheduleRows);
+    assert.equal(schedules['2026-11-01']['3109'], '劉硯茹');
+    assert.equal(schedules['2026-11-01']['3109-2'], '吳宏鴻');
+    assert.equal(schedules['2026-11-01']['5739'], '柯柏丞');
+    assert.deepEqual(Object.keys(schedules['2026-11-01']).sort(), ['3109', '3109-2', '5739', '5939', '6759', '9739']);
+});
+
+test('排班列是生效日起沿用，早於該路線第一列的紀錄不歸屬', () => {
+    const routes = parseRouteSheet(ownerRoutes);
+    const schedules = parseScheduleSheet(ownerScheduleRows);
+    const papo = attributeDriver({ hotelKeyword: '帕鉑', deptName: '房務', date: '2026-11-05', routes, schedules });
+    const egg = attributeDriver({ hotelKeyword: '巨蛋', deptName: '房務', date: '2026/11/02', routes, schedules });
+    const tianzi = attributeDriver({ hotelKeyword: '天子閣', deptName: '餐廳', date: new Date('2026-10-31T16:00:00.000Z'), routes, schedules });
+    assert.equal(papo.driver, '朱韋豪');
+    assert.equal(papo.route, '5939');
+    assert.equal(papo.source, DRIVER_SOURCE_SCHEDULE);
+    assert.equal(papo.effectiveDate, '2026-11-01');
+    assert.equal(egg.driver, '柯柏丞');
+    assert.equal(egg.route, '5739');
+    assert.equal(tianzi.driver, '柯柏丞');
+    assert.equal(tianzi.route, '5739');
+
+    const before = attributeDriver({ hotelKeyword: '帕鉑', deptName: '房務', date: '2026-10-31', routes, schedules });
+    assert.equal(before.driver, null);
+    assert.equal(before.route, '5939');
+    assert.equal(before.reason, UNATTRIBUTED_NO_SCHEDULE);
+
+    const replaced = parseScheduleSheet([
+        ...ownerScheduleRows,
+        ['2026/11/10', '新司機', 5739],
+    ]);
+    const stillKe = attributeDriver({ hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-09', routes, schedules: replaced });
+    const next = attributeDriver({ hotelKeyword: '巨蛋', deptName: '房務', date: '2026-11-10', routes, schedules: replaced });
+    assert.equal(stillKe.driver, '柯柏丞');
+    assert.equal(next.driver, '新司機');
+    assert.equal(next.effectiveDate, '2026-11-10');
+
+    const unknown = attributeDriver({ hotelKeyword: '不知名旅館', deptName: '房務', date: '2026-11-05', routes, schedules });
+    assert.equal(unknown.reason, UNATTRIBUTED_NO_ROUTE);
+    const unloaded = attributeDriver({
+        hotelKeyword: '帕鉑', deptName: '房務', date: '2026-11-05', routes, schedules: null, schedulesLoaded: false,
+    });
+    assert.equal(unloaded.reason, UNATTRIBUTED_NO_DATA);
+    assert.equal(unloaded.driver, null);
+});
+
+test('物流上的飯店別名對得上路線表用字', () => {
+    const routes = parseRouteSheet(ownerRoutes);
+    const schedules = parseScheduleSheet(ownerScheduleRows);
+    const hou = attributeDriver({ hotelKeyword: '候工所', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const gao = attributeDriver({ hotelKeyword: '高廬', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const liang = attributeDriver({ hotelKeyword: '良站前', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const wen = attributeDriver({ hotelKeyword: '文旅一心館', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const hao = attributeDriver({ hotelKeyword: '好地方六合館', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const yan = attributeDriver({ hotelKeyword: '塩旅', deptName: '房務', date: '2026-11-03', routes, schedules });
+    const hua = attributeDriver({ hotelKeyword: '鴨點棧-華夏', deptName: '房務', date: '2026-11-03', routes, schedules });
+    assert.equal(hou.route, '9739');
+    assert.equal(hou.driver, '羅金賢');
+    assert.equal(gao.route, '9739');
+    assert.equal(liang.route, '3109-2');
+    assert.equal(liang.driver, '吳宏鴻');
+    assert.equal(wen.route, '3109');
+    assert.equal(hao.route, '6759');
+    assert.equal(hao.driver, '鄭弘裕');
+    assert.equal(yan.route, '3109');
+    assert.equal(yan.driver, '劉硯茹');
+    assert.equal(hua.route, '3109-2');
 });
