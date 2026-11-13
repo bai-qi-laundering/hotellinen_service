@@ -241,6 +241,10 @@
                 <span class="w-3 h-3 rounded-full bg-yellow-400"></span><span class="text-xs font-bold text-yellow-700 mr-2">未簽名</span>
                 <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span><span class="text-xs font-bold text-red-600 mr-2">修改數量</span>
                 <span class="w-3 h-3 rounded-full bg-green-500"></span><span class="text-xs font-bold text-green-700">正常已簽收</span>
+                <span class="ml-2 text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-300">排班</span>
+                <span class="text-[10px] font-bold text-indigo-700">自動帶入</span>
+                <span class="text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">手動</span>
+                <span class="text-[10px] font-bold text-amber-800">後台指定</span>
             </div>
         </div>
 
@@ -298,7 +302,7 @@
                             <th class="w-48"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">狀態 / 預定送達日</div><select id="fltLogDate" class="header-select w-full" onchange="applyLogFilters()"><option value="">單據日期 ▾</option></select></th>
                             <th class="w-40"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">對象</div><select id="fltLogHotel" class="header-select w-full" onchange="applyLogFilters()"><option value="">飯店/部門 ▾</option></select></th>
                             <!-- ★ 新增負責司機的表頭 -->
-                            <th class="w-32 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">車趟派發</div>負責司機</th>
+                            <th class="w-44 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">車趟派發</div>負責司機</th>
                             <th class="w-48 bg-emerald-800 border-l border-emerald-700"><div class="text-[11px] text-emerald-200 mb-0.5 font-normal">系統押印</div>簽收時間 (精確)</th>
                             <th class="w-48 bg-emerald-800 text-right pr-6">明細操作</th>
                         </tr>
@@ -380,6 +384,7 @@
         import { isRestaurant, outletKey, restaurantInventoryRows, correctedOutletGroups, outletCorrectionPatch } from './outlet-corrections.js?v=20261112';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
         import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
+        import { parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks, driverChoicePatch, driverWritebackFields, copiedDriverFields, storedDriverSource, RESTORE_SCHEDULE_CHOICE } from './driver-attribution.js?v=20261113-driver-writeback';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -432,8 +437,51 @@
             return snapshots;
         }
 
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         // ★ 寫死的司機名單
         const DRIVER_LIST = ["劉硯茹", "鄭人豪", "吳宏鴻", "朱韋豪", "鄭弘裕", "羅金賢", "柯柏丞"];
+        let sheetRoutes = [];
+        let sheetSchedules = {};
+        let driverScheduleReady = false;
+
+        function driverScheduleContext() {
+            return { routes: sheetRoutes, schedules: sheetSchedules, schedulesLoaded: driverScheduleReady };
+        }
+
+        async function loadDriverSchedule() {
+            driverScheduleReady = false;
+            try {
+                const res = await fetch(`${GAS_API_URL}?action=getFinanceMasterData`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+                if (!res.ok) throw new Error(`排班表 HTTP ${res.status}`);
+                const json = await res.json();
+                if (!json.success || !Array.isArray(json.routes) || !Array.isArray(json.schedules)) throw new Error(json.error || '排班表格式不完整');
+                sheetRoutes = parseRouteSheet(json.routes);
+                sheetSchedules = parseScheduleSheet(json.schedules);
+                driverScheduleReady = true;
+            } catch (err) {
+                sheetRoutes = [];
+                sheetSchedules = {};
+                driverScheduleReady = false;
+                console.warn('路線與排班讀取失敗，這次不回寫司機', err);
+            }
+        }
+
+        function driverOptionList(current) {
+            const name = String(current || '').trim();
+            const names = DRIVER_LIST.slice();
+            if (name && !names.includes(name)) names.push(name);
+            return names;
+        }
+
+        function driverSourceTag(record) {
+            const source = storedDriverSource(record);
+            const name = String(record?.assignedDriver || '').trim();
+            if (!name || source === 'manual') {
+                return name ? '<span class="inline-block mt-1 text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">手動</span>' : '';
+            }
+            if (source === 'schedule') return '<span class="inline-block mt-1 text-[10px] leading-none font-black px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-300">排班</span>';
+            return '';
+        }
 
         let invRecords = []; let invFiltered = []; 
         let logRecords = []; let logFiltered = []; 
@@ -836,7 +884,7 @@
                     timestamp: getLocalTimeString(new Date()),
                     forcedSync: true,
                     manualDeletedReceipt: false,
-                    assignedDriver: oldLogData?.assignedDriver || '',
+                    ...copiedDriverFields(oldLogData),
                     items: newItems
                 });
             }
@@ -981,7 +1029,8 @@
                 const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate);
                 const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
                     readLogPeriod,
-                    buildInventoryMapsForRange(startDate, endDate)
+                    buildInventoryMapsForRange(startDate, endDate),
+                    loadDriverSchedule()
                 ]);
 
                 latestInvRawDataMap = invRawDataMap;
@@ -992,7 +1041,8 @@
 
                 logRecords = [];
                 let processedLogKeys = new Set();
-                const logisticsRepairPromises = []; 
+                const logisticsRepairPromises = [];
+                const driverWriteRecords = []; 
 
                 // 1. 處理已存在的物流單據
                 uniqueDocs.forEach((docSnap) => {
@@ -1023,6 +1073,17 @@
                             });
                             return;
                         }
+
+                        driverWriteRecords.push({
+                            id: docSnap.id,
+                            assignedDriver: d.assignedDriver,
+                            driverSource: d.driverSource,
+                            driverRoute: d.driverRoute,
+                            driverEffectiveDate: d.driverEffectiveDate,
+                            hotelKeyword: d.hotelKeyword,
+                            deptName: d.deptName,
+                            date: dDate
+                        });
 
                         if (hotelKey && !hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) return;
 
@@ -1117,6 +1178,9 @@
                                 items: validItems,
                                 deletedBackupItems: Array.isArray(d.deletedBackupItems) ? d.deletedBackupItems : [],
                                 assignedDriver: d.assignedDriver || "",
+                                driverSource: d.driverSource || "",
+                                driverRoute: d.driverRoute || "",
+                                driverEffectiveDate: d.driverEffectiveDate || "",
                                 driverSig: d.driverSig || "",
                                 clientSig: d.clientSig || "",
                                 signDate: d.timestamp || "",
@@ -1155,6 +1219,13 @@
                                 return (a.itemName < b.itemName) ? -1 : 1;
                              });
 
+                             const scheduleFields = driverWritebackFields({
+                                id: standardId,
+                                assignedDriver: '',
+                                hotelKeyword: data.hotelKeyword,
+                                deptName: data.deptName,
+                                date: data.date
+                             }, driverScheduleContext()) || {};
                              logRecords.push({
                                 id: standardId, 
                                 date: data.date,
@@ -1163,7 +1234,10 @@
                                 hotel: data.hotelName,
                                 items: validItems,
                                 deletedBackupItems: [],
-                                assignedDriver: "",
+                                assignedDriver: scheduleFields.assignedDriver || "",
+                                driverSource: scheduleFields.driverSource || "",
+                                driverRoute: scheduleFields.driverRoute || "",
+                                driverEffectiveDate: scheduleFields.driverEffectiveDate || "",
                                 driverSig: "",
                                 clientSig: "",
                                 signDate: "",
@@ -1179,6 +1253,7 @@
                                 timestamp: "",
                                 forcedSync: true,
                                 assignedDriver: "",
+                                ...scheduleFields,
                                 items: validItems.map(i => ({
                                     itemName: i.itemName,
                                     originalQty: String(i.bqQty),
@@ -1190,7 +1265,24 @@
                          }
                      }
                 }
-                if (newReceiptPromises.length) await Promise.allSettled(newReceiptPromises);
+                const driverPlans = planDriverWritebacks(driverWriteRecords, driverScheduleContext());
+                const writebackPromise = (async () => {
+                    if (!driverPlans.length) return;
+                    await commitDriverWritebacks(driverPlans, { writeBatch, doc, db });
+                    const byId = new Map(driverPlans.map(plan => [plan.id, plan.fields]));
+                    logRecords.forEach(record => {
+                        const fields = byId.get(record.id);
+                        if (fields) Object.assign(record, fields);
+                    });
+                    showToast(`已回寫 ${driverPlans.length} 張排班司機`);
+                })().catch(err => {
+                    console.error('排班司機回寫失敗', err);
+                    showToast('排班司機沒有全部回寫，請稍後再載入');
+                });
+                await Promise.all([
+                    newReceiptPromises.length ? Promise.allSettled(newReceiptPromises) : null,
+                    writebackPromise
+                ]);
 
                 logRecords.sort((a, b) => {
                     if (a.date < b.date) return -1; if (a.date > b.date) return 1;
@@ -1427,10 +1519,14 @@
                 `}).join('');
 
                 let driverSelectHtml = `
-                    <select class="border border-gray-300 rounded px-2 py-1.5 font-bold text-sm outline-none transition-colors w-full cursor-pointer ${r.assignedDriver ? 'text-indigo-700 bg-indigo-50 border-indigo-300 shadow-sm' : 'text-gray-500 bg-gray-50 hover:bg-gray-100'}" onchange="updateDriver('${r.id}', this.value, event)" onclick="event.stopPropagation()">
+                    <div class="flex flex-col items-stretch" onclick="event.stopPropagation()">
+                    <select class="border border-gray-300 rounded px-2 py-1.5 font-bold text-sm outline-none transition-colors w-full cursor-pointer ${r.assignedDriver ? 'text-indigo-700 bg-indigo-50 border-indigo-300 shadow-sm' : 'text-gray-500 bg-gray-50 hover:bg-gray-100'}" onchange="updateDriver('${r.id}', this.value, event)">
                         <option value="">-- 未指派 --</option>
-                        ${DRIVER_LIST.map(d => `<option value="${d}" ${r.assignedDriver === d ? 'selected' : ''}>${d}</option>`).join('')}
+                        <option value="${RESTORE_SCHEDULE_CHOICE}">恢復排班</option>
+                        ${driverOptionList(r.assignedDriver).map(d => `<option value="${escapeAttr(d)}" ${r.assignedDriver === d ? 'selected' : ''}>${escapeAttr(d)}</option>`).join('')}
                     </select>
+                    ${driverSourceTag(r)}
+                    </div>
                 `;
 
                 return `
@@ -1507,40 +1603,46 @@
         // ★ 單筆指派司機
         window.updateDriver = async function(docId, driverName, e) {
             if(e) e.stopPropagation();
+            const localRecord = logRecords.find(r => r.id === docId);
+            const fields = driverChoicePatch(localRecord || { id: docId }, driverName, driverScheduleContext());
+            if (!fields) {
+                const releasing = !String(driverName || '').trim() || driverName === RESTORE_SCHEDULE_CHOICE;
+                showToast(releasing && !driverScheduleReady ? '排班表還沒讀到，沒有改負責司機' : '負責司機沒有變更');
+                applyLogFilters();
+                return;
+            }
             try {
                 const docRef = doc(db, 'logistics_records', docId);
                 const docSnap = await getDoc(docRef);
                 
                 if (docSnap.exists()) {
-                    await setDoc(docRef, { assignedDriver: driverName }, { merge: true });
-                } else {
-                    let logRecord = logRecords.find(item => item.id === docId);
-                    if (logRecord) {
-                        await setDoc(docRef, {
-                            date: logRecord.date,
-                            hotelKeyword: logRecord.hotelKeyword,
-                            deptName: logRecord.deptName || "房務",
-                            clientSig: "",
-                            driverSig: "",
-                            timestamp: getLocalTimeString(new Date()),
-                            forcedSync: true,
-                            items: logRecord.items.map(i => ({
-                                itemName: i.itemName,
-                                ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
-                                originalQty: String(i.bqQty),
-                                actualQty: String(i.actualQty),
-                                auntNote: "",
-                                driverNote: "後台派車同步建立"
-                            })),
-                            assignedDriver: driverName
-                        });
-                    }
+                    await setDoc(docRef, fields, { merge: true });
+                } else if (localRecord) {
+                    await setDoc(docRef, {
+                        date: localRecord.date,
+                        hotelKeyword: localRecord.hotelKeyword,
+                        deptName: localRecord.deptName || "房務",
+                        clientSig: "",
+                        driverSig: "",
+                        timestamp: getLocalTimeString(new Date()),
+                        forcedSync: true,
+                        items: localRecord.items.map(i => ({
+                            itemName: i.itemName,
+                            ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
+                            originalQty: String(i.bqQty),
+                            actualQty: String(i.actualQty),
+                            auntNote: "",
+                            driverNote: "後台派車同步建立"
+                        })),
+                        ...fields
+                    });
                 }
                 
-                showToast(`✅ 已更新負責司機：${driverName || '未指派'}`);
-                
-                let localRecord = logRecords.find(r => r.id === docId);
-                if(localRecord) localRecord.assignedDriver = driverName;
+                if (localRecord) Object.assign(localRecord, fields);
+                const toast = fields.driverSource === 'manual'
+                    ? `✅ 已手動指定：${fields.assignedDriver}`
+                    : (fields.assignedDriver ? `✅ 已恢復排班：${fields.assignedDriver}` : '已恢復排班，目前沒有可沿用的司機');
+                showToast(toast);
                 applyLogFilters();
 
             } catch (err) {
@@ -1562,7 +1664,7 @@
                 const modal = document.getElementById('customModal');
                 document.getElementById('modalTitle').innerHTML = '🚚 批量指派司機';
                 
-                let options = `<option value="">-- 取消指派 (清空) --</option>` + 
+                let options = `<option value="${RESTORE_SCHEDULE_CHOICE}">恢復排班</option>` + 
                               DRIVER_LIST.map(d => `<option value="${d}">${d}</option>`).join('');
                 
                 document.getElementById('modalBody').innerHTML = `
@@ -1585,16 +1687,25 @@
             showToast(`⏳ 正在批量指派司機...`);
 
             try {
+                let changed = 0;
+                let scheduleUnread = false;
                 for (let cb of selectedCheckboxes) {
                     const docId = cb.dataset.id;
                     const r = logRecords.find(item => item.id === docId);
                     if (!r) continue;
 
+                    const fields = driverChoicePatch(r, driverName, driverScheduleContext());
+                    if (!fields) {
+                        if ((!String(driverName || '').trim() || driverName === RESTORE_SCHEDULE_CHOICE) && !driverScheduleReady) scheduleUnread = true;
+                        continue;
+                    }
+                    changed += 1;
+
                     const docRef = doc(db, 'logistics_records', docId);
                     const docSnap = await getDoc(docRef);
                     
                     if (docSnap.exists()) {
-                        await setDoc(docRef, { assignedDriver: driverName }, { merge: true });
+                        await setDoc(docRef, fields, { merge: true });
                     } else {
                         await setDoc(docRef, {
                             date: r.date,
@@ -1612,12 +1723,12 @@
                                 auntNote: "",
                                 driverNote: "後台批量派車建立"
                             })),
-                            assignedDriver: driverName
+                            ...fields
                         });
                     }
-                    r.assignedDriver = driverName;
+                    Object.assign(r, fields);
                 }
-                showToast("✅ 批量派車完成！");
+                showToast(changed ? "✅ 批量派車完成！" : (scheduleUnread ? '排班表還沒讀到，沒有改負責司機' : '負責司機沒有變更'));
                 applyLogFilters();
             } catch (err) {
                 console.error(err);
@@ -1836,7 +1947,7 @@
                             deptName: local.deptName || '房務',
                             items,
                             forcedSync: true,
-                            assignedDriver: local.assignedDriver || '',
+                            ...copiedDriverFields(local),
                             timestamp: getLocalTimeString(new Date()),
                             clientSig: '',
                             driverSig: ''
@@ -2292,7 +2403,7 @@
                     if (snap.exists()) tx.update(docRef, {items});
                     else tx.set(docRef, {date: local.date, hotelKeyword: local.hotelKeyword,
                         deptName: local.deptName || '房務', items, forcedSync: true,
-                        assignedDriver: local.assignedDriver || '', timestamp: getLocalTimeString(new Date()),
+                        ...copiedDriverFields(local), timestamp: getLocalTimeString(new Date()),
                         clientSig: '', driverSig: ''});
                 });
                 lastLogFetchKey = '';
@@ -2615,7 +2726,7 @@
                     });
                     
                     let updateData = { items: finalItems, forcedSync: true, manualDeletedReceipt: false };
-                    if (assignedDriver) updateData.assignedDriver = assignedDriver;
+                    if (assignedDriver) Object.assign(updateData, driverChoicePatch({ assignedDriver: '', driverSource: '' }, assignedDriver, driverScheduleContext()) || { assignedDriver });
                     await setDoc(logDocRef, updateData, { merge: true });
                 } else {
                     await setDoc(logDocRef, {
@@ -2627,7 +2738,7 @@
                         timestamp: getLocalTimeString(new Date()),
                         forcedSync: true,
                         manualDeletedReceipt: false,
-                        assignedDriver: assignedDriver,
+                        ...(assignedDriver ? (driverChoicePatch({ assignedDriver: '', driverSource: '' }, assignedDriver, driverScheduleContext()) || { assignedDriver }) : { assignedDriver: '' }),
                         items: itemsToAdd
                     });
                 }
@@ -2659,7 +2770,7 @@
                         exportData.push({
                             "日期": r.date,
                             "飯店/部門": r.hotel,
-                            "負責司機": r.assignedDriver || "未指派",
+                            "負責司機": r.assignedDriver ? `${r.assignedDriver}（${storedDriverSource(r) === 'manual' ? '手動' : '排班'}）` : "未指派",
                             "品項": item.itemName,
                             "百麒數量": item.bqQty || 0,
                             "實收數量": item.actualQty || 0
