@@ -554,6 +554,26 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(index, /UEC_API_KEY/);
     assert.match(index, /UEC_COMPANY_ID/);
     assert.match(index, /UEC_ENV/);
+    assert.match(index, /defineString\('SIGNATURE_FUNCTION_REGION', \{ default: 'asia-east1' \}\)/);
+    assert.equal(index.includes("defineString('FUNCTION_REGION'"), false);
+    assert.match(readme, /SIGNATURE_FUNCTION_REGION=asia-east1/);
+    assert.match(readme, /`FUNCTION_REGION` 是 Firebase 保留的環境變數名/);
+    assert.match(readme, /artifacts cleanup policy/);
+    assert.match(deployDoc, /AUTO_STATEMENTS_ENABLED=false/);
+    assert.match(deployDoc, /SIGNATURE_FUNCTION_REGION=asia-east1/);
+    assert.match(deployDoc, /`FUNCTION_REGION` 是 Firebase 保留的環境變數名/);
+    assert.match(deployDoc, /artifacts cleanup policy/);
+    const finance = readFileSync(new URL('../../../finance.html', import.meta.url), 'utf8');
+    const gasUrl = finance.match(/const GAS_API_URL = "([^"]+)"/)[1];
+    const envFile = readFileSync(new URL('../.env.hotel-inventory-3a1ad', import.meta.url), 'utf8');
+    const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
+    for (const contents of [envFile, example]) {
+        const lines = contents.split('\n');
+        assert.equal(lines.includes('AUTO_STATEMENTS_ENABLED=false'), true);
+        assert.equal(lines.includes('SIGNATURE_FUNCTION_REGION=asia-east1'), true);
+        assert.equal(lines.includes(`FINANCE_MASTER_URL=${gasUrl}`), true);
+        assert.equal(lines.some(line => line.startsWith('FUNCTION_REGION=')), false);
+    }
     const schedule = index.slice(index.indexOf('export const autoStatementOnBillingDay'), index.indexOf('function staffEmail'));
     assert.equal(schedule.includes('issueStatement'), false);
     assert.equal(schedule.includes('openInvoice'), false);

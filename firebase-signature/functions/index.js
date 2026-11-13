@@ -18,7 +18,8 @@ initializeApp();
 const db = getFirestore();
 const enabled = defineBoolean('AUTO_STATEMENTS_ENABLED', { default: false });
 const masterUrl = defineString('FINANCE_MASTER_URL');
-const region = defineString('FUNCTION_REGION', { default: 'asia-east1' });
+// FUNCTION_REGION 是 Firebase 保留名稱，不能寫進 .env，非互動部署會失敗。
+const region = defineString('SIGNATURE_FUNCTION_REGION', { default: 'asia-east1' });
 const uecUserId = defineSecret('UEC_USER_ID');
 const uecAuth = defineSecret('UEC_AUTH');
 const uecApiKey = defineSecret('UEC_API_KEY');
