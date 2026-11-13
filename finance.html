@@ -385,7 +385,7 @@ body { background: white; padding: 0; margin: 0; }
 <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
 <div>
 <h3 class="font-black text-indigo-900 text-xl flex items-center gap-2">🚚 司機業績自動核算台</h3>
-<p class="text-sm text-gray-500 font-bold mt-1">有指派負責司機時，以物流簽收查帳台的指派為準；沒有指派時，用試算表「路線設定表」的飯店關鍵字對上路線，再以「司機排班表」當天的司機計算。明細會標示判定路線，以及來源是後台指派或排班表。</p>
+<p class="text-sm text-gray-500 font-bold mt-1">有指派負責司機時，以物流簽收查帳台的指派為準；沒有指派時，用試算表「路線設定表」的飯店關鍵字對上路線（同一家飯店各部門同一條路線，日航制服單獨對到較長的關鍵字），再以「司機排班表」當天的司機計算。回洗、特處、客衣不計入業績。明細會標示判定路線，以及來源是後台指派或排班表。</p>
 </div>
 <div class="flex flex-col sm:flex-row sm:items-end gap-3">
 <label class="block text-sm font-black text-indigo-900">統計起始日
@@ -514,7 +514,7 @@ import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parseP
 import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
-import { attributeDriver, parseRouteSheet, parseScheduleSheet } from './driver-attribution.js?v=20261113-driver-schedule';
+import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet } from './driver-attribution.js?v=20261113-driver-route-length';
 
 const firebaseConfig = {
 apiKey: "AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4",
@@ -559,7 +559,7 @@ const LOCAL_CACHE_KEYS = {
     financeMaster: 'baiqi_finance_master_v3',
     pricingRules: 'baiqi_pricing_rules_v2',
     itemOrder: 'baiqi_item_order_v2',
-    driverSchedule: 'baiqi_driver_schedule_v1'
+    driverSchedule: 'baiqi_driver_schedule_v2'
 };
 function readLocalJson(key) {
     try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
@@ -2682,7 +2682,7 @@ if (dDate >= startDate && dDate <= endDate) {
 let hotelName = d.hotelKeyword || "未命名飯店";
 if(d.deptName && d.deptName !== d.hotelKeyword) hotelName += ` ${d.deptName}`;
 
-if (hotelName.includes("回洗") || (d.deptName && d.deptName.includes("回洗"))) return;
+if (isDriverPerformanceExcluded({ hotelKeyword: d.hotelKeyword, deptName: d.deptName })) return;
 
 // 後台已指派的負責司機優先；沒有指派才用路線關鍵字與當日排班。只計算，不寫回單據。
 const attribution = attributeDriver({
@@ -2696,7 +2696,7 @@ const attribution = attributeDriver({
 const driverName = attribution.driver;
 billingReceiptItems(d).forEach(item => {
 const actual = resolveItemBillingQty(item);
-if (actual > 0 && !String(item.itemName).includes("回洗")) {
+if (actual > 0 && !isDriverPerformanceExcluded({ itemName: item.itemName })) {
 let price = reportRecordPrice({
     hotel: hotelName, item: item.itemName, date: dDate,
     parentCompany: d.hotelKeyword || hotelName,

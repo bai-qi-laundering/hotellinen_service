@@ -1,6 +1,9 @@
 // 司機業績歸屬：後台指派優先，否則用試算表路線關鍵字與當日排班。
-// 只做計算，不寫回 Firestore。路線比對沿用 2026-08 的規則：
-// 飯店關鍵字可用半形逗號、全形逗號、頓號分隔；比對時去掉空白與換行，且不分大小寫，先列出的路線先贏。
+// 只做計算，不寫回 Firestore。
+// 路線以飯店為單位：hotelKeyword 與 deptName 拼在一起比對，同一家飯店的各部門落在同一條路線。
+// 關鍵字可用半形逗號、全形逗號、頓號分隔；比對時去掉空白與換行，且不分大小寫。
+// 較長的關鍵字優先，所以「日航制服」會贏過「日航」，與路線在表上的順序無關。
+// 一樣長時，試算表上先列出的路線贏（鴨點棧華夏同時在 3109 與 3109-2 時，3109 在前就歸 3109）。
 // 排班日期沿用當時的修正：Apps Script 若把試算表日期編成 UTC（例如 2024-05-11T16:00:00.000Z），
 // 那是台灣時間的隔天（2024-05-12），不能直接取 Z 前面的日期。
 
@@ -43,17 +46,22 @@ export function scheduleDate(value) {
 }
 
 export function parseRouteSheet(rows) {
-    const routes = {};
+    const routes = [];
     (rows || []).forEach((row, index) => {
         if (index === 0 || !Array.isArray(row)) return;
-        const routeName = cleanSheetCell(row[0]);
+        const name = cleanSheetCell(row[0]);
         const keywords = String(row[1] ?? '')
             .split(/[,，、]/)
             .map(keyword => keyword.replace(/[\r\n\t]/g, '').trim())
             .filter(Boolean);
-        if (routeName && keywords.length) routes[routeName] = keywords;
+        if (name && keywords.length) routes.push({ name, keywords });
     });
     return routes;
+}
+
+function routeList(routes) {
+    if (Array.isArray(routes)) return routes;
+    return Object.entries(routes || {}).map(([name, keywords]) => ({ name, keywords }));
 }
 
 export function parseScheduleSheet(rows) {
@@ -84,14 +92,35 @@ function compactKey(value) {
 export function matchRoute(hotelKeyword, deptName, routes) {
     const hotelKey = compactKey(hotelRouteText(hotelKeyword, deptName));
     if (!hotelKey) return UNASSIGNED_ROUTE;
-    for (const [routeName, keywords] of Object.entries(routes || {})) {
-        const hit = (keywords || []).some(keyword => {
+    let bestRoute = '';
+    let bestLength = 0;
+    for (const route of routeList(routes)) {
+        const routeName = route?.name;
+        const keywords = route?.keywords;
+        let routeLength = 0;
+        for (const keyword of keywords || []) {
             const key = compactKey(keyword);
-            return key && hotelKey.includes(key);
-        });
-        if (hit) return routeName;
+            if (key && hotelKey.includes(key) && key.length > routeLength) routeLength = key.length;
+        }
+        if (routeLength > bestLength) {
+            bestRoute = routeName;
+            bestLength = routeLength;
+        }
     }
-    return UNASSIGNED_ROUTE;
+    return bestRoute || UNASSIGNED_ROUTE;
+}
+
+// 物流單上的回洗、特處、客衣不計入司機業績（整張部門單或單一品項皆同）。
+// 回洗沿用原本的品名／部門判斷。特處是 deptName「特處」或「特處部」，品名也常以「特處」開頭。
+// 客衣是各飯店的部門（deptName 含「客衣」，例如然一＋客衣），不是另一套品名規則。
+export function isDriverPerformanceExcluded({ hotelKeyword, deptName, itemName } = {}) {
+    const marked = value => {
+        const text = String(value ?? '');
+        return text.includes('回洗') || text.includes('特處') || text.includes('客衣');
+    };
+    if (itemName != null && marked(itemName)) return true;
+    if (hotelKeyword == null && deptName == null) return false;
+    return marked(hotelKeyword) || marked(deptName) || marked(hotelRouteText(hotelKeyword, deptName));
 }
 
 export function attributeDriver({ assignedDriver, hotelKeyword, deptName, date, routes, schedules } = {}) {
