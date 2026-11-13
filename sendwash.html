@@ -174,7 +174,11 @@ $('title').onclick=()=>{
  if(titleClicks>=5){titleClicks=0;adminMode=!adminMode;$('adminBanner').hidden=!adminMode;if(currentMode==='reconcile')loadReconcile();else load();}
 };
 
-const back=new URL('logistics.html',location.href); if(hotel) back.searchParams.set('hotel',hotel); if(params.get('date')) back.searchParams.set('date',params.get('date')); $('back').href=back;
+const back=new URL('logistics.html',location.href);
+const receiptHotel=['承億健身房','承億休閒'].includes(hotel) ? '承億' : hotel;
+if(receiptHotel) back.searchParams.set('hotel',receiptHotel);
+if(params.get('date')) back.searchParams.set('date',params.get('date'));
+$('back').href=back;
 const rawLocked=record=>Boolean(record?.acceptedAt || Object.keys(record?.receivedItems || {}).length);
 const locked=record=>!adminMode && rawLocked(record);
 function disable(value){$('department').disabled=value;$('sourceDate').disabled=value;$('submit').disabled=value;for(const id of ['extraItemName','addExtraItem'])$(id).disabled=value||locked(current)||!rows.length;}

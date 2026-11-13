@@ -4,7 +4,7 @@ const rows=['制服','藝術','餐廳(全日餐廳)','BARPOOL','BARKAO','仕女�
 function fixture(hotel='承億'){
  const deferred=[],timers=new Map();let nextTimer=0,renders=0;
  const element=tag=>({tag,children:[],textContent:'',append(child){this.children.push(child);},replaceChildren(){this.children=[];}}),container=element('div');
- const context=vm.createContext({currentHotel:hotel,location:{href:'https://fixture.local/logistics.html?hotel='+encodeURIComponent(hotel)},URL,document:{getElementById:id=>id==='sendwashLinks'?container:null,createElement:element,querySelectorAll:()=>[{dataset:{sendwashDept:'BARKAO'}}]},console:{warn(){}},db:{},doc:(_,collection,id)=>({collection,id}),getDocFromServer:ref=>{assert.equal(ref.id,'master_template');return new Promise((resolve,reject)=>deferred.push({resolve,reject}));},setTimeout:(callback,ms)=>{assert.equal(ms,8000);timers.set(++nextTimer,callback);return nextTimer;},clearTimeout:id=>timers.delete(id),renderDepartments:()=>renders++,dataReady:false,groupedData:{},masterTemplate:[],globalItemOrder:{},sendwashSettings:[],sendwashSettingsLoaded:false,sendwashSettingsError:'',templateLoadSequence:0});
+ const context=vm.createContext({currentHotel:hotel,currentDate:'2026-11-12',location:{href:'https://fixture.local/logistics.html?hotel='+encodeURIComponent(hotel)},URL,document:{getElementById:id=>id==='sendwashLinks'?container:null,createElement:element,querySelectorAll:()=>[{dataset:{sendwashDept:'BARKAO'}}]},console:{warn(){}},db:{},doc:(_,collection,id)=>({collection,id}),getDocFromServer:ref=>{assert.equal(ref.id,'master_template');return new Promise((resolve,reject)=>deferred.push({resolve,reject}));},setTimeout:(callback,ms)=>{assert.equal(ms,8000);timers.set(++nextTimer,callback);return nextTimer;},clearTimeout:id=>timers.delete(id),renderDepartments:()=>renders++,dataReady:false,groupedData:{},masterTemplate:[],globalItemOrder:{},sendwashSettings:[],sendwashSettingsLoaded:false,sendwashSettingsError:'',templateLoadSequence:0});
  vm.runInContext(source.slice(source.indexOf('        function withReadTimeout('),source.indexOf('        function escapeHtml('))+source.slice(source.indexOf('        function loadReceiptTemplate('),source.indexOf('        async function init('))+source.slice(source.indexOf('        function renderSendwashLinks('),source.indexOf('        function extractQty(')),context);
  const all=()=>{const visit=node=>[node,...node.children.flatMap(visit)];return visit(container);};
  return{context,container,deferred,timers,all,links:()=>all().filter(node=>node.tag==='a'),get renders(){return renders;},resolve(index,settings=rows){deferred[index].resolve({exists:()=>true,data:()=>({items:settings.map(row=>({hotel:row.hotel+' '+row.department,item:row.item})),sendwashSettings:settings})});}};
@@ -32,4 +32,21 @@ test('an empty date clears old groups so a late template cannot restore the prio
  const f=fixture();f.context.dataReady=true;f.context.groupedData={BARKAO:{items:[{itemName:'過漿口布'}]}};const get=f.context.document.getElementById,departments={innerHTML:''};f.context.document.getElementById=id=>id==='departmentsContainer'?departments:get(id);
  vm.runInContext(source.slice(source.indexOf('        function processAndRenderData('),source.indexOf('        function handleQtyChange(')),f.context);f.context.processAndRenderData([]);assert.equal(Object.keys(f.context.groupedData).length,0);
  const wait=f.context.loadReceiptTemplate();f.resolve(0);await wait;assert.equal(f.renders,0);assert.equal(f.links().length,11);
+});
+
+test('Cheng Yi gym and leisure return to the full receipt on the selected date',async()=>{
+ const f=fixture(),wait=f.context.loadReceiptTemplate();f.resolve(0);await wait;
+ const page=fs.readFileSync('sendwash.html','utf8');
+ const script=page.slice(page.indexOf("const back=new URL('logistics.html'"),page.indexOf("$('back').href=back;")+"$('back').href=back;".length);
+ function backFor(href){
+  const location={href:String(href)},params=new URL(location.href).searchParams,anchor={};
+  vm.runInNewContext(script,{URL,location,params,hotel:params.get('hotel'),$:()=>anchor});
+  return new URL(anchor.href);
+ }
+ for(const name of ['休閒','健身房']){
+  const href=f.links().find(link=>link.textContent===name).href;
+  assert.equal(new URL(href).searchParams.get('hotel'),'承億'+name);
+  const back=backFor(href);assert.equal(back.searchParams.get('hotel'),'承億');assert.equal(back.searchParams.get('date'),'2026-11-12');
+ }
+ assert.equal(backFor('https://fixture.local/sendwash.html?hotel=洲際').searchParams.get('hotel'),'洲際');
 });

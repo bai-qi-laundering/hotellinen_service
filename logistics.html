@@ -240,6 +240,7 @@
             if (signatureSaving) { document.getElementById('datePicker').value = currentDate; return; }
             closeSignModal();
             updateDateDisplay();
+            if (currentHotel === '承億') renderSendwashLinks();
             fetchData(false); 
         }
 
@@ -361,10 +362,11 @@
                 const grid=document.createElement('div');grid.className='grid grid-cols-2 gap-3 mb-4';
                 entries.forEach(row=>{
                     const link=document.createElement('a'),url=new URL('sendwash.html',location.href);url.searchParams.set('hotel',row.hotel);url.searchParams.set('department',row.department);
+                    if(currentDate) url.searchParams.set('date',currentDate);
                     link.href=url.href;link.textContent=row.department;link.className='flex items-center justify-center p-4 bg-white border-2 border-blue-200 text-blue-800 rounded-xl font-bold text-lg text-center break-words';grid.append(link);
                 });container.append(grid);
                 if(!entries.length){
-                    const link=document.createElement('a'),url=new URL('sendwash.html',location.href);url.searchParams.set('hotel',currentHotel);link.href=url.href;link.textContent='開啟承億送洗對點單';link.className='block my-3 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg text-center';container.append(link);
+                    const link=document.createElement('a'),url=new URL('sendwash.html',location.href);url.searchParams.set('hotel',currentHotel);if(currentDate)url.searchParams.set('date',currentDate);link.href=url.href;link.textContent='開啟承億送洗對點單';link.className='block my-3 p-4 bg-blue-600 text-white rounded-xl font-bold text-lg text-center';container.append(link);
                 }
                 if(!sendwashSettingsLoaded||sendwashSettingsError){
                     const status=document.createElement('p');status.textContent=sendwashSettingsError || '正在讀取各部門對點設定…';status.className='text-base text-gray-600 mb-3';container.append(status);
