@@ -120,7 +120,7 @@ npx --yes firebase-tools@latest functions:secrets:set EINVOICE_STAFF_EMAILS --pr
 
 - `UEC_USER_ID`：汎宇給的系統帳號。
 - `UEC_AUTH`：汎宇給的密碼明碼。不要自己做 base64，程式送出前才編碼。
-- `UEC_API_KEY`：用來簽 `createDateTime` 的 APIKey。
+- `UEC_API_KEY`：用來簽 `createDateTime` 的 APIKey。不是 AESKEY。
 - `UEC_COMPANY_ID`：賣方統編。百麒填 `96842769`。空白時程式也用這個統編。
 - `UEC_ENV`：先填 `test`。只有完整小寫或大寫的 `prod` 會改打正式機，`test`、空白或其他字都打測試機 `https://webtest.einvoice.com.tw/einv`。
 - `EINVOICE_STAFF_EMAILS`：可以開票的 Google 信箱，多個用逗號隔開。
@@ -144,4 +144,4 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 網頁上的送件中心假設函式在 `asia-east1`。若 `FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
 
-簽章是 HMAC-SHA256：金鑰為 `UEC_API_KEY`，訊息為台北時間 `YYYYMMDDHHMMSS` 的 `createDateTime`，結果再 base64 放進 `signatureValue`。範例 PDF 沒有附 APIKey，所以範例上的簽章值無法在這裡對回位元組；同一組 `createDateTime` 在範例的不同 API 得到相同簽章，表示簽的是時間而不是整包 JSON。
+簽章是標準 Base64 的 HMAC-SHA256：金鑰為 UTF-8 的 `UEC_API_KEY`（APIKey，不是 AESKEY），訊息為同一段送出的 `createDateTime`。時間是台北時區 `yyyy/MM/dd HH:mm:ss`，例如 `2026/07/01 17:22:08`，月日時分秒都補 0、24 小時制。給老闆照做的設定步驟在 `docs/uec-einvoice-deploy.md`。

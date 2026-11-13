@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, createHmac } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { quoteInvoice, splitTaxInclusive } from '../lib/einvoice-amount.js';
 import { payableAmount } from '../lib/statement-case.js';
@@ -8,7 +8,6 @@ import {
     buildEnvelope,
     cancelInvoicePayload,
     encodeAuth,
-    exampleSignature,
     hostForEnv,
     issuedFrom,
     openInvoicePayload,
@@ -113,36 +112,62 @@ test('含稅總額四捨五入後拆成未稅與 5% 稅，兩者加回總額', (
     assert.throws(() => quoteInvoice({ ...snapshot, profile: { name: '0000', taxId: '' } }), /不可為 0/);
 });
 
-test('簽章是 HMAC-SHA256(APIKey, createDateTime) 再 base64；範例 PDF 對不到位元組', () => {
+function hmacBase64(apiKey, createDateTime) {
+    return createHmac('sha256', Buffer.from(apiKey, 'utf8'))
+        .update(Buffer.from(createDateTime, 'utf8'))
+        .digest('base64');
+}
+
+test('簽章是標準 Base64 的 HMAC-SHA256，金鑰為 APIKey、訊息為台北時間字串', () => {
     assert.equal(encodeAuth('A15989995'), 'QTE1OTg5OTk1');
     assert.equal(Buffer.from('QTE1OTg5OTk1', 'base64').toString('utf8'), 'A15989995');
-    const exampleDt = '20190820042311';
-    const exampleSig = exampleSignature(exampleDt);
-    assert.equal(exampleSig, exampleSignature('20190820042311'));
-    assert.equal(Buffer.from(exampleSig, 'base64').length, 32);
-    assert.notEqual(exampleSig, exampleSignature('20190820042837'));
-    const plainSha = createHash('sha256').update(exampleDt).digest('base64');
-    const hmacPassword = createHmac('sha256', 'A15989995').update(exampleDt).digest('base64');
-    assert.notEqual(plainSha, exampleSig);
-    assert.notEqual(hmacPassword, exampleSig);
-    assert.equal(
-        signatureValue('unit-test-key', exampleDt),
-        createHmac('sha256', 'unit-test-key').update(exampleDt).digest('base64'),
+    const createDateTime = '2026/07/01 17:22:08';
+    const expected = 'cRpv1wXiuwJH82X9AA3jJ0QFM64TjFRmyt+HRh88KR0=';
+    assert.equal(hmacBase64('test-api-key', createDateTime), expected);
+    assert.equal(signatureValue('test-api-key', createDateTime), expected);
+    assert.equal(Buffer.from(expected, 'base64').length, 32);
+    assert.match(expected, /\+$|=$/);
+    assert.match(expected, /\+/);
+    assert.equal(expected.includes('-'), false);
+    assert.equal(expected.includes('_'), false);
+    assert.notEqual(
+        expected,
+        createHmac('sha256', Buffer.from('test-api-key', 'utf8')).update(Buffer.from(createDateTime, 'utf8')).digest('base64url'),
     );
+    assert.notEqual(signatureValue('test-api-key', createDateTime), signatureValue('other-api-key', createDateTime));
+    assert.throws(() => signatureValue('', createDateTime), /APIKey 未設定/);
+    assert.throws(() => signatureValue('test-api-key', '20260701172208'), /yyyy\/MM\/dd HH:mm:ss/);
+    assert.throws(() => signatureValue('test-api-key', '2026/7/1 17:22:08'), /yyyy\/MM\/dd HH:mm:ss/);
+    assert.throws(() => signatureValue('test-api-key', '2026-07-01 17:22:08'), /yyyy\/MM\/dd HH:mm:ss/);
+
+    const signedAt = taipeiDateTime(new Date('2026-07-01T09:22:08.000Z'));
+    assert.equal(signedAt.createDateTime, createDateTime);
     const left = buildEnvelope({
-        ...creds, createDateTime: exampleDt, reqData: { orderID: 'a' },
+        ...creds, createDateTime: signedAt.createDateTime, reqData: { orderID: 'a' },
     });
     const right = buildEnvelope({
-        ...creds, createDateTime: exampleDt, reqData: { orderID: 'b', process_type: 'B' },
+        ...creds, createDateTime: signedAt.createDateTime, reqData: { orderID: 'b', process_type: 'B' },
     });
+    assert.equal(left.createDateTime, createDateTime);
+    assert.equal(right.createDateTime, createDateTime);
+    assert.equal(left.signatureValue, expected);
     assert.equal(left.signatureValue, right.signatureValue);
+    assert.equal(left.signatureValue, hmacBase64(creds.apiKey, left.createDateTime));
     assert.equal(left.auth, encodeAuth(creds.authPlain));
     assert.notEqual(left.auth, creds.authPlain);
-    assert.equal(taipeiDateTime(clock()).createDateTime, '20261031093000');
     assert.equal(hostForEnv('test'), TEST_HOST);
     assert.equal(hostForEnv(''), TEST_HOST);
     assert.equal(hostForEnv('prod'), PROD_HOST);
     assert.equal(hostForEnv('PROD'), PROD_HOST);
+});
+
+test('UTC 轉成 Asia/Taipei 的 yyyy/MM/dd HH:mm:ss，個位數補零', () => {
+    assert.equal(taipeiDateTime(clock()).createDateTime, '2026/10/31 09:30:00');
+    assert.equal(taipeiDateTime(clock()).isoDate, '2026-10-31');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T09:22:08.000Z')).createDateTime, '2026/07/01 17:22:08');
+    assert.equal(taipeiDateTime(new Date('2026-06-30T16:00:00.000Z')).createDateTime, '2026/07/01 00:00:00');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T15:59:59.000Z')).createDateTime, '2026/07/01 23:59:59');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T16:00:00.000Z')).createDateTime, '2026/07/02 00:00:00');
 });
 
 test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
@@ -255,10 +280,11 @@ test('同一版對帳單只會向汎宇開一次，第二次直接回原號碼',
     assert.equal(opened[0].body.reqData.salesAmount, 1752);
     assert.equal(opened[0].body.reqData.taxAmount, 88);
     assert.equal(opened[0].body.reqData.totalAmount, 1840);
-    assert.equal(opened[0].body.createDateTime, '20261031093000');
+    assert.equal(opened[0].body.createDateTime, '2026/10/31 09:30:00');
     assert.equal(opened[0].body.companyID, '96842769');
     assert.equal(opened[0].body.auth, encodeAuth('plain-password'));
-    assert.equal(opened[0].body.signatureValue, signatureValue('test-api-key', '20261031093000'));
+    assert.equal(opened[0].body.signatureValue, signatureValue('test-api-key', opened[0].body.createDateTime));
+    assert.equal(opened[0].body.signatureValue, hmacBase64('test-api-key', opened[0].body.createDateTime));
     assert.equal(calls.filter(call => call.path === '/queryInvoice').length, 0);
 
     const second = await issueStatement({
@@ -501,6 +527,14 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
     assert.match(readme, /只開立 B2B/);
     assert.doesNotMatch(readme, /B2C|b2c/);
+    assert.match(readme, /yyyy\/MM\/dd HH:mm:ss/);
+    const deployDoc = readFileSync(new URL('../../../docs/uec-einvoice-deploy.md', import.meta.url), 'utf8');
+    for (const name of ['UEC_USER_ID', 'UEC_AUTH', 'UEC_API_KEY', 'UEC_COMPANY_ID', 'UEC_ENV']) {
+        assert.match(deployDoc, new RegExp(name));
+    }
+    assert.match(deployDoc, /https:\/\/webtest\.einvoice\.com\.tw\/einv/);
+    assert.match(deployDoc, /https:\/\/web\.einvoice\.com\.tw\/einv/);
+    assert.match(deployDoc, /不會自動開立發票/);
     const client = readFileSync(new URL('../lib/einvoice-client.js', import.meta.url), 'utf8');
     const issue = readFileSync(new URL('../lib/einvoice-issue.js', import.meta.url), 'utf8');
     assert.doesNotMatch(client, /process_type: kind === 'b2b' \? 'B' : 'C'|0000000000|process_type: b2b \? 'B' : 'C'/);
