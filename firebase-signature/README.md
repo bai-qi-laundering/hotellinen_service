@@ -60,8 +60,19 @@ git clone https://github.com/bai-qi-laundering/hotellinen_service.git baiqi-sign
 cd baiqi-signature-deploy/firebase-signature
 npm --prefix functions install
 npm --prefix functions test
-cp functions/.env.example functions/.env.hotel-inventory-3a1ad
 ```
+
+部署前，`functions/.env.hotel-inventory-3a1ad` 要有下面三行。這個檔已在 repo，沒有帳號或密碼。`FINANCE_MASTER_URL` 與 `finance.html` 的 `GAS_API_URL` 相同。其他 `functions/.env*` 仍不提交。
+
+```
+AUTO_STATEMENTS_ENABLED=false
+FINANCE_MASTER_URL=https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec
+SIGNATURE_FUNCTION_REGION=asia-east1
+```
+
+地區參數的名稱是 `SIGNATURE_FUNCTION_REGION`，預設 `asia-east1`。`FUNCTION_REGION` 是 Firebase 保留的環境變數名，不能寫進 `.env`，非互動部署會失敗。
+
+`hotel-inventory-3a1ad` 的 `asia-east1` 已設定 artifacts cleanup policy。之後部署函式不會再停下來問容器映像要留幾天，也不必再執行 `firebase functions:artifacts:setpolicy`。
 
 先部署索引（不會改 Firestore 規則）：
 
@@ -85,7 +96,7 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:aut
 
 不要執行沒有限定目標的 `firebase deploy`，也不要 `firebase init`。這份設定沒有帶上 Firestore 規則檔。
 
-函式位置預設 `asia-east1`。若資料庫不在這個位置，先改 `FUNCTION_REGION`，不要為了部署去搬現有資料庫。
+函式位置預設 `asia-east1`。若資料庫不在這個位置，先改 `SIGNATURE_FUNCTION_REGION`，不要為了部署去搬現有資料庫。
 
 查看記錄：
 
@@ -103,7 +114,7 @@ npx --yes firebase-tools@latest functions:log --only autoStatementOnBillingDay -
 
 送件中心不開立發票。開立在旁邊的「貨款登記」：已寄出的帳單按「開立發票」。百麒國際是電子發票，員工先看抬頭、統編、未稅、稅金、含稅和品項說明，按「確認開立」才會送到汎宇。只開立 B2B：`process_type` 為 B，買方代號是對帳單上的 8 碼統編。沒有 8 碼統編時對話框顯示不能開立，「確認開立」停用，不會送出。百麒、百富、日聖仍是手開，照舊填號碼登記，不打汎宇。結帳日排程和「我已寄出」都不會開立。作廢仍是貨款登記的「登記已作廢」，只登記結果，不向汎宇送出作廢。貨款登記的「測試電子發票連線」只打 `/queryInvoice`（訂單號 `connection-check`，`process_type` B），不開票。
 
-帳號不放在網頁，也不要寫進 git。函式是 `issueStatementInvoice`、`voidStatementInvoice`、`testEInvoiceConnection`，都在 codebase `signature-statements`，地區沿用 `FUNCTION_REGION`（預設 `asia-east1`）。呼叫的人必須先用 Google 登入，而且信箱在 `EINVOICE_STAFF_EMAILS` 裡。舊的 `EINVOICE_SELLER_ID`、`EINVOICE_POS_ID`、`EINVOICE_POS_SN` 和 `EINVOICE_BASE_URL` 不再讀取。
+帳號不放在網頁，也不要寫進 git。函式是 `issueStatementInvoice`、`voidStatementInvoice`、`testEInvoiceConnection`，都在 codebase `signature-statements`，地區沿用 `SIGNATURE_FUNCTION_REGION`（預設 `asia-east1`）。呼叫的人必須先用 Google 登入，而且信箱在 `EINVOICE_STAFF_EMAILS` 裡。舊的 `EINVOICE_SELLER_ID`、`EINVOICE_POS_ID`、`EINVOICE_POS_SN` 和 `EINVOICE_BASE_URL` 不再讀取。部署這三個函式之前，上面的 `.env.hotel-inventory-3a1ad` 三行要在，`asia-east1` 的 artifacts cleanup policy 也已經設好。
 
 在可以管理 `hotel-inventory-3a1ad` 的電腦上，於 `firebase-signature` 目錄。每一行都會問一次要存的值，貼上之後按 Enter：
 
@@ -142,6 +153,6 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 `functions:secrets:set UEC_ENV` 那一行出現提示時，輸入 `prod` 再按 Enter。
 
-網頁上的送件中心假設函式在 `asia-east1`。若 `FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
+網頁上的送件中心假設函式在 `asia-east1`。若 `SIGNATURE_FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
 
-簽章是標準 Base64 的 HMAC-SHA256：金鑰為 UTF-8 的 `UEC_API_KEY`（APIKey，不是 AESKEY），訊息為同一段送出的 `createDateTime`。時間是台北時區 `yyyy/MM/dd HH:mm:ss`，例如 `2026/07/01 17:22:08`，月日時分秒都補 0、24 小時制。給老闆照做的設定步驟在 `docs/uec-einvoice-deploy.md`。
+簽章是標準 Base64 的 HMAC-SHA256：金鑰為 UTF-8 的 `UEC_API_KEY`（APIKey，不是 AESKEY），訊息為同一段送出的 `createDateTime`。時間是台北時區 14 碼的 `YYYYMMDDHHMMSS`，例如 `20260701172208`，月日時分秒都補 0、24 小時制，不含斜線、空格或冒號。給老闆照做的設定步驟在 `docs/uec-einvoice-deploy.md`。

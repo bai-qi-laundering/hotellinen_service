@@ -47,7 +47,19 @@ npx --yes firebase-tools@latest functions:secrets:set UEC_ENV --project hotel-in
 npx --yes firebase-tools@latest functions:secrets:set EINVOICE_STAFF_EMAILS --project hotel-inventory-3a1ad
 ```
 
-六個都存好之後，再部署這三個函式。不要執行沒有 `--only` 的 `firebase deploy`，以免動到其他功能。
+六個都存好之後，先確認 `firebase-signature/functions/.env.hotel-inventory-3a1ad` 有下面三行，再部署這三個函式。這個檔已在 repo，沒有帳號、密碼或 API Key。`FINANCE_MASTER_URL` 與 `finance.html` 的 `GAS_API_URL` 相同。
+
+```
+AUTO_STATEMENTS_ENABLED=false
+FINANCE_MASTER_URL=https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec
+SIGNATURE_FUNCTION_REGION=asia-east1
+```
+
+地區參數的名稱是 `SIGNATURE_FUNCTION_REGION`。`FUNCTION_REGION` 是 Firebase 保留的環境變數名，不能寫進 `.env`，非互動部署會失敗。
+
+`hotel-inventory-3a1ad` 的 `asia-east1` 已設定 artifacts cleanup policy。部署時不會再停下來問容器映像要留幾天，也不必再執行 `firebase functions:artifacts:setpolicy`。
+
+不要執行沒有 `--only` 的 `firebase deploy`，以免動到其他功能。
 
 ```bash
 npx --yes firebase-tools@latest deploy --only functions:signature-statements:issueStatementInvoice,functions:signature-statements:voidStatementInvoice,functions:signature-statements:testEInvoiceConnection --project hotel-inventory-3a1ad
@@ -68,4 +80,4 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 老闆不用自己算。程式用 API Key 對「送出當下的台灣時間」簽名，再放進同一份請求。
 
-時間例子：`2026/07/01 17:22:08`。格式是 `yyyy/MM/dd HH:mm:ss`，台灣時間，24 小時制，月、日、時、分、秒不足兩位會補 0。拿去簽名的那一串，和請求裡的 `createDateTime` 是同一串。
+時間例子：`20260701172208`。格式是 14 碼的 `YYYYMMDDHHMMSS`，台灣時間，24 小時制，中間沒有斜線、空格或冒號，月、日、時、分、秒不足兩位會補 0。用 `yyyy/MM/dd HH:mm:ss` 會被汎宇回「[createDateTime]資料長度錯誤」。拿去簽名的那一串，和請求裡的 `createDateTime` 是同一串。

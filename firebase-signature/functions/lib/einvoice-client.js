@@ -4,7 +4,7 @@
 //
 // 汎宇確認的簽章（只簽時間，不簽整包 JSON，也不用 AESKEY）：
 // signature = Base64( HMAC-SHA256( key = UTF-8(APIKEY), message = UTF-8(createDateTime) ) )
-// createDateTime 是 Asia/Taipei 的 yyyy/MM/dd HH:mm:ss，例如 2026/07/01 17:22:08。
+// createDateTime 是 Asia/Taipei 的 YYYYMMDDHHMMSS（14 碼，API 規格；汎宇回 [createDateTime]資料長度錯誤 證實），例如 20260701172208。
 // Base64 用標準字元（+ 與 /）並保留尾端 =，不是 URL-safe。
 // 送出請求裡的 createDateTime 與拿去算簽章的字串是同一段。
 
@@ -14,7 +14,7 @@ export const DEFAULT_COMPANY_ID = '96842769';
 export const TEST_HOST = 'https://webtest.einvoice.com.tw/einv';
 export const PROD_HOST = 'https://web.einvoice.com.tw/einv';
 
-const CREATE_DATE_TIME = /^\d{4}\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/;
+const CREATE_DATE_TIME = /^\d{4}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])[0-5]\d[0-5]\d$/;
 
 export function hostForEnv(env) {
     return String(env || '').trim().toLowerCase() === 'prod' ? PROD_HOST : TEST_HOST;
@@ -40,7 +40,7 @@ export function taipeiDateTime(date = new Date()) {
     const minute = get('minute');
     const second = get('second');
     return {
-        createDateTime: `${year}/${month}/${day} ${hour}:${minute}:${second}`,
+        createDateTime: `${year}${month}${day}${hour}${minute}${second}`,
         isoDate: `${year}-${month}-${day}`,
         ymd: `${year}${month}${day}`,
     };
@@ -54,7 +54,7 @@ export function signatureValue(apiKey, createDateTime) {
     const key = String(apiKey ?? '');
     const message = String(createDateTime ?? '');
     if (!key) throw new Error('電子發票 APIKey 未設定。');
-    if (!CREATE_DATE_TIME.test(message)) throw new Error('createDateTime 必須是台北時間 yyyy/MM/dd HH:mm:ss。');
+    if (!CREATE_DATE_TIME.test(message)) throw new Error('createDateTime 必須是台北時間 YYYYMMDDHHMMSS（14 碼）。');
     return createHmac('sha256', Buffer.from(key, 'utf8')).update(Buffer.from(message, 'utf8')).digest('base64');
 }
 

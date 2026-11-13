@@ -1,3 +1,5 @@
 functions/node_modules/
 functions/.env*
+!functions/.env.example
+!functions/.env.hotel-inventory-3a1ad
 *.log

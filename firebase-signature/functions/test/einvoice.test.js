@@ -121,8 +121,8 @@ function hmacBase64(apiKey, createDateTime) {
 test('簽章是標準 Base64 的 HMAC-SHA256，金鑰為 APIKey、訊息為台北時間字串', () => {
     assert.equal(encodeAuth('A15989995'), 'QTE1OTg5OTk1');
     assert.equal(Buffer.from('QTE1OTg5OTk1', 'base64').toString('utf8'), 'A15989995');
-    const createDateTime = '2026/07/01 17:22:08';
-    const expected = 'cRpv1wXiuwJH82X9AA3jJ0QFM64TjFRmyt+HRh88KR0=';
+    const createDateTime = '20260701172208';
+    const expected = '0qYrZSeLrSBpJcvGXy3fw5W+QAKNugZeH1rIenbympQ=';
     assert.equal(hmacBase64('test-api-key', createDateTime), expected);
     assert.equal(signatureValue('test-api-key', createDateTime), expected);
     assert.equal(Buffer.from(expected, 'base64').length, 32);
@@ -136,9 +136,9 @@ test('簽章是標準 Base64 的 HMAC-SHA256，金鑰為 APIKey、訊息為台�
     );
     assert.notEqual(signatureValue('test-api-key', createDateTime), signatureValue('other-api-key', createDateTime));
     assert.throws(() => signatureValue('', createDateTime), /APIKey 未設定/);
-    assert.throws(() => signatureValue('test-api-key', '20260701172208'), /yyyy\/MM\/dd HH:mm:ss/);
-    assert.throws(() => signatureValue('test-api-key', '2026/7/1 17:22:08'), /yyyy\/MM\/dd HH:mm:ss/);
-    assert.throws(() => signatureValue('test-api-key', '2026-07-01 17:22:08'), /yyyy\/MM\/dd HH:mm:ss/);
+    assert.throws(() => signatureValue('test-api-key', '2026/07/01 17:22:08'), /YYYYMMDDHHMMSS/);
+    assert.throws(() => signatureValue('test-api-key', '2026/7/1 17:22:08'), /YYYYMMDDHHMMSS/);
+    assert.throws(() => signatureValue('test-api-key', '2026-07-01 17:22:08'), /YYYYMMDDHHMMSS/);
 
     const signedAt = taipeiDateTime(new Date('2026-07-01T09:22:08.000Z'));
     assert.equal(signedAt.createDateTime, createDateTime);
@@ -161,13 +161,13 @@ test('簽章是標準 Base64 的 HMAC-SHA256，金鑰為 APIKey、訊息為台�
     assert.equal(hostForEnv('PROD'), PROD_HOST);
 });
 
-test('UTC 轉成 Asia/Taipei 的 yyyy/MM/dd HH:mm:ss，個位數補零', () => {
-    assert.equal(taipeiDateTime(clock()).createDateTime, '2026/10/31 09:30:00');
+test('UTC 轉成 Asia/Taipei 的 YYYYMMDDHHMMSS，個位數補零', () => {
+    assert.equal(taipeiDateTime(clock()).createDateTime, '20261031093000');
     assert.equal(taipeiDateTime(clock()).isoDate, '2026-10-31');
-    assert.equal(taipeiDateTime(new Date('2026-07-01T09:22:08.000Z')).createDateTime, '2026/07/01 17:22:08');
-    assert.equal(taipeiDateTime(new Date('2026-06-30T16:00:00.000Z')).createDateTime, '2026/07/01 00:00:00');
-    assert.equal(taipeiDateTime(new Date('2026-07-01T15:59:59.000Z')).createDateTime, '2026/07/01 23:59:59');
-    assert.equal(taipeiDateTime(new Date('2026-07-01T16:00:00.000Z')).createDateTime, '2026/07/02 00:00:00');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T09:22:08.000Z')).createDateTime, '20260701172208');
+    assert.equal(taipeiDateTime(new Date('2026-06-30T16:00:00.000Z')).createDateTime, '20260701000000');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T15:59:59.000Z')).createDateTime, '20260701235959');
+    assert.equal(taipeiDateTime(new Date('2026-07-01T16:00:00.000Z')).createDateTime, '20260702000000');
 });
 
 test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
@@ -280,7 +280,7 @@ test('同一版對帳單只會向汎宇開一次，第二次直接回原號碼',
     assert.equal(opened[0].body.reqData.salesAmount, 1752);
     assert.equal(opened[0].body.reqData.taxAmount, 88);
     assert.equal(opened[0].body.reqData.totalAmount, 1840);
-    assert.equal(opened[0].body.createDateTime, '2026/10/31 09:30:00');
+    assert.equal(opened[0].body.createDateTime, '20261031093000');
     assert.equal(opened[0].body.companyID, '96842769');
     assert.equal(opened[0].body.auth, encodeAuth('plain-password'));
     assert.equal(opened[0].body.signatureValue, signatureValue('test-api-key', opened[0].body.createDateTime));
@@ -527,7 +527,7 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
     assert.match(readme, /只開立 B2B/);
     assert.doesNotMatch(readme, /B2C|b2c/);
-    assert.match(readme, /yyyy\/MM\/dd HH:mm:ss/);
+    assert.match(readme, /YYYYMMDDHHMMSS/);
     const deployDoc = readFileSync(new URL('../../../docs/uec-einvoice-deploy.md', import.meta.url), 'utf8');
     for (const name of ['UEC_USER_ID', 'UEC_AUTH', 'UEC_API_KEY', 'UEC_COMPANY_ID', 'UEC_ENV']) {
         assert.match(deployDoc, new RegExp(name));
@@ -554,6 +554,26 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(index, /UEC_API_KEY/);
     assert.match(index, /UEC_COMPANY_ID/);
     assert.match(index, /UEC_ENV/);
+    assert.match(index, /defineString\('SIGNATURE_FUNCTION_REGION', \{ default: 'asia-east1' \}\)/);
+    assert.equal(index.includes("defineString('FUNCTION_REGION'"), false);
+    assert.match(readme, /SIGNATURE_FUNCTION_REGION=asia-east1/);
+    assert.match(readme, /`FUNCTION_REGION` 是 Firebase 保留的環境變數名/);
+    assert.match(readme, /artifacts cleanup policy/);
+    assert.match(deployDoc, /AUTO_STATEMENTS_ENABLED=false/);
+    assert.match(deployDoc, /SIGNATURE_FUNCTION_REGION=asia-east1/);
+    assert.match(deployDoc, /`FUNCTION_REGION` 是 Firebase 保留的環境變數名/);
+    assert.match(deployDoc, /artifacts cleanup policy/);
+    const finance = readFileSync(new URL('../../../finance.html', import.meta.url), 'utf8');
+    const gasUrl = finance.match(/const GAS_API_URL = "([^"]+)"/)[1];
+    const envFile = readFileSync(new URL('../.env.hotel-inventory-3a1ad', import.meta.url), 'utf8');
+    const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
+    for (const contents of [envFile, example]) {
+        const lines = contents.split('\n');
+        assert.equal(lines.includes('AUTO_STATEMENTS_ENABLED=false'), true);
+        assert.equal(lines.includes('SIGNATURE_FUNCTION_REGION=asia-east1'), true);
+        assert.equal(lines.includes(`FINANCE_MASTER_URL=${gasUrl}`), true);
+        assert.equal(lines.some(line => line.startsWith('FUNCTION_REGION=')), false);
+    }
     const schedule = index.slice(index.indexOf('export const autoStatementOnBillingDay'), index.indexOf('function staffEmail'));
     assert.equal(schedule.includes('issueStatement'), false);
     assert.equal(schedule.includes('openInvoice'), false);
