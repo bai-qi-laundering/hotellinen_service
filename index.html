@@ -1052,7 +1052,6 @@
         let db;
         let storage; 
         let isFirebaseLoaded = false;
-        let currentSnapshotUnsubscribe = null; 
 
         async function initFirebaseAndSync() {
             try {
@@ -1117,31 +1116,22 @@
                     }
                 }
 
-                let listeningDatesKey = '';
-                window.attachRealtimeListener = function(baseDateStr) {
-                    if (!baseDateStr) return;
-                    
-                    const parts = baseDateStr.split('-');
-                    const d = new Date(parts[0], parts[1] - 1, parts[2]);
-                    
-                    const datesToListen = [];
-                    for(let i = -2; i <= 7; i++) {
-                        let tmp = new Date(d);
-                        tmp.setDate(tmp.getDate() + i);
-                        datesToListen.push(getLocalDateString(tmp));
-                    }
-                    
-                    // 手動改日期時仍讀取使用者選定的單子。
-                    const selectedDate = document.getElementById('datePicker').value;
-                    if (selectedDate && !datesToListen.includes(selectedDate)) datesToListen.push(selectedDate);
-                    const datesKey = datesToListen.slice().sort().join('|');
-                    if (datesKey === listeningDatesKey) return;
-                    if (currentSnapshotUnsubscribe) currentSnapshotUnsubscribe();
-                    listeningDatesKey = datesKey;
-                    if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(datesToListen);
-                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", datesToListen));
-                    
-                    currentSnapshotUnsubscribe = onSnapshot(recordsQ, (snapshot) => {
+                const inventoryDateWindows = {
+                    base: { key: '', unsubscribe: null },
+                    extra: { key: '', unsubscribe: null }
+                };
+                let sendwashDatesKey = '';
+
+                function syncInventoryDateWindow(windowState, dates) {
+                    const key = dates.join('|');
+                    if (key === windowState.key) return;
+                    if (windowState.unsubscribe) windowState.unsubscribe();
+                    windowState.unsubscribe = null;
+                    windowState.key = key;
+                    if (!key) return;
+
+                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", dates));
+                    windowState.unsubscribe = onSnapshot(recordsQ, (snapshot) => {
                         let dataChanged = false;
                         let visibleDataChanged = false;
                         
@@ -1238,9 +1228,36 @@
                             else if (visibleDataChanged && !document.getElementById('hotelView').classList.contains('hidden')) renderItems(false);
                         }
                     }, error => {
-                        listeningDatesKey = '';
+                        windowState.key = '';
+                        windowState.unsubscribe = null;
                         console.error('對點資料同步失敗', error);
                     });
+                }
+
+                window.attachRealtimeListener = function(baseDateStr) {
+                    if (!baseDateStr) return;
+
+                    const parts = baseDateStr.split('-');
+                    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+                    const baseDates = [];
+                    for (let offset = -2; offset <= 7; offset++) {
+                        const date = new Date(d);
+                        date.setDate(date.getDate() + offset);
+                        baseDates.push(getLocalDateString(date));
+                    }
+
+                    // Keep the board's date window live when a detail date is outside it.
+                    const selectedDate = document.getElementById('datePicker').value;
+                    const extraDates = selectedDate && !baseDates.includes(selectedDate) ? [selectedDate] : [];
+                    const sendwashDates = [...baseDates, ...extraDates];
+                    const nextSendwashDatesKey = sendwashDates.slice().sort().join('|');
+                    if (nextSendwashDatesKey !== sendwashDatesKey) {
+                        sendwashDatesKey = nextSendwashDatesKey;
+                        if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(sendwashDates);
+                    }
+                    // Stop an overlapping extra listener before moving its date into the base window.
+                    syncInventoryDateWindow(inventoryDateWindows.extra, extraDates);
+                    syncInventoryDateWindow(inventoryDateWindows.base, baseDates);
                 };
 
                 window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
