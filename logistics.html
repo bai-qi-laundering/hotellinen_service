@@ -145,6 +145,7 @@
         let globalItemOrder = {};
         let signatureSaving = false;
         let fetchSequence = 0;
+        let activeReceiptRead = null;
         let dataReady = false;
         let templatePromise;
         let sendwashSettings = [];
@@ -420,8 +421,11 @@
         async function fetchData(isBackground = false, forceServer = false) {
             if (signatureSaving) { showToastMsg('正在儲存簽名，請稍候'); return; }
             if (!currentHotel || !currentDate) return;
-            dataReady = false;
             const fetchTargetDate = currentDate;
+            if (activeReceiptRead?.hotel === currentHotel &&
+                activeReceiptRead.date === fetchTargetDate &&
+                activeReceiptRead.sequence === fetchSequence) return;
+            dataReady = false;
             const thisFetch = ++fetchSequence;
 
             if (!isBackground) {
@@ -436,6 +440,7 @@
                 }
             }
 
+            activeReceiptRead = { hotel: currentHotel, date: fetchTargetDate, sequence: thisFetch };
             try {
                 let rawData = [];
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
@@ -582,6 +587,8 @@
                         <button onclick="fetchData(false, true)" class="bg-blue-600 text-white px-5 py-3 rounded-lg mt-4">重新載入</button>
                     </div>`;
                 }
+            } finally {
+                if (activeReceiptRead?.sequence === thisFetch) activeReceiptRead = null;
             }
         }
 
