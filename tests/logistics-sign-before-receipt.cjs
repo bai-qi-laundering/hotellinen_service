@@ -22,3 +22,16 @@ test('cloud verification failure still reports an unconfirmed signature and perm
 test('removing plant completion prerequisite does not allow stale hotel quantities to overwrite a newer receipt',async()=>{
  const f=await fixture({staleQuantity:true});await f.context.submitVerify();assert.equal(f.docs[f.id].items[0].actualQty,'11');assert.equal(f.docs[f.id].clientSig,undefined);assert(f.alerts.some(message=>message.includes('實收數量已由其他人更新')));
 });
+
+test('signing a Flower Garden receipt reuses the original half-width document and keeps its driver signature', async () => {
+ const f=await fixture();
+ const oldId='2026-10-18_花季A館_餐廳';
+ f.context.currentHotel='花季Ａ館';
+ f.group.legacyTarget={id:oldId,hotel:'花季A館',dept:'餐廳'};
+ f.docs[oldId]={...f.docs[f.id],hotelKeyword:'花季A館'};
+ await f.context.submitVerify();
+ assert.equal(f.docs[oldId].clientSig,'uploaded-hotel-image',f.alerts.join('\n'));
+ assert.equal(f.docs[oldId].driverSig,'old-driver');
+ assert.equal(f.docs[oldId].hotelKeyword,'花季A館');
+ assert.equal(f.docs['2026-10-18_花季Ａ館_餐廳'],undefined);
+});
