@@ -19,9 +19,14 @@
         }
 
         #signCanvas { display: block; width: 100%; height: 220px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
-        #calcModal { transition: transform 0.3s ease-in-out; }
+        #signModal { overflow-y: auto; overscroll-behavior: contain; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+        #signModal > div { flex: 0 0 auto; margin-block: auto; }
+        #signModal button { min-height: 44px; touch-action: manipulation; }
+        #calcModal { max-height: 100vh; max-height: 100dvh; overflow-y: auto; overscroll-behavior: contain; padding-bottom: env(safe-area-inset-bottom); }
+        #calcModal.translate-y-full { display: none; }
+        #calcModal button { min-height: 44px; touch-action: manipulation; }
         .calc-btn { user-select: none; transition: background 0.1s; }
-        .calc-btn:active { background-color: #d1d5db; transform: scale(0.95); }
+        .calc-btn:active { background-color: #d1d5db; }
         /* 儲存／鎖定狀態文字換行時，保持品項高度與位置一致。 */
         .item-action { height: 3.75rem; display: flex; align-items: stretch; }
         .item-action > * { display: flex; align-items: center; justify-content: center; }
@@ -157,11 +162,11 @@
     </div>
 
     <!-- 簽名板 Modal -->
-    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000]" onclick="if(event.target === this) closeSign()">
+    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-start justify-center p-4 z-[10000]" onclick="if(event.target === this) closeSign()">
         <div class="bg-white p-4 rounded-3xl w-full max-w-sm" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-3">
                 <h2 id="signModalTitle" class="text-lg font-black text-blue-800">簽名解鎖</h2>
-                <button onclick="clearCanvas()" class="text-sm text-red-500 font-bold px-3 py-2 rounded-lg bg-red-50 border border-red-200 shadow-sm active:bg-red-100">清除重寫</button>
+                <button onclick="clearCanvas()" class="text-sm text-red-500 font-bold px-3 py-2 shrink-0 ml-2 rounded-lg bg-red-50 border border-red-200 shadow-sm active:bg-red-100">清除重寫</button>
             </div>
             <canvas id="signCanvas"></canvas>
             <div id="signUploadStatus" class="hidden text-center text-sm font-bold text-blue-600 mt-2">
@@ -176,7 +181,7 @@
     </div>
 
     <!-- 計算機鍵盤 Modal -->
-    <div id="calcModal" class="fixed inset-x-0 bottom-0 transform translate-y-full bg-gray-100 shadow-[0_-5px_15px_rgba(0,0,0,0.2)] rounded-t-3xl z-[10001] max-w-md mx-auto">
+    <div id="calcModal" class="fixed inset-x-0 bottom-0 translate-y-full bg-gray-100 shadow-[0_-5px_15px_rgba(0,0,0,0.2)] rounded-t-3xl z-[10001] max-w-md mx-auto">
         <div class="p-4">
             <div class="flex justify-between items-center mb-3">
                 <span id="calcTitle" class="font-bold text-gray-500 text-base">正在計算：</span>
@@ -841,14 +846,25 @@
             }
         }
 
+        let signatureView = 0;
         function setupCanvas() {
             canvas.isModified = false; canvas.isLocked = false; 
             function start(e) { if (canvas.isLocked) return showMessage("🔒 必須重新簽名才能修改數量！\n👉 請先點擊右上角的【清除重寫】按鈕。"); painting = true; draw(e); }
-            function draw(e) { if(!painting) return; e.preventDefault(); canvas.isModified = true; const rect = canvas.getBoundingClientRect(); const x = (e.clientX || e.touches[0].clientX) - rect.left; const y = (e.clientY || e.touches[0].clientY) - rect.top; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y); }
+            function draw(e) {
+                if (!painting) return;
+                e.preventDefault();
+                canvas.isModified = true;
+                const rect = canvas.getBoundingClientRect();
+                const pointer = e.touches?.[0] || e;
+                const x = (pointer.clientX - rect.left - canvas.clientLeft) * canvas.width / (canvas.clientWidth || canvas.width);
+                const y = (pointer.clientY - rect.top - canvas.clientTop) * canvas.height / (canvas.clientHeight || canvas.height);
+                ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+            }
             function stop() { painting = false; ctx.beginPath(); }
             canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, {passive: false});
             canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
             canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
+            canvas.addEventListener('mouseleave', stop); canvas.addEventListener('touchcancel', stop);
         }
         setupCanvas();
 
@@ -864,6 +880,8 @@
         }
 
         function closeSign() { 
+            signatureView++;
+            painting = false;
             document.getElementById('signModal').classList.add('hidden'); 
             const cancelBtn = document.getElementById('signCancelBtn');
             const confirmBtn = document.getElementById('signConfirmBtn');
@@ -884,8 +902,11 @@
             const u = (userInputs[dateStr] && userInputs[dateStr][category] && userInputs[dateStr][category][item]) || {};
             const existingSig = role === 'aunt' ? u.signature : u.doubleSignature;
             
+            const view = ++signatureView;
+            painting = false;
             requestAnimationFrame(() => {
-                canvas.width = canvas.offsetWidth || 300; canvas.height = 220; canvas.isModified = false; 
+                if (signatureView !== view) return;
+                canvas.width = canvas.clientWidth || 300; canvas.height = canvas.clientHeight || 220; canvas.isModified = false; 
                 ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
                 ctx.fillStyle = '#ffffff'; 
@@ -907,7 +928,9 @@
                     } else {
                         let img = new Image(); 
                         img.crossOrigin = "anonymous";
-                        img.onload = () => ctx.drawImage(img, 0, 0); 
+                        img.onload = () => {
+                            if (signatureView === view && !canvas.isModified) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        };
                         img.src = existingSig; 
                     }
                 }
