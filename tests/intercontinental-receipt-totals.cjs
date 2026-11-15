@@ -2,9 +2,10 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const loadModule=()=>import('data:text/javascript,'+encodeURIComponent(fs.readFileSync('logistics-items.js','utf8')));
 async function receiptFixture(inventory,receipts,settings=[],hotel='洲際'){
  const module=await loadModule(),source=fs.readFileSync('logistics.html','utf8');let displayed;const elements=new Map(),reads=[];const element=id=>{if(!elements.has(id))elements.set(id,{hidden:true,innerHTML:'',classList:{remove(){},add(){}}});return elements.get(id);};
- const context=vm.createContext({...module,...await import('../outlet-corrections.js'),console:{...console,warn(){}},window:{},sendwashSettings:settings,currentHotel:hotel,currentDate:'2026-10-17',signatureSaving:false,dataReady:false,fetchSequence:0,db:{},document:{getElementById:element},collection:(_,name)=>name,where(){},query:name=>name,getDocsFromServer:async name=>{reads.push(name);return{forEach:visit=>(name==='inventory_records'?inventory:receipts).forEach(data=>visit({data:()=>structuredClone(data)}))};},withReadTimeout:p=>p,finishBoot(){},showToastMsg(){},processAndRenderData:data=>displayed=structuredClone(data),loadingHtml:'loading'});
+ const context=vm.createContext({...module,...await import('../outlet-corrections.js'),console:{...console,warn(){}},window:{},sendwashSettings:settings,currentHotel:hotel,currentDate:'2026-10-17',signatureSaving:false,dataReady:false,fetchSequence:0,activeReceiptRead:null,db:{},document:{getElementById:element},collection:(_,name)=>name,where(){},query:name=>name,getDocsFromServer:async name=>{reads.push(name);return{forEach:visit=>(name==='inventory_records'?inventory:receipts).forEach((data,index)=>visit({id:data.id || String(index),data:()=>structuredClone(data)}))};},withReadTimeout:p=>p,finishBoot(){},showToastMsg(){},processAndRenderData:(data, targets)=>{displayed=structuredClone(data);context.legacyReceiptTargets=targets},loadingHtml:'loading'});
  vm.runInContext(source.slice(source.indexOf('        function escapeHtml('),source.indexOf('        function finishBoot(')),context);
  vm.runInContext(source.slice(source.indexOf('        function extractQty(obj)'),source.indexOf('        const loadingHtml')),context);
+ vm.runInContext(source.slice(source.indexOf('        const flowerHotels'),source.indexOf('        async function init(')),context);
  vm.runInContext(source.slice(source.indexOf('        async function fetchData('),source.indexOf('        function processAndRenderData(')),context);await context.fetchData();return{displayed,context,module,elements,reads};
 }
 const detailed=[{itemName:'【大地】口布',originalQty:'18',actualQty:'18'},{itemName:'【WARA】口布',originalQty:'12',actualQty:'12'}];
@@ -107,4 +108,37 @@ test('receipt loader displays corrected outlet allocation without changing signe
  assert.match(html,/宴會廳/);
  assert.match(html,/>21<\/td>/);
  assert.doesNotMatch(html,/CLUB/);
+});
+
+test('Flower Garden lobby separates the two branches and the same branch accepts both letter widths', async () => {
+ const inventory=[
+  {hotel:'花季A館 房務',item:'浴巾',count:'12'},
+  {hotel:'花季Ａ館 房務',item:'床單',count:'3'},
+  {hotel:'花季Ｃ館 房務',item:'浴巾',count:'18'},
+  {hotel:'花季 房務',item:'方巾',count:'2'}
+ ];
+ const receipts=[
+  {id:'prior-a',hotelKeyword:'花季A館',deptName:'房務',items:[{itemName:'浴巾',actualQty:'11'}]},
+  {id:'legacy-c',hotelKeyword:'花季',deptName:'Ｃ館 房務',items:[{itemName:'浴巾',actualQty:'17'}]}
+ ];
+ const a=await receiptFixture(inventory,receipts,[],'花季Ａ館');
+ assert.equal(a.context.normalizeReceiptHotel('花季A館'),'花季Ａ館');
+ assert.equal(a.context.normalizeReceiptHotel('花季Ｃ館'),'花季Ｃ館');
+ assert.deepEqual(a.displayed.map(row=>[row.itemName,row.actualQty]),[['浴巾','11'],['床單','3']]);
+ assert.equal(a.context.legacyReceiptTargets.get('房務').id,'prior-a');
+ const c=await receiptFixture(inventory,receipts,[],'花季Ｃ館');
+ assert.deepEqual(c.displayed.map(row=>[row.itemName,row.actualQty]),[['浴巾','17']]);
+ assert.equal(c.context.legacyReceiptTargets.get('房務').id,'legacy-c');
+ const lobby=await receiptFixture(inventory,[receipts[1]],[],'花季');
+ assert.deepEqual(lobby.displayed.map(row=>row.itemName),['方巾']);
+});
+
+test('Flower Garden aliases never combine competing saved receipts or create another receipt', async () => {
+ const fixture=await receiptFixture([],[
+  {id:'first',hotelKeyword:'花季A館',deptName:'房務',items:[{itemName:'浴巾',actualQty:'11'}]},
+  {id:'second',hotelKeyword:'花季Ａ館',deptName:'房務',items:[{itemName:'浴巾',actualQty:'21'}]}
+ ],[],'花季Ａ館');
+ assert.equal(fixture.context.dataReady,false);
+ assert.equal(fixture.displayed,undefined);
+ assert.match(fixture.elements.get('departmentsContainer').innerHTML,/已有多張簽收紀錄/);
 });
