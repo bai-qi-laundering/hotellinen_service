@@ -19,6 +19,10 @@
         }
         
         .sign-canvas { display: block; width: 100%; height: 160px; background: #fff; border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; }
+        #signModal { overflow-y: auto; overscroll-behavior: contain; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+        #signModal > div { flex: 0 0 auto; margin-block: auto; }
+        #signModal button { min-height: 44px; touch-action: manipulation; }
+        #toast { pointer-events: none; }
     </style>
 </head>
 <body class="p-3 pb-32 relative">
@@ -62,7 +66,7 @@
     </div>
 
     <!-- 雙簽名視窗 -->
-    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[10000] overflow-y-auto">
+    <div id="signModal" class="hidden fixed inset-0 bg-black/70 flex items-start justify-center p-4 z-[10000] overflow-y-auto">
         <div class="bg-white p-5 rounded-2xl w-full max-w-sm my-auto">
             <h2 id="modalDeptTitle" class="text-xl font-black text-center text-blue-800 mb-4 border-b pb-2">部門名稱</h2>
             
@@ -937,6 +941,7 @@
             }
         }
 
+        let signatureView = 0;
         function setupCanvas(canvas, ctx) {
             canvas.isModified = false; canvas.isCleared = false; 
 
@@ -952,14 +957,16 @@
                 if(!canvas.painting) return; e.preventDefault();
                 canvas.isModified = true; 
                 const rect = canvas.getBoundingClientRect();
-                const x = (e.clientX || e.touches[0].clientX) - rect.left;
-                const y = (e.clientY || e.touches[0].clientY) - rect.top;
+                const pointer = e.touches?.[0] || e;
+                const x = (pointer.clientX - rect.left - canvas.clientLeft) * canvas.width / (canvas.clientWidth || canvas.width);
+                const y = (pointer.clientY - rect.top - canvas.clientTop) * canvas.height / (canvas.clientHeight || canvas.height);
                 ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
             }
-            function stop(e) { e.preventDefault(); canvas.painting = false; ctx.beginPath(); }
+            function stop() { canvas.painting = false; ctx.beginPath(); }
             canvas.addEventListener('mousedown', start); canvas.addEventListener('touchstart', start, {passive: false});
             canvas.addEventListener('mousemove', draw); canvas.addEventListener('touchmove', draw, {passive: false});
             canvas.addEventListener('mouseup', stop); canvas.addEventListener('touchend', stop);
+            canvas.addEventListener('mouseleave', stop); canvas.addEventListener('touchcancel', stop);
             canvas.fillWhite = fillWhite;
         }
         setupCanvas(clientCanvas, clientCtx);
@@ -979,9 +986,12 @@
             let existDriver = groupedData[deptName].driverSig;
 
             document.getElementById('signModal').classList.remove('hidden');
+            const view = ++signatureView;
             requestAnimationFrame(() => {
-                [clientCanvas, driverCanvas].forEach(c => { 
-                    c.width = c.offsetWidth; c.height = 160; c.isModified = false; c.isCleared = false; 
+                if (signatureView !== view) return;
+                [clientCanvas, driverCanvas].forEach(c => {
+                    c.width = c.clientWidth || 300; c.height = c.clientHeight || 160;
+                    c.painting = false; c.isModified = false; c.isCleared = false;
                 });
                 [clientCtx, driverCtx].forEach(ctx => { 
                     ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; 
@@ -991,19 +1001,29 @@
                 if(existClient) { 
                     let img = new Image(); 
                     img.crossOrigin = "anonymous";
-                    img.onload = ()=> clientCtx.drawImage(img,0,0); 
+                    img.onload = () => {
+                        if (signatureView === view && !clientCanvas.isModified) clientCtx.drawImage(img, 0, 0, clientCanvas.width, clientCanvas.height);
+                    };
                     img.src = existClient; 
                 }
                 if(existDriver) { 
                     let img = new Image(); 
                     img.crossOrigin = "anonymous";
-                    img.onload = ()=> driverCtx.drawImage(img,0,0); 
+                    img.onload = () => {
+                        if (signatureView === view && !driverCanvas.isModified) driverCtx.drawImage(img, 0, 0, driverCanvas.width, driverCanvas.height);
+                    };
                     img.src = existDriver; 
                 }
             });
         }
         
-        function closeSignModal() { if (signatureSaving) return; document.getElementById('signModal').classList.add('hidden'); }
+        function closeSignModal() {
+            if (signatureSaving) return;
+            signatureView++;
+            clientCanvas.painting = false;
+            driverCanvas.painting = false;
+            document.getElementById('signModal').classList.add('hidden');
+        }
 
         async function submitVerify() {
             if (signatureSaving || !dataReady) return;
