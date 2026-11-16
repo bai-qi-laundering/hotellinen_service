@@ -806,7 +806,54 @@
             return { hotelKeyword, deptName };
         }
 
+        async function moveActiveXidaReceipt(oldDate, newDate, hotel) {
+            const {hotelKeyword} = resolveLogisticsHotelParts(hotel);
+            if (hotelKeyword.normalize('NFKC').replace(/\s/g, '') !== '喜達絲' || oldDate === newDate) return false;
+            const activeRef = doc(db, 'inventory_config', 'xida_active_receipt');
+            return runTransaction(db, async tx => {
+                const active = (await tx.get(activeRef)).data();
+                if (active?.date !== oldDate) return false;
+                const updatedRecords = {};
+                const pairs = new Map();
+                const addPair = (collectionName, id, newId, required) => {
+                    if (!pairs.has(id)) pairs.set(id, {
+                        from: doc(db, collectionName, id),
+                        to: doc(db, collectionName, newId),
+                        required
+                    });
+                };
+                for (const [id, record] of Object.entries(active.records || {})) {
+                    const newId = newDate + id.slice(oldDate.length);
+                    updatedRecords[newId] = record;
+                    addPair('inventory_records', id, newId, true);
+                    const {hotelKeyword, deptName} = resolveLogisticsHotelParts(record.hotel);
+                    addPair('logistics_records', oldDate + '_' + hotelKeyword + '_' + deptName,
+                        newDate + '_' + hotelKeyword + '_' + deptName, false);
+                }
+                const moves = await Promise.all([...pairs.values()].map(async pair => {
+                    const [source, target] = await Promise.all([tx.get(pair.from), tx.get(pair.to)]);
+                    if (!source.exists() && pair.required) throw new Error('喜達絲有盤點品項已被刪除，請重新載入核對。');
+                    if (target.exists()) throw new Error('喜達絲在新日期已經有資料，請先核對。');
+                    return {pair, source};
+                }));
+                for (const {pair, source} of moves) {
+                    if (!source.exists()) continue;
+                    tx.set(pair.to, {...source.data(), date: newDate});
+                    tx.delete(pair.from);
+                }
+                tx.set(activeRef, {date: newDate, records: updatedRecords});
+                return true;
+            });
+        }
+
         async function moveInventoryRecordWithLogistics(docId, oldDate, newDate, hotel, item) {
+            const newId = newDate + docId.slice(oldDate.length);
+            if (oldDate === newDate) return docId;
+            if (await moveActiveXidaReceipt(oldDate, newDate, hotel)) return newId;
+            if (resolveLogisticsHotelParts(hotel).hotelKeyword === '喜達絲' &&
+                !(await getDocFromServer(doc(db, 'inventory_records', docId))).exists() &&
+                (await getDocFromServer(doc(db, 'inventory_records', newId))).exists()) return newId;
+
             const oldInvRef = doc(db, 'inventory_records', docId);
             const oldInvSnap = await getDoc(oldInvRef);
             if (!oldInvSnap.exists()) throw new Error('找不到舊盤點資料，可能已被刪除。');
@@ -1776,6 +1823,11 @@
                     const r = logRecords.find(item => item.id === docId);
                     if (!r) continue;
 
+                    if (await moveActiveXidaReceipt(r.date, newDate, r.hotelKeyword)) {
+                        r.id = newDate + docId.slice(r.date.length);
+                        r.date = newDate;
+                        continue;
+                    }
                     const oldDocRef = doc(db, 'logistics_records', docId);
                     const oldSnap = await getDoc(oldDocRef);
                     if (oldSnap.exists()) {
@@ -1829,6 +1881,16 @@
 
             try {
                 showToast("⏳ 正在搬移單據...");
+                if (await moveActiveXidaReceipt(oldDate, newDate, hotelKeyword)) {
+                    const record = logRecords.find(row => row.id === docId);
+                    if (record) {
+                        record.id = newDate + docId.slice(oldDate.length);
+                        record.date = newDate;
+                    }
+                    applyLogFilters();
+                    showToast("✅ 喜達絲整張單據已改期！");
+                    return;
+                }
                 const oldDocRef = doc(db, 'logistics_records', docId);
                 const oldDocSnap = await getDoc(oldDocRef);
                 if (!oldDocSnap.exists()) {

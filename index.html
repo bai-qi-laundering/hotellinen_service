@@ -373,7 +373,17 @@
             });
         }
 
+        let xidaActiveDate = '';
+        let xidaReady = false;
+        const isXida = name => normalizeScheduleName(name) === '喜達絲';
+
         function getTargetDateStr(baseName, refDateStr, department) {
+            if (isXida(baseName)) {
+                if (xidaActiveDate) return xidaActiveDate;
+                const today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Asia/Taipei'});
+                const [year, month, day] = today.split('-').map(Number);
+                return getLocalDateString(new Date(year, month - 1, day + 1));
+            }
             let d;
             if (refDateStr) {
                 const parts = refDateStr.split('-');
@@ -585,6 +595,7 @@
         function applyDepartmentDate() {
             const refDate = document.getElementById('homeDatePicker').value;
             document.getElementById('datePicker').value = getTargetDateStr(currentBaseHotel, refDate, currentDept);
+            document.getElementById('datePicker').disabled = isXida(currentBaseHotel);
             const parts = document.getElementById('datePicker').value.split('-');
             document.getElementById('dateDisplay').innerText = `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日`;
             if (window.attachRealtimeListener) window.attachRealtimeListener(refDate);
@@ -1294,6 +1305,27 @@
                     originalDateChanged();
                 }
 
+                const xidaRef = doc(db, 'inventory_config', 'xida_active_receipt');
+                const syncXidaDate = snapshot => {
+                    const wasReady = xidaReady;
+                    xidaReady = !snapshot.metadata.fromCache;
+                    if (!xidaReady) return;
+                    const date = snapshot.data()?.date || '';
+                    if (wasReady && date === xidaActiveDate) return;
+                    xidaActiveDate = date;
+                    if (isXida(currentBaseHotel) && !document.getElementById('hotelView').classList.contains('hidden')) {
+                        if (document.getElementById('datePicker').value !== getTargetDateStr(currentBaseHotel)) {
+                            applyDepartmentDate();
+                            renderItems(true);
+                            window.updateBorderBtnState();
+                        }
+                    } else renderHome(false);
+                };
+                onSnapshot(xidaRef, {includeMetadataChanges: true}, syncXidaDate, error => {
+                    xidaReady = false;
+                    console.error('喜達絲單據同步失敗', error);
+                });
+
                 window.firebaseSubmit = async function(category, item, requestedDate) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     if (window.inventorySaveTargetsOpenHotel && !window.inventorySaveTargetsOpenHotel(category)) {
@@ -1302,6 +1334,8 @@
                         return;
                     }
                     const dateStr = requestedDate || document.getElementById('datePicker').value;
+                    const xida = isXida(currentBaseHotel);
+                    const expectedXidaDate = xidaActiveDate;
                     const u = userInputs[dateStr]?.[category]?.[item];
                     if (!u) return;
                     const saver=window.InventorySave,key=saver.key(dateStr,category,item);
@@ -1326,7 +1360,7 @@
                         const uploads=window.uploadPromises || {};
                         await saver.withTimeout(Promise.all(['aunt','sup'].map(role=>uploads[`${dateStr}_${category}_${item}_${role}`]).filter(Boolean)),16000,'簽名上傳逾時').catch(()=>{});
                         const submitted=fingerprint(u);
-                        if(u.sendwashPending&&!u.signature&&!u.doubleSignature){
+                        if(!xida&&u.sendwashPending&&!u.signature&&!u.doubleSignature){
                             await window.savePendingSendwashNote(dateStr,category,item,u.note || '');
                             return {submitted,noteOnly:true,updates:{}};
                         }
@@ -1336,7 +1370,23 @@
                         if(u.signature&&u.signature!=='CACHED')payload.signature=u.signature;
                         if(u.doubleSignature&&u.doubleSignature!=='CACHED')payload.doubleSignature=u.doubleSignature;
                         const recordRef=doc(db,'inventory_records',`${dateStr}_${category}_${item.replace(/\//g,'-')}`),updates={};
-                        if(u.sendwashPending){
+                        if (xida) {
+                            if (!xidaReady) throw new Error('喜達絲單據尚未同步，請連線後重試。');
+                            if (u.sendwashPending || u.sendwashSupplemental || u.countSource === 'sendwash') {
+                                throw new Error('喜達絲對點來源需要由辦公室確認。');
+                            }
+                            await runTransaction(db, async tx => {
+                                const active = (await tx.get(xidaRef)).data();
+                                const previous = active?.date || '';
+                                if ((expectedXidaDate ? previous !== expectedXidaDate : previous && previous !== dateStr) ||
+                                    dateStr !== (previous || getTargetDateStr('喜達絲'))) {
+                                    throw new Error('喜達絲單據日期已變更，請確認畫面日期後重新登記。');
+                                }
+                                const records = {...active?.records, [recordRef.id]: {hotel: category, item}};
+                                tx.set(recordRef, payload, {merge: true});
+                                tx.set(xidaRef, {date: dateStr, records});
+                            });
+                        }else if(u.sendwashPending){
                             const saved=await window.persistPendingSendwash(dateStr,category,item,payload,u.sendwashPending,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
                             Object.assign(updates,{sendwashSources:saved.sendwashSources,sendwashPending:null,sendwashLoadedCount:saved.count,sendwashLoadedDoubleCount:saved.doubleCount});
                         }else if(u.sendwashSupplemental){

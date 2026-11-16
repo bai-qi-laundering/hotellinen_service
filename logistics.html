@@ -964,6 +964,9 @@
                     })) || [];
                     await runTransaction(db, async tx => {
                         const old = await tx.get(refDoc);
+                        const activeRef = main && signingHotel.normalize('NFKC').replace(/\s/g, '') === '喜達絲'
+                            ? doc(db, 'inventory_config', 'xida_active_receipt') : null;
+                        const active = activeRef ? (await tx.get(activeRef)).data() : null;
                         const prior = old.exists() ? old.data() : {};
                         const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
@@ -977,6 +980,9 @@
                             else return;
                         }
                         tx.set(refDoc,update,{merge:true});
+                        if (active?.date === signingDate && (update.clientSig || prior.clientSig)) {
+                            tx.delete(activeRef);
+                        }
                     });
                 };
                 await saveDept(dept,true);
