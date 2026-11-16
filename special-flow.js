@@ -272,8 +272,8 @@ export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipR
 }
 
 export function reworkItem(docs, id, { reworkQty, reason, signature, time, idFactory }) {
-    const current = docs.find(doc => doc.id === id);
-    requireOpen(current);
+    const current = liveDoc(docs, id);
+    if (![FOLD_STATUS, REWORK_STATUS, SIGNED_STATUS].includes(current.status)) throw new Error('已送出，無法退回重工');
     const why = String(reason || '').trim();
     if (!why) throw new Error('請選擇退回原因');
     if (!time) throw new Error('缺少時間');
@@ -282,6 +282,12 @@ export function reworkItem(docs, id, { reworkQty, reason, signature, time, idFac
     if (qty === current.qty) {
         const updated = clone(current);
         updated.status = REWORK_STATUS;
+        updated.foldSignature = '';
+        updated.foldSignedAt = '';
+        updated.shipDate = '';
+        updated.shipRule = '';
+        updated.officeSignature = '';
+        updated.sentAt = '';
         updated.round = current.round + 1;
         const event = { type: 'rework', time, qty, reason: why, round: updated.round };
         if (signature) event.signature = signature;
@@ -428,7 +434,17 @@ export function sendSheet(docs, ids, { signature, time, schedules }) {
     return { docs: docs.map(doc => byId.get(doc.id) || clone(doc)), upserts };
 }
 
-export function foldCards(docs, query = '') {
+function templateRanks({ hotels = [], catalog = new Map() } = {}) {
+    const hotelRanks = new Map(hotels.map((hotel, index) => [hotel, index]));
+    const itemRanks = new Map([...catalog].map(([hotel, entry]) => [hotel, new Map(entry.names.map((name, index) => [name, index]))]));
+    return {
+        hotel: (name) => hotelRanks.get(name) ?? Number.MAX_SAFE_INTEGER,
+        item: (row) => itemRanks.get(row.hotel)?.get(row.officeName || row.item) ?? itemRanks.get(row.hotel)?.get(row.item) ?? Number.MAX_SAFE_INTEGER,
+    };
+}
+
+export function foldCards(docs, query = '', order = {}) {
+    const ranks = templateRanks(order);
     const needle = String(query || '').trim().toLowerCase();
     const open = (docs || []).filter(doc => !doc.deleted && doc.status !== SENT_STATUS);
     const dates = [...new Set(open.map(doc => doc.receivedDate))].sort((a, b) => b.localeCompare(a));
@@ -449,12 +465,15 @@ export function foldCards(docs, query = '') {
             }
             group.lines.push(row);
         }
+        hotels.sort((a, b) => ranks.hotel(a.hotel) - ranks.hotel(b.hotel));
+        for (const group of hotels) group.lines.sort((a, b) => ranks.item(a) - ranks.item(b));
         if (hotels.length) cards.push({ date, label: formatMd(date), hotels });
     }
     return cards;
 }
 
-export function officeSheets(docs) {
+export function officeSheets(docs, order = {}) {
+    const ranks = templateRanks(order);
     const groups = new Map();
     for (const row of docs || []) {
         if (row.deleted || (row.status !== SIGNED_STATUS && row.status !== SENT_STATUS)) continue;
@@ -475,9 +494,11 @@ export function officeSheets(docs) {
         group.items.push(row);
         if (row.officeSignature) group.officeSignature = row.officeSignature;
     }
+    for (const group of groups.values()) group.items.sort((a, b) => ranks.item(a) - ranks.item(b) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || a.id.localeCompare(b.id));
     return [...groups.values()].sort((a, b) =>
         Number(a.sent) - Number(b.sent)
         || String(a.shipDate).localeCompare(String(b.shipDate))
+        || ranks.hotel(a.hotel) - ranks.hotel(b.hotel)
         || a.hotel.localeCompare(b.hotel, 'zh-Hant'));
 }
 
