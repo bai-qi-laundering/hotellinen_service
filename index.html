@@ -601,7 +601,16 @@
             if (window.attachRealtimeListener) window.attachRealtimeListener(refDate);
         }
 
-        function goToHotel(baseName) {
+        async function goToHotel(baseName) {
+            if (isXida(baseName)) {
+                try {
+                    if (!window.prepareXidaReceipt) throw new Error('連線中，請稍後再開啟喜達絲。');
+                    await window.prepareXidaReceipt();
+                } catch (error) {
+                    showMessage(error.message || '喜達絲單據讀取失敗，請重試。');
+                    return;
+                }
+            }
             // Hotel buttons stay in the page after entry. A later click must not switch hotels.
             const homeHidden = document.getElementById('homeView').classList.contains('hidden');
             if (homeHidden && currentBaseHotel) return;
@@ -1090,7 +1099,7 @@
         async function initFirebaseAndSync() {
             try {
                 const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
-                const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, writeBatch, getDoc, addDoc, query, where, onSnapshot, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+                const { initializeFirestore, memoryLocalCache, collection, doc, setDoc, getDocs, getDocsFromServer, writeBatch, getDoc, addDoc, query, where, onSnapshot, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
                 const { getStorage, ref, uploadString, getDownloadURL } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js");
 
                 const firebaseConfig = {
@@ -1306,6 +1315,48 @@
                 }
 
                 const xidaRef = doc(db, 'inventory_config', 'xida_active_receipt');
+                window.prepareXidaReceipt = async function() {
+                    const today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Asia/Taipei'});
+                    const current = await runTransaction(db, async tx => (await tx.get(xidaRef)).data());
+                    if (current?.date && current.date <= today) {
+                        xidaActiveDate = current.date;
+                        xidaReady = true;
+                        return;
+                    }
+
+                    const existing = await getDocsFromServer(query(collection(db, 'inventory_records'), where('date', '==', today)));
+                    const match = entry => /^喜達絲(?:\s|$)/.test(String(entry.hotel || '').normalize('NFKC').trim()) &&
+                        [entry.count, entry.doubleCount].some(value => value !== '' && value != null);
+                    const candidateRefs = existing.docs.filter(entry => match(entry.data())).map(entry => entry.ref);
+                    const date = await runTransaction(db, async tx => {
+                        const active = (await tx.get(xidaRef)).data();
+                        if (active?.date && active.date <= today) return active.date;
+                        if (!candidateRefs.length) return active?.date || '';
+                        const records = await Promise.all(candidateRefs.map(ref => tx.get(ref)));
+                        const receiptRefs = new Map();
+                        const recovered = {};
+                        for (const record of records) {
+                            const data = record.data();
+                            if (!data || !match(data)) continue;
+                            const hotel = String(data.hotel).normalize('NFKC').trim();
+                            const dept = hotel.slice('喜達絲'.length).trim() || '房務';
+                            receiptRefs.set(dept, doc(db, 'logistics_records', today + '_喜達絲_' + dept));
+                            recovered[record.id] = {hotel: data.hotel, item: data.item};
+                        }
+                        const receipts = await Promise.all([...receiptRefs.values()].map(ref => tx.get(ref)));
+                        if (!Object.keys(recovered).length || receipts.some(receipt => receipt.data()?.clientSig)) {
+                            return active?.date || '';
+                        }
+                        if (active?.date && Object.keys(active.records || {}).length) {
+                            throw new Error('喜達絲今天的單據尚未簽收，隔天單據也已有登記。請辦公室先核對兩張單。');
+                        }
+                        tx.set(xidaRef, {date: today, records: recovered});
+                        return today;
+                    });
+                    xidaActiveDate = date;
+                    xidaReady = true;
+                };
+
                 const syncXidaDate = snapshot => {
                     const wasReady = xidaReady;
                     xidaReady = !snapshot.metadata.fromCache;
