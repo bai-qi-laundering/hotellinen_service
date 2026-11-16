@@ -56,7 +56,6 @@
         </div>
 
         <!-- 點交清單區 -->
-        <nav id="flowerReceiptLinks" hidden class="grid-cols-2 gap-3 mb-4" aria-label="選擇花季館別"></nav>
         <div id="sendwashLinks"></div>
         <h2 id="receiptTotalsHeading" hidden class="text-2xl font-black text-blue-900 mb-3">品項總數</h2>
         <div id="departmentsContainer" class="space-y-6">
@@ -206,7 +205,7 @@
                 showToastMsg("⏳ 正在還原原始資料中...");
                 let deletePromises = [];
                 for (let dept in groupedData) {
-                    const docId = groupedData[dept].legacyTarget?.id || `${currentDate}_${currentHotel}_${dept}`;
+                    const docId = `${currentDate}_${currentHotel}_${dept}`;
                     deletePromises.push(deleteDoc(doc(db, 'logistics_records', docId)));
                 }
                 await Promise.all(deletePromises);
@@ -247,7 +246,6 @@
             closeSignModal();
             updateDateDisplay();
             if (currentHotel === '承億') renderSendwashLinks();
-            renderFlowerReceiptLinks();
             fetchData(false); 
         }
 
@@ -267,8 +265,7 @@
 
             try {
                 showToastMsg("⏳ 正在強制同步至財務系統...");
-                const legacyTarget = groupedData[deptKey].legacyTarget;
-                const docId = legacyTarget?.id || `${currentDate}_${currentHotel}_${deptKey}`;
+                const docId = `${currentDate}_${currentHotel}_${deptKey}`;
                 const docRef = doc(db, 'logistics_records', docId);
 
                 let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
@@ -280,7 +277,7 @@
                 await runTransaction(db, async tx => {
                 const snap = await tx.get(docRef);
                 tx.set(docRef, {
-                    date: currentDate, hotelKeyword: legacyTarget?.hotel || currentHotel, deptName: legacyTarget?.dept || deptKey,
+                    date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
                     items: mergeSignedItems(snap.exists() ? snap.data().items || [] : [], safeItemsForDatabase),
                     timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
@@ -328,79 +325,9 @@
             return templatePromise;
         }
 
-        const flowerHotels = ['花季Ａ館', '花季Ｃ館'];
-        const flowerPrefix = /^花季\s*([AＡaａCＣcｃ])\s*館/;
-
-        function flowerBranch(name) {
-            const match = String(name || '').trim().match(flowerPrefix);
-            return match ? flowerHotels[match[1].normalize('NFKC').toUpperCase() === 'A' ? 0 : 1] : '';
-        }
-
-        function normalizeReceiptHotel(hotel) {
-            const name = String(hotel || '');
-            const branch = flowerBranch(name);
-            return branch && !name.trim().replace(flowerPrefix, '').trim() ? branch : name;
-        }
-
-        function flowerAliases(hotel) {
-            const ascii = hotel.normalize('NFKC');
-            return [hotel, ascii, hotel.toLowerCase(), ascii.toLowerCase(), '花季'];
-        }
-
-        function inventoryReceiptDepartment(hotel, label) {
-            const branch = flowerBranch(label);
-            if (flowerHotels.includes(hotel)) {
-                return branch === hotel ? label.trim().replace(flowerPrefix, '').trim() || '房務' : null;
-            }
-            if ((hotel === '花季' && branch) || !label.includes(hotel)) return null;
-            return label.replace(hotel, '').trim() || '房務';
-        }
-
-        function savedReceiptDepartment(hotel, record) {
-            const name = record.hotelKeyword;
-            const dept = String(record.deptName || '');
-            const legacyLabel = dept.trim().startsWith('花季') ? dept.trim() : '花季' + dept.trim();
-            const legacyBranch = name === '花季' ? flowerBranch(legacyLabel) : '';
-            if (hotel === '花季' && legacyBranch) return null;
-            if (!flowerHotels.includes(hotel)) return record.deptName;
-            if (flowerBranch(name) === hotel) return dept || '房務';
-            return legacyBranch === hotel
-                ? legacyLabel.replace(flowerPrefix, '').trim() || '房務'
-                : null;
-        }
-
-        function renderFlowerReceiptLinks() {
-            const nav = document.getElementById('flowerReceiptLinks');
-            if (currentHotel !== '花季' && !flowerHotels.includes(currentHotel)) return;
-            nav.hidden = false;
-            nav.classList.add('grid');
-            nav.replaceChildren();
-            for (const hotel of flowerHotels) {
-                const link = document.createElement('a');
-                const url = new URL(location.href);
-                url.searchParams.set('hotel', hotel);
-                if (currentDate) url.searchParams.set('date', currentDate);
-                link.href = url.href;
-                link.textContent = hotel;
-                link.className = 'p-3 rounded-xl text-center font-bold ' +
-                    (hotel === currentHotel ? 'bg-blue-800 text-white' : 'bg-white text-blue-900 border border-blue-200');
-                if (hotel === currentHotel) link.setAttribute('aria-current', 'page');
-                nav.append(link);
-            }
-        }
-
-        function receiptSendwashSettings() {
-            const settings = sendwashSettings.filter(row => normalizeReceiptHotel(row.hotel) === currentHotel);
-            const departments = new Map();
-            for (const row of settings) {
-                if (!departments.has(row.department) || row.hotel === currentHotel) departments.set(row.department, row);
-            }
-            return departments;
-        }
-
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
-            currentHotel = normalizeReceiptHotel(urlParams.get('hotel'));
+            currentHotel = urlParams.get('hotel');
             let queryDate = urlParams.get('date'); 
             
             if (!currentHotel || currentHotel.trim() === "") {
@@ -425,7 +352,6 @@
             document.getElementById('datePicker').value = targetDate;
             updateDateDisplay();
 
-            renderFlowerReceiptLinks();
             // 排序設定與單據同時讀取；設定較慢不阻擋單據顯示。
             loadReceiptTemplate();
             await fetchData(false);
@@ -455,11 +381,12 @@
                 const retry=document.createElement('button');retry.type='button';retry.textContent='重新載入對點設定';retry.className='block w-full my-3 p-4 bg-blue-100 text-blue-800 rounded-xl font-bold text-lg';retry.onclick=()=>loadReceiptTemplate();container.append(retry);
             }
             if(currentHotel==='承億')return;
-            receiptSendwashSettings().forEach(({ hotel, department: dept }) => {
+            const departments = [...new Set(sendwashSettings.filter(r => r.hotel === currentHotel).map(r => r.department))];
+            departments.forEach(dept => {
                 if ([...document.querySelectorAll('[data-sendwash-dept]')].some(el => el.dataset.sendwashDept === dept)) return;
                 const link = document.createElement('a');
                 const url = new URL('sendwash.html', location.href);
-                url.searchParams.set('hotel', hotel);
+                url.searchParams.set('hotel', currentHotel);
                 url.searchParams.set('department', dept);
                 link.href = url.href;
                 link.className = 'block w-full my-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center';
@@ -521,11 +448,7 @@
             try {
                 let rawData = [];
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
-                const isFlowerBranch = flowerHotels.includes(currentHotel);
-                const hotelFilter = isFlowerBranch
-                    ? where("hotelKeyword", "in", flowerAliases(currentHotel))
-                    : where("hotelKeyword", "==", currentHotel);
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), hotelFilter);
+                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
                 // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
                 // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
@@ -543,14 +466,14 @@
                 }
 
                 let inventoryMap = {}, outletKeys = new Set(), inventoryRows = [];
-                const flowerInventoryLabels = new Map();
                 
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
                     const hotelStr = d.hotel || d.hotelKeyword || d.hotelName || "";
                     
-                    const deptName = inventoryReceiptDepartment(currentHotel, hotelStr);
-                    if (deptName !== null) {
+                    if (hotelStr.includes(currentHotel)) {
+                        let deptName = hotelStr.replace(currentHotel, "").trim();
+                        if (deptName === "") deptName = "房務";
 
                         const processInvItem = (itemData) => {
                             let itemName = itemData.itemName || itemData.item || itemData.name;
@@ -559,14 +482,6 @@
                                 // restaurant row receives a single sum per original item.
                                 const identity=receiptInventoryIdentity(d,itemName,currentHotel),sourceItem=identity.itemName;
                                 let key = `${deptName}_${sourceItem}`;
-                                if (isFlowerBranch && itemName !== '_MANUAL_BORDER_') {
-                                    const identityKey = JSON.stringify([key, identity.outlet]);
-                                    const priorLabel = flowerInventoryLabels.get(identityKey);
-                                    if (priorLabel && priorLabel !== hotelStr) {
-                                        throw new Error(`「${deptName}／${sourceItem}」有不同館名的盤點紀錄，請由辦公室核對。`);
-                                    }
-                                    flowerInventoryLabels.set(identityKey, hotelStr);
-                                }
                                 inventoryRows.push({key,row:{
                                     deptName: deptName, itemName: sourceItem,
                                     originalQty: extractQty(itemData), auntNote: (d.outlet && itemData.note ? `${d.outlet}：` : '') + (itemData.note || itemData.auntNote || d.note || "")
@@ -589,19 +504,10 @@
                 });
 
                 let savedLogistics = {}, savedReceiptDetails = [];
-                const legacyReceiptTargets = new Map();
                 logSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    const deptName = savedReceiptDepartment(currentHotel, d);
-                    if (deptName === null) return;
-                    if (isFlowerBranch && legacyReceiptTargets.has(deptName)) {
-                        throw new Error(`「${deptName}」已有多張簽收紀錄，請由辦公室核對後再簽收。`);
-                    }
-                    if (isFlowerBranch) {
-                        legacyReceiptTargets.set(deptName, { id: docSnap.id, hotel: d.hotelKeyword, dept: d.deptName || deptName });
-                    }
                     savedReceiptDetails.push(d);
-                    savedLogistics[deptName] = {...d,deptName,items:receiptTotalItems(d.items || [],currentHotel)};
+                    savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
 
                 for (let key in inventoryMap) {
@@ -611,7 +517,7 @@
                     let savedItem = null;
 
                     let savedDept = savedLogistics[invItem.deptName];
-                    if (!savedDept && !isFlowerBranch) {
+                    if (!savedDept) {
                         savedDept = Object.values(savedLogistics).find(s => 
                             (s.deptName && s.deptName.includes(invItem.deptName)) || 
                             (invItem.deptName && invItem.deptName.includes(s.deptName))
@@ -660,7 +566,7 @@
 
                 dataReady = true;
                 finishBoot();
-                processAndRenderData(rawData, legacyReceiptTargets);
+                processAndRenderData(rawData);
                 outletDetailError='';
                 try {
                     outletDetailGroups=outletReceiptDetails(inventoryRows,savedReceiptDetails,currentHotel,sendwashSettings);
@@ -706,7 +612,7 @@
                 </article>`).join(''):`<p class="bg-white p-4 rounded-xl text-lg text-gray-500">${escapeHtml(outletDetailError || '本日尚無數量大於 0 的部門明細。')}</p>`);
         }
 
-        function processAndRenderData(rawData, legacyReceiptTargets = new Map()) {
+        function processAndRenderData(rawData) {
             let uniqueDataMap = {};
             rawData.forEach(item => {
                 let key = item.deptName.trim() + "_" + item.itemName.trim();
@@ -726,8 +632,6 @@
 
                 if (!groupedData[item.deptName]) {
                     groupedData[item.deptName] = { items: [], clientSig: "", driverSig: "", isSynced: item.isSynced };
-                    const legacyTarget = legacyReceiptTargets.get(item.deptName);
-                    if (legacyTarget) groupedData[item.deptName].legacyTarget = legacyTarget;
                 } else {
                     if (item.isSynced) groupedData[item.deptName].isSynced = true;
                 }
@@ -815,7 +719,6 @@
             let html = "";
             let deptIndex = 0;
             let autoSyncPromises = []; 
-            const sendwashByDepartment = receiptSendwashSettings();
             const commonItems = ['方巾', '床墊', '枕頭', '床包', '羽毛被', '抱枕套', '置物墊', '嬰兒床圍組', '嬰兒床包/裙', '嬰兒被套', '嬰兒枕套', '嬰兒床圍', '桌裙', '親子床單', '親子被套', '涼被', '門簾'];
             let isSystemLocked = checkIsLocked(currentDate);
 
@@ -824,15 +727,12 @@
                 let deptId = `dept_${deptIndex}`;
                 let isSynced = groupedData[dept].isSynced;
                 let localItemOrder = {};
-                const belongsToReceipt = row => flowerHotels.includes(currentHotel) || currentHotel === '花季'
-                    ? inventoryReceiptDepartment(currentHotel, row.hotel || row.baseName || '') !== null
-                    : row.baseName === currentHotel || (row.hotel && row.hotel.includes(currentHotel));
                 if (masterTemplate && masterTemplate.length > 0) {
                     let matchedItems = masterTemplate.filter(t => 
-                        belongsToReceipt(t) && 
+                        (t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel))) && 
                         ((t.deptName || "房務") === dept || (t.deptName === "" && dept === "房務") || (t.hotel && t.hotel.includes(dept)))
                     );
-                    if (matchedItems.length === 0) matchedItems = masterTemplate.filter(belongsToReceipt);
+                    if (matchedItems.length === 0) matchedItems = masterTemplate.filter(t => t.baseName === currentHotel || (t.hotel && t.hotel.includes(currentHotel)));
                     matchedItems.forEach((t, idx) => { if (localItemOrder[t.item] === undefined) localItemOrder[t.item] = idx; });
                 }
 
@@ -927,7 +827,7 @@
                 <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
                     <div class="bg-gray-800 text-white p-3 -mx-4 -mt-4 mb-3 rounded-t-2xl"><h2 class="text-xl font-black text-center">${dept}</h2></div>
                     ${itemsHtml}${addItemHtml}${actionButton}
-                    ${sendwashByDepartment.has(dept) ? `<a data-sendwash-dept="${escapeHtml(dept)}" href="sendwash.html?hotel=${encodeURIComponent(sendwashByDepartment.get(dept).hotel)}&amp;department=${encodeURIComponent(dept)}" class="block w-full mt-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center">填寫送洗對點單</a>` : ''}
+                    ${sendwashSettings.some(r => r.hotel === currentHotel && r.department === dept) ? `<a data-sendwash-dept="${escapeHtml(dept)}" href="sendwash.html?hotel=${encodeURIComponent(currentHotel)}&amp;department=${encodeURIComponent(dept)}" class="block w-full mt-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center">填寫送洗對點單</a>` : ''}
                 </div>`;
             }
             
@@ -1056,8 +956,7 @@
                 const clientUrl = clientBlob ? await uploadSignatureToStorage(clientBlob,`${signingHotel}_${dept}_client_${Date.now()}`) : null;
                 const driverUrl = driverBlob ? await uploadSignatureToStorage(driverBlob,`${signingHotel}_driver_${Date.now()}`) : null;
                 const saveDept = async (targetDept, main) => {
-                    const legacyTarget = groupedData[targetDept]?.legacyTarget;
-                    const refDoc = doc(db,'logistics_records',legacyTarget?.id || `${signingDate}_${signingHotel}_${targetDept}`);
+                    const refDoc = doc(db,'logistics_records',`${signingDate}_${signingHotel}_${targetDept}`);
                     const items = groupedData[targetDept]?.items.map(i=>({
                         ...i,
                         deptName:i.deptName,itemName:i.itemName,originalQty:i.originalQty,
@@ -1066,7 +965,7 @@
                     await runTransaction(db, async tx => {
                         const old = await tx.get(refDoc);
                         const prior = old.exists() ? old.data() : {};
-                        const update = {date:signingDate,hotelKeyword:legacyTarget?.hotel || signingHotel,deptName:legacyTarget?.dept || targetDept,
+                        const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
                             update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
@@ -1090,7 +989,7 @@
                     }
                 }
                 // 再從伺服器讀取簽名，確定 Firestore 已保存才提示完成。
-                const verified = await getDocFromServer(doc(db,'logistics_records',group.legacyTarget?.id || `${signingDate}_${signingHotel}_${dept}`));
+                const verified = await getDocFromServer(doc(db,'logistics_records',`${signingDate}_${signingHotel}_${dept}`));
                 if (!verified.exists() || (clientUrl && verified.data().clientSig!==clientUrl) ||
                     (driverUrl && verified.data().driverSig!==driverUrl)) {
                     throw new Error('簽名寫入後驗證失敗，請重新載入確認');
@@ -1134,8 +1033,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
