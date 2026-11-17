@@ -330,7 +330,7 @@
             } catch (e) { console.error("快取讀取失敗", e); }
         }
         
-        instantBoot();
+
 
         function normalizeScheduleName(value) {
             return String(value || '').normalize('NFKC').replace(/\s+/g, '').trim();
@@ -407,6 +407,46 @@
             return getLocalDateString(d);
         }
 
+        let hotelPress = null;
+        let hotelPressTimer;
+        let pendingHotelGridRebuild = false;
+        let pendingInventoryTemplate = null;
+
+        function finishHotelPress() {
+            clearTimeout(hotelPressTimer);
+            hotelPress = null;
+            if (!pendingHotelGridRebuild) return;
+            pendingHotelGridRebuild = false;
+            renderHome(true);
+        }
+
+        function scheduleHotelPressEnd(event) {
+            if (hotelPress?.pointerId !== event.pointerId) return;
+            clearTimeout(hotelPressTimer);
+            hotelPressTimer = setTimeout(finishHotelPress, 400);
+        }
+
+        function selectHotelCard(event, button) {
+            if (event.detail && hotelPress?.button !== button) return;
+            const hotel = button.dataset.inventoryHotel;
+            goToHotel(hotel);
+            finishHotelPress();
+        }
+
+        const hotelGrid = document.getElementById('hotelGrid');
+        hotelGrid.addEventListener('pointerdown', event => {
+            const button = event.target.closest('button[data-inventory-hotel]');
+            if (!button || !event.isPrimary || event.button !== 0) return;
+            clearTimeout(hotelPressTimer);
+            hotelPress = {button, pointerId: event.pointerId};
+        });
+        window.addEventListener('pointerup', scheduleHotelPressEnd, true);
+        window.addEventListener('pointercancel', event => {
+            if (hotelPress?.pointerId === event.pointerId) finishHotelPress();
+        }, true);
+        window.addEventListener('blur', finishHotelPress);
+        instantBoot();
+
         function renderHome(forceRebuild = false) {
             const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
             const filtered = allBaseHotels.filter(hotel => isFieldInventoryHotel(hotel) && hotel.toLowerCase().includes(keyword));
@@ -420,6 +460,11 @@
                 });
             }
             
+            if (needsRebuild && hotelPress) {
+                pendingHotelGridRebuild = true;
+                return;
+            }
+
             if (filtered.length > 0) {
                 let htmlContent = "";
                 filtered.forEach(c => {
@@ -507,7 +552,7 @@
                         }
                     }
 
-                    let baseClasses = "rounded-2xl p-1 transition-all flex items-center justify-center aspect-square ";
+                    let baseClasses = "rounded-2xl p-1 min-w-0 flex items-center justify-center aspect-square border-2 ";
                     
                     if (isOrange) {
                         baseClasses += "bg-orange-500 text-white shadow-lg active:bg-orange-600 ";
@@ -516,19 +561,19 @@
                     }
 
                     if (isManualBlackBorder) {
-                        baseClasses += "border-[4px] border-black "; 
+                        baseClasses += "border-black ring-2 ring-inset ring-black "; 
                     } else {
                         if (isOrange) {
-                            baseClasses += "border-2 border-orange-600 ";
+                            baseClasses += "border-orange-600 ";
                         } else {
-                            baseClasses += "border-2 border-blue-200 ";
+                            baseClasses += "border-blue-200 ";
                         }
                     }
 
                     let shadowStyle = isOrange ? "text-shadow: 1px 1px 0px rgba(0,0,0,0.3); font-weight: 900;" : "text-shadow: 0.5px 0.5px 0px rgba(30,58,138,0.3); font-weight: 900;";
 
                     if (needsRebuild) {
-                        htmlContent += `<button id="btn_${safeId}" onclick="goToHotel('${c}')" class="${baseClasses}">
+                        htmlContent += `<button id="btn_${safeId}" type="button" onclick="selectHotelCard(event, this)" class="${baseClasses}">
                                             <span id="span_${safeId}" class="text-3xl break-words w-full text-center leading-tight tracking-wide" style="${shadowStyle}">${c}</span>
                                         </button>`;
                     } else {
@@ -537,7 +582,10 @@
                     }
                 });
 
-                if (needsRebuild) grid.innerHTML = htmlContent;
+                if (needsRebuild) {
+                    grid.innerHTML = htmlContent;
+                    filtered.forEach((hotel, index) => { grid.children[index].dataset.inventoryHotel = hotel; });
+                }
 
             } else {
                 grid.innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-2xl">找不到飯店</div>`;
@@ -655,8 +703,12 @@
         function goHome() { 
             document.getElementById('homeView').classList.remove('hidden'); 
             document.getElementById('hotelView').classList.add('hidden'); 
-            document.getElementById('searchInput').value = ""; 
-            renderHome(false); 
+            document.getElementById('searchInput').value = "";
+            if (pendingInventoryTemplate) {
+                const apply = pendingInventoryTemplate;
+                pendingInventoryTemplate = null;
+                apply();
+            } else renderHome(false); 
         }
         
         function homeDateChanged() { 
@@ -1130,18 +1182,20 @@
 
                 const templateDoc = await getDoc(doc(db, 'inventory_config', 'master_template'));
                 if (templateDoc.exists() && templateDoc.data().items) {
-                    masterData = templateDoc.data().items;
-                    if (window.setSendwashSettings) window.setSendwashSettings(templateDoc.data().sendwashSettings || []);
-                    sendwashEnabled = Array.isArray(templateDoc.data().sendwashSettings) && templateDoc.data().sendwashSettings.length > 0;
-                    deliverySchedules = validateDeliverySchedules(templateDoc.data().deliverySchedules || []);
-                    buildHotelStructure();
-                    saveToLocal();
-                    renderHome(true);
-                    if (currentBaseHotel) {
-                        updateCurrentHotelName();
-                        applyDepartmentDate();
-                        renderItems(true);
-                    }
+                    const template = templateDoc.data();
+                    const schedules = validateDeliverySchedules(template.deliverySchedules || []);
+                    const apply = () => {
+                        masterData = template.items;
+                        if (window.setSendwashSettings) window.setSendwashSettings(template.sendwashSettings || []);
+                        sendwashEnabled = Array.isArray(template.sendwashSettings) && template.sendwashSettings.length > 0;
+                        deliverySchedules = schedules;
+                        buildHotelStructure();
+                        saveToLocal();
+                        renderHome(true);
+                        if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
+                    };
+                    if (document.getElementById('hotelView').classList.contains('hidden')) apply();
+                    else pendingInventoryTemplate = apply;
                 }
 
                 const inventoryDateWindows = {
@@ -1278,7 +1332,7 @@
                     const selectedDate = document.getElementById('datePicker').value;
                     const extraDates = selectedDate && !baseDates.includes(selectedDate) ? [selectedDate] : [];
                     const sendwashDates = [...baseDates, ...extraDates];
-                    const nextSendwashDatesKey = sendwashDates.slice().sort().join('|');
+                    const nextSendwashDatesKey = sendwashEnabled ? sendwashDates.slice().sort().join('|') : '';
                     if (nextSendwashDatesKey !== sendwashDatesKey) {
                         sendwashDatesKey = nextSendwashDatesKey;
                         if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(sendwashDates);
