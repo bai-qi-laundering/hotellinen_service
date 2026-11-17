@@ -71,7 +71,8 @@
    const sources=pending(date,hotel,item).filter(r=>!old.sendwashSources?.[r.id]);if(!sources.length)continue;
    const loadedCount=old.sendwashPending ? old.sendwashLoadedCount : (old.count ?? '');
    const loadedDoubleCount=old.sendwashPending ? old.sendwashLoadedDoubleCount : (old.doubleCount ?? '');
-   userInputs[date][hotel][item]={...old,countSource:'sendwash',count:String(Number(loadedCount || 0)+sources.reduce((n,r)=>n+Number(r.items.find(x=>itemKey(r,x.item)===item).quantity),0)),doubleCount:loadedDoubleCount,sendwashLoadedCount:loadedCount,sendwashLoadedDoubleCount:loadedDoubleCount,sendwashPending:sources.map(r=>({id:r.id,quantity:core.quantity(r.items.find(x=>itemKey(r,x.item)===item).quantity)})),note:old.note ?? sources.find(r=>r.notes?.[sourceItem(r,item)] !== undefined)?.notes[sourceItem(r,item)] ?? ''};
+   const sourceNote = sources.map(source => source.notes?.[sourceItem(source, item)]).find(note => note !== undefined);
+   userInputs[date][hotel][item]={...old,countSource:'sendwash',count:String(Number(loadedCount || 0)+sources.reduce((n,r)=>n+Number(r.items.find(x=>itemKey(r,x.item)===item).quantity),0)),doubleCount:loadedDoubleCount,sendwashLoadedCount:loadedCount,sendwashLoadedDoubleCount:loadedDoubleCount,sendwashPending:sources.map(r=>({id:r.id,quantity:core.quantity(r.items.find(x=>itemKey(r,x.item)===item).quantity)})),note:old.note ?? sourceNote ?? ''};
   }
  };
  window.prepareSendwashFullItem=(date,hotel,item)=>{
