@@ -409,7 +409,7 @@
 
         function renderHome(forceRebuild = false) {
             const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
-            const filtered = allBaseHotels.filter(c => c.toLowerCase().includes(keyword));
+            const filtered = allBaseHotels.filter(hotel => isFieldInventoryHotel(hotel) && hotel.toLowerCase().includes(keyword));
             const grid = document.getElementById('hotelGrid');
             
             let needsRebuild = forceRebuild || grid.children.length === 0 || grid.children.length !== filtered.length;
@@ -590,7 +590,12 @@
             if (window.attachRealtimeListener) window.attachRealtimeListener(refDate);
         }
 
+        function isFieldInventoryHotel(baseName) {
+            return normalizeScheduleName(baseName) !== '喜達絲';
+        }
+
         function goToHotel(baseName) {
+            if (!isFieldInventoryHotel(baseName)) return;
             // Hotel buttons stay in the page after entry. A later click must not switch hotels.
             const homeHidden = document.getElementById('homeView').classList.contains('hidden');
             if (homeHidden && currentBaseHotel) return;
