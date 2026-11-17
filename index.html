@@ -322,7 +322,17 @@
                 const cachedInputs = localStorage.getItem('inventory_userInputs');
                 if (cachedMaster) {
                     masterData = JSON.parse(cachedMaster); buildHotelStructure();
-                    if (cachedInputs) userInputs = window.InventorySave.recover(JSON.parse(cachedInputs));
+                    if (cachedInputs) {
+                        userInputs = window.InventorySave.recover(JSON.parse(cachedInputs));
+                        for (const hotels of Object.values(userInputs)) {
+                            for (const [hotel, items] of Object.entries(hotels)) {
+                                if (!/^鉑麗(?:\s|$)/.test(hotel.normalize('NFKC').trim())) continue;
+                                for (const [item, data] of Object.entries(items)) {
+                                    if (data.isSubmitted && !data.saveError && !data.hasSigned && !data.doubleHasSigned) delete items[item];
+                                }
+                            }
+                        }
+                    }
                     renderHome(true); 
                 } else {
                     document.getElementById('hotelGrid').innerHTML = `<div class="col-span-3 text-center py-10 text-gray-500 font-bold text-xl">請點擊上方【⚙️ 更新設定】載入清單</div>`;
@@ -411,6 +421,8 @@
         let hotelPressTimer;
         let pendingHotelGridRebuild = false;
         let pendingInventoryTemplate = null;
+        let inventoryTemplateReady = false;
+        let openPoliWhenReady = false;
 
         function finishHotelPress() {
             clearTimeout(hotelPressTimer);
@@ -647,6 +659,11 @@
             // Hotel buttons stay in the page after entry. A later click must not switch hotels.
             const homeHidden = document.getElementById('homeView').classList.contains('hidden');
             if (homeHidden && currentBaseHotel) return;
+            openPoliWhenReady = normalizeScheduleName(baseName) === '鉑麗' && !inventoryTemplateReady;
+            if (openPoliWhenReady) {
+                showToast('正在載入鉑麗盤點資料…');
+                return;
+            }
             currentBaseHotel = baseName;
             
             currentDept = getDefaultDept(baseName);
@@ -682,6 +699,10 @@
         }
 
         function updateCurrentHotelName() {
+            if (normalizeScheduleName(currentBaseHotel) === '鉑麗' && currentDept === '房務') {
+                currentHotelName = '鉑麗 房務';
+                return;
+            }
             if (window.InventoryHotel) {
                 currentHotelName = window.InventoryHotel.resolve(currentBaseHotel, currentDept, masterData);
                 return;
@@ -1196,6 +1217,7 @@
                     };
                     if (document.getElementById('hotelView').classList.contains('hidden')) apply();
                     else pendingInventoryTemplate = apply;
+                    inventoryTemplateReady = true;
                 }
 
                 const inventoryDateWindows = {
@@ -1343,6 +1365,12 @@
                 };
 
                 window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
+                if (openPoliWhenReady) {
+                    openPoliWhenReady = false;
+                    const hotel = allBaseHotels.find(name => normalizeScheduleName(name) === '鉑麗');
+                    if (inventoryTemplateReady && hotel) goToHotel(hotel);
+                    else showMessage('雲端沒有鉑麗的盤點設定，請重新整理後再試。');
+                }
 
                 const originalHomeDateChanged = window.homeDateChanged;
                 window.homeDateChanged = function() {
@@ -1513,6 +1541,10 @@
 
             } catch (error) {
                 console.error("Firebase 失敗", error);
+                if (openPoliWhenReady) {
+                    openPoliWhenReady = false;
+                    showMessage("鉑麗盤點資料載入失敗，請重新整理後再試。");
+                }
             }
         }
 
