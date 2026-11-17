@@ -376,3 +376,51 @@ test('office confirmation after midnight Taipei time recalculates the final date
     const [record]=buildInventoryWrites(sent.upserts,catalog.get('驛館'),{signature:'office',timestamp:'t'});
     assert.equal(record.date,'2026-10-31');
 });
+
+test('fold and office follow inventory hotel and item order instead of message creation order', () => {
+    const order = {hotels: ['文七', '好六'], catalog: new Map([
+        ['文七', {names: ['特處被套', '特處床單']}], ['好六', {names: ['特處床單']}],
+    ])};
+    const rows = [
+        {id: 'a', hotel: '好六', item: '特處床單', qty: 1, receivedDate: '2026-11-16', createdAt: '01', status: '已簽名'},
+        {id: 'b', hotel: '文七', item: '新項目', qty: 1, receivedDate: '2026-11-16', createdAt: '02', status: '已簽名'},
+        {id: 'c', hotel: '文七', item: '特處床單', qty: 1, receivedDate: '2026-11-16', createdAt: '03', status: '已簽名'},
+        {id: 'd', hotel: '文七', item: '特處被套', qty: 1, receivedDate: '2026-11-16', createdAt: '04', status: '已簽名'},
+    ];
+    const [card] = foldCards(rows, '', order);
+    assert.deepEqual(card.hotels.map(g => g.hotel), ['文七', '好六']);
+    assert.deepEqual(card.hotels[0].lines.map(r => r.id), ['d', 'c', 'b']);
+    const office = officeSheets(rows, order);
+    assert.deepEqual(office.map(g => g.hotel), ['文七', '好六']);
+    assert.deepEqual(office[0].items.map(r => r.id), ['d', 'c', 'b']);
+    assert.deepEqual(foldCards(rows, '新項目', order)[0].hotels[0].lines.map(r => r.id), ['b']);
+    assert.equal(rows[0].id, 'a');
+});
+
+test('signed but unsent items can return fully to rework and leave the office queue', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六床單3'), {time: '2026-11-16T01:00:00Z', idFactory});
+    const signed = signItem(created.docs, created.docs[0].id, {shipQty: 3, signature: 'original-signature', time: '2026-11-16T02:00:00Z', idFactory});
+    const result = reworkItem(signed.docs, created.docs[0].id, {reworkQty: 3, reason: '髒污', time: '2026-11-16T03:00:00Z', idFactory});
+    assert.equal(result.docs[0].status, '重工中');
+    assert.equal(result.docs[0].qty, 3);
+    assert.equal(result.docs[0].foldSignature, '');
+    assert.equal(result.docs[0].foldSignedAt, '');
+    assert.equal(result.docs[0].round, 2);
+    assert.equal(officeSheets(result.docs).length, 0);
+    assert.ok(result.docs[0].history.some(e => e.type === 'signed' && e.signature === 'original-signature'));
+    const resigned = signItem(result.docs, result.docs[0].id, {shipQty: 3, signature: 'after-rework', time: '2026-11-16T04:00:00Z', idFactory});
+    assert.equal(officeSheets(resigned.docs)[0].items[0].qty, 3);
+    assert.equal(signed.docs[0].status, '已簽名');
+});
+
+test('partial return from a signed item conserves quantity; sent documents remain locked', () => {
+    const idFactory = ids();
+    const created = addParsedEntry([], entry('好六床單3'), {time: '2026-11-16T01:00:00Z', idFactory});
+    const signed = signItem(created.docs, created.docs[0].id, {shipQty: 3, signature: 'sig', time: '2026-11-16T02:00:00Z', idFactory});
+    const result = reworkItem(signed.docs, created.docs[0].id, {reworkQty: 1, reason: '破損', time: '2026-11-16T03:00:00Z', idFactory});
+    assert.equal(result.docs.reduce((n, r) => n + r.qty, 0), 3);
+    assert.equal(officeSheets(result.docs)[0].items[0].qty, 2);
+    assert.equal(result.docs.find(r => r.status === '重工中').foldSignature, '');
+    assert.throws(() => reworkItem([{...signed.docs[0], status: '已送出'}], created.docs[0].id, {reworkQty: 3, reason: '其他', time: '2026-11-16T04:00:00Z'}), /已送出/);
+});
