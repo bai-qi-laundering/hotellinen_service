@@ -379,12 +379,16 @@
                 return;
             }
             const today = taipeiToday();
+            const shippingToday = [];
             const sentToday = [];
             const otherSheets = [];
             sheets.forEach((sheet, index) => {
                 const stamp = sheet.sentAt ? new Date(sheet.sentAt) : null;
                 const isToday = sheet.sent && stamp && Number.isFinite(stamp.getTime()) && taipeiToday(stamp) === today;
-                (isToday ? sentToday : otherSheets).push({sheet, index});
+                const entry = {sheet, index};
+                if (sheet.sent && sheet.shipDate === today) shippingToday.push(entry);
+                else if (isToday) sentToday.push(entry);
+                else otherSheets.push(entry);
             });
             sentToday.sort((a, b) => Date.parse(b.sheet.sentAt) - Date.parse(a.sheet.sentAt));
             const renderSheet = ({sheet, index}, grouped = false) => {
@@ -413,12 +417,17 @@
                     <div class="px-4 pb-4">${rows}${footer}</div>
                 </${tag}>`;
             };
+            const shippingCard = shippingToday.length ? `
+                <article class="bg-white rounded-2xl shadow border border-blue-200 overflow-hidden mb-4" data-testid="office-shipping-today">
+                    <header class="bg-blue-800 text-white p-4"><h2 class="text-2xl font-black">今天出貨</h2><p class="mt-1 text-sm font-bold">${esc(today)}｜${shippingToday.length} 張</p></header>
+                    ${shippingToday.map(entry => renderSheet(entry, true)).join('')}
+                </article>` : '';
             const todayCard = sentToday.length ? `
                 <article class="bg-white rounded-2xl shadow border border-emerald-200 overflow-hidden mb-4" data-testid="office-sent-today">
-                    <header class="bg-emerald-800 text-white p-4"><h2 class="text-2xl font-black">今天已送出</h2><p class="mt-1 text-sm font-bold">${esc(today)}｜${sentToday.length} 張</p></header>
+                    <header class="bg-emerald-800 text-white p-4"><h2 class="text-2xl font-black">今天已送出${shippingToday.length ? '（其他出貨日）' : ''}</h2><p class="mt-1 text-sm font-bold">${esc(today)}｜${sentToday.length} 張</p></header>
                     ${sentToday.map(entry => renderSheet(entry, true)).join('')}
                 </article>` : '';
-            host.innerHTML = todayCard + otherSheets.map(entry => renderSheet(entry)).join('');
+            host.innerHTML = shippingCard + todayCard + otherSheets.map(entry => renderSheet(entry)).join('');
             host.querySelectorAll('[data-office-for]').forEach(input => {
                 input.addEventListener('input', () => paintOfficeInput(input));
                 input.addEventListener('change', () => saveOfficeName(input));
