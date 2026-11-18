@@ -952,7 +952,7 @@
                 let cleanItem = (d.item || "").trim();
                 invMap[`${dDate}_${cleanHotel}_${cleanItem}`] = qty;
 
-                let hotelName = (d.hotel || "").trim();
+                let hotelName = FlowerReceipts.inventoryHotel((d.hotel || "").trim());
                 let hotelKeyword = hotelName;
                 let deptName = "房務";
                 let catParts = hotelName.split(' ');

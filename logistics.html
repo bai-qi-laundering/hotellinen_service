@@ -471,7 +471,9 @@
             try {
                 let rawData = [];
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
-                const logQ = query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
+                const logQ = currentHotel === "花季"
+                    ? query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate))
+                    : query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
                 // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
                 // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
@@ -530,8 +532,9 @@
                     addInventoryQuantity(inventoryMap,outletKeys,key,{...row},outlet);
                 });
 
+                const hotelLogDocs = logSnap.docs.filter(snapshot => currentHotel !== '花季' || /^花季(?:[AC]館)?$/i.test(String(snapshot.data().hotelKeyword || '').normalize('NFKC').replace(/\s/g,'')));
                 flowerReceiptIds = new Map();
-                logSnap.forEach(snapshot => {
+                hotelLogDocs.forEach(snapshot => {
                     const data = snapshot.data(), branch = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
                     if (!branch || data.manualDeletedReceipt) return;
                     const ids = flowerReceiptIds.get(branch.deptName) || [];
@@ -539,7 +542,7 @@
                     flowerReceiptIds.set(branch.deptName, ids);
                 });
                 let savedLogistics = {}, savedReceiptDetails = [];
-                FlowerReceipts.collapse(new Map(logSnap.docs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
+                FlowerReceipts.collapse(new Map(hotelLogDocs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
                     const d = docSnap.data();
                     savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
