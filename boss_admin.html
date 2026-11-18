@@ -3062,6 +3062,14 @@
         };
 
 
+        function stableFlowerData(data) {
+            const sort = value => {
+                if (Array.isArray(value)) return value.map(sort);
+                if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, sort(value[key])]));
+                return value;
+            };
+            return JSON.stringify(sort(JSON.parse(JSON.stringify(data))));
+        }
         let flowerCleanupPlan = [];
         window.previewFlowerCleanup = async function() {
             const output = document.getElementById('flowerCleanupOutput');
@@ -3114,7 +3122,7 @@
                         const existing = latest.filter(row => row.exists());
                         for (const original of group.rows) {
                             const current = existing.find(row => row.id === original.id);
-                            if (!current || JSON.stringify(current.data()) !== JSON.stringify(original.data())) {
+                            if (!current || stableFlowerData(current.data()) !== stableFlowerData(original.data())) {
                                 throw new Error(group.date + ' ' + group.branch.deptName + '資料已變更，請重新掃描');
                             }
                         }
