@@ -288,6 +288,7 @@
                     <button onclick="openManualEntryModal()" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-emerald-300">
                         ➕ 歷史補單
                     </button>
+                    <button onclick="document.getElementById('flowerCleanupPanel').hidden=false;previewFlowerCleanup()" class="bg-blue-100 text-blue-900 font-bold px-4 py-2 rounded-lg">核對花季重複單</button>
                     <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
                         載入物流單據
                     </button>
@@ -377,6 +378,16 @@
     </div>
 
     <!-- Firebase 模組載入 -->
+    <section id="flowerCleanupPanel" hidden class="fixed inset-4 z-[50000] bg-white border-2 rounded-xl p-4 overflow-auto shadow-xl">
+        <h2 class="text-xl font-bold">花季歷史重複單核對</h2>
+        <p>同日同館的別名單合併為一張。數量衝突會列出供核對，原單保留於刪除備份。</p>
+        <div class="flex gap-3 my-3">
+            <button onclick="previewFlowerCleanup()" class="p-3 bg-blue-100 rounded">重新掃描</button>
+            <button id="flowerCleanupRun" onclick="runFlowerCleanup()" disabled class="p-3 bg-green-700 text-white rounded">執行已核對項目</button>
+            <button onclick="document.getElementById('flowerCleanupPanel').hidden=true" class="p-3 bg-gray-100 rounded">關閉</button>
+        </div>
+        <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
+    </section>
     <script src="flower-receipts.js?v=20261119"></script>
 <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -3048,6 +3059,94 @@
             } finally {
                 if (button) button.disabled = false;
             }
+        };
+
+
+        let flowerCleanupPlan = [];
+        window.previewFlowerCleanup = async function() {
+            const output = document.getElementById('flowerCleanupOutput');
+            output.textContent = '正在查詢所有歷史花季單據…';
+            flowerCleanupPlan = [];
+            try {
+                const snapshot = await getDocsFromServer(query(collection(db, 'logistics_records'),
+                    where('hotelKeyword', '>=', '花季'), where('hotelKeyword', '<=', '花季\uf8ff')));
+                const groups = new Map();
+                snapshot.forEach(row => {
+                    const data = row.data(), branch = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
+                    if (!branch || data.manualDeletedReceipt) return;
+                    const date = standardizeDate(data.date);
+                    const key = date + '_' + branch.deptName;
+                    if (!groups.has(key)) groups.set(key, {date, branch, rows: []});
+                    groups.get(key).rows.push(row);
+                });
+                const report = [];
+                let conflicts = 0;
+                for (const group of groups.values()) {
+                    const targetId = group.date + '_花季_' + group.branch.deptName;
+                    if (group.rows.length === 1 && group.rows[0].id === targetId) continue;
+                    try {
+                        FlowerReceipts.collapse(new Map(group.rows.map(row => [row.id, row])));
+                        flowerCleanupPlan.push({...group, targetId});
+                        report.push(group.date + ' ' + group.branch.deptName + '｜' + group.rows.length + ' 張 → 1 張｜' +
+                            group.rows.map(row => row.id).join('、'));
+                    } catch (error) {
+                        conflicts++;
+                        report.push('需核對｜' + error.message);
+                    }
+                }
+                output.textContent = '掃描 ' + snapshot.size + ' 張花季歷史單據。可整理 ' + flowerCleanupPlan.length +
+                    ' 組，數量衝突 ' + conflicts + ' 組。\n' + report.join('\n');
+                document.getElementById('flowerCleanupRun').disabled = !flowerCleanupPlan.length;
+            } catch (error) { output.textContent = '讀取失敗：' + error.message; }
+        };
+        window.runFlowerCleanup = async function() {
+            const button = document.getElementById('flowerCleanupRun');
+            const output = document.getElementById('flowerCleanupOutput');
+            button.disabled = true;
+            let completed = 0, archived = 0;
+            try {
+                for (const group of flowerCleanupPlan) {
+                    const target = doc(db, 'logistics_records', group.targetId);
+                    const refs = new Map(group.rows.map(row => [row.id, row.ref]));
+                    refs.set(target.id, target);
+                    await runTransaction(db, async tx => {
+                        const latest = await Promise.all([...refs.values()].map(ref => tx.get(ref)));
+                        const existing = latest.filter(row => row.exists());
+                        for (const original of group.rows) {
+                            const current = existing.find(row => row.id === original.id);
+                            if (!current || JSON.stringify(current.data()) !== JSON.stringify(original.data())) {
+                                throw new Error(group.date + ' ' + group.branch.deptName + '資料已變更，請重新掃描');
+                            }
+                        }
+                        const destination = existing.find(row => row.id === target.id);
+                        if (destination && !group.rows.some(row => row.id === destination.id)) {
+                            throw new Error('目的單據已新增，請重新掃描');
+                        }
+                        const merged = [...FlowerReceipts.collapse(new Map(existing.map(row => [row.id, row]))).values()][0]?.data();
+                        if (!merged) throw new Error('找不到可整理的單據');
+                        tx.set(target, {...merged, date: group.date, ...group.branch, manualDeletedReceipt: false,
+                            aliasMergeSourceIds: group.rows.map(row => row.id), aliasMergedAt: new Date().toISOString()});
+                        existing.forEach(row => {
+                            if (row.id === target.id) return;
+                            const data = row.data();
+                            tx.set(row.ref, {manualDeletedReceipt: true, mergedInto: target.id,
+                                deletedBackupItems: data.items || [], aliasMergedAt: new Date().toISOString()}, {merge: true});
+                        });
+                    });
+                    const verified = await getDocFromServer(target);
+                    if (!verified.exists() || verified.data().manualDeletedReceipt) throw new Error('主單寫入未確認');
+                    for (const row of group.rows) {
+                        if (row.id === target.id) continue;
+                        const backup = await getDocFromServer(row.ref);
+                        if (!backup.data()?.manualDeletedReceipt || backup.data()?.mergedInto !== target.id) throw new Error('別名單歸檔未確認');
+                        archived++;
+                    }
+                    completed++;
+                    output.textContent += '\n已驗證｜' + group.date + ' ' + group.branch.deptName;
+                }
+                flowerCleanupPlan = [];
+                output.textContent += '\n完成 ' + completed + ' 組，已移除重複顯示 ' + archived + ' 張。原單數量與簽名保存在歸檔單。';
+            } catch (error) { output.textContent += '\n已完成 ' + completed + ' 組。停止：' + error.message; }
         };
 
         switchMainTab('inventory');
