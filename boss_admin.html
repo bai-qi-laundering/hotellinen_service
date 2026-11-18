@@ -377,7 +377,8 @@
     </div>
 
     <!-- Firebase 模組載入 -->
-    <script type="module">
+    <script src="flower-receipts.js?v=20261119"></script>
+<script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
@@ -1038,6 +1039,7 @@
                 let uniqueDocs = new Map();
                 logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
+                uniqueDocs = FlowerReceipts.collapse(uniqueDocs);
                 logRecords = [];
                 let processedLogKeys = new Set();
                 const logisticsRepairPromises = [];

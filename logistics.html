@@ -106,6 +106,7 @@
             box.appendChild(button);
         }, 20000);
     </script>
+    <script src="flower-receipts.js?v=20261119"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
@@ -141,7 +142,8 @@
         
         let currentHotel = "";
         let currentDate = "";
-        let groupedData = {}; 
+        let groupedData = {};
+        let flowerReceiptIds = new Map(); 
         let outletDetailGroups = [];
         let outletDetailError = '';
         let activeDeptKey = ""; 
@@ -257,6 +259,26 @@
             setTimeout(() => toast.classList.add('opacity-0'), 3000);
         }
 
+
+        async function readFlowerReceipt(tx, refDoc, dept, archive = true) {
+            const ids = currentHotel === '花季' ? flowerReceiptIds.get(dept) || [] : [];
+            const refs = new Map([[refDoc.id, refDoc]]);
+            ids.forEach(id => refs.set(id, doc(db, 'logistics_records', id)));
+            const snapshots = await Promise.all([...refs.values()].map(ref => tx.get(ref)));
+            const existing = snapshots.filter(snapshot => snapshot.exists());
+            const canonical = snapshots.find(snapshot => snapshot.id === refDoc.id);
+            if (!ids.length) return canonical?.data() || {};
+            const merged = [...FlowerReceipts.collapse(new Map(existing.map(snapshot => [snapshot.id, snapshot]))).values()][0]?.data() || {};
+            // Archive aliases in the same transaction as the canonical signature/quantity write.
+            existing.forEach(snapshot => {
+                if (!archive || snapshot.id === refDoc.id || snapshot.data().manualDeletedReceipt) return;
+                tx.set(snapshot.ref, {manualDeletedReceipt: true, mergedInto: refDoc.id,
+                    deletedBackupItems: snapshot.data().items || [],
+                    aliasMergedAt: new Date().toISOString()}, {merge: true});
+            });
+            return merged;
+        }
+
         window.forceSyncToFinance = async function(deptKey, clickEvent) {
             if (!dataReady || signatureSaving) return;
             const btn = clickEvent.currentTarget;
@@ -275,10 +297,10 @@
                 }));
 
                 await runTransaction(db, async tx => {
-                const snap = await tx.get(docRef);
+                const prior = await readFlowerReceipt(tx, docRef, deptKey);
                 tx.set(docRef, {
                     date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
-                    items: mergeSignedItems(snap.exists() ? snap.data().items || [] : [], safeItemsForDatabase),
+                    items: mergeSignedItems(prior.items || [], safeItemsForDatabase),
                     timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
                 });
@@ -328,6 +350,7 @@
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
+            if (FlowerReceipts.identity(currentHotel, '房務')) currentHotel = '花季';
             let queryDate = urlParams.get('date'); 
             
             if (!currentHotel || currentHotel.trim() === "") {
@@ -469,7 +492,7 @@
                 
                 invSnap.forEach(docSnap => {
                     const d = docSnap.data();
-                    const hotelStr = d.hotel || d.hotelKeyword || d.hotelName || "";
+                    const hotelStr = FlowerReceipts.inventoryHotel(d.hotel || d.hotelKeyword || d.hotelName || "");
                     
                     if (hotelStr.includes(currentHotel)) {
                         let deptName = hotelStr.replace(currentHotel, "").trim();
@@ -500,11 +523,23 @@
                 const detailedKeys=new Set(inventoryRows.filter(row=>row.outlet).map(row=>row.key));
                 inventoryRows.forEach(({key,row,outlet})=>{
                     if(currentHotel==='洲際'&&!outlet&&detailedKeys.has(key))return;
+                    if (currentHotel === '花季' && /^[AC]館 房務$/.test(row.deptName) && inventoryMap[key]) {
+                        if (Number(inventoryMap[key].originalQty) !== Number(row.originalQty)) throw new Error('花季 ' + row.deptName + '「' + row.itemName + '」全形半形盤點數量不同，請先核對原單。');
+                        return;
+                    }
                     addInventoryQuantity(inventoryMap,outletKeys,key,{...row},outlet);
                 });
 
+                flowerReceiptIds = new Map();
+                logSnap.forEach(snapshot => {
+                    const data = snapshot.data(), branch = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
+                    if (!branch || data.manualDeletedReceipt) return;
+                    const ids = flowerReceiptIds.get(branch.deptName) || [];
+                    ids.push(snapshot.id);
+                    flowerReceiptIds.set(branch.deptName, ids);
+                });
                 let savedLogistics = {}, savedReceiptDetails = [];
-                logSnap.forEach(docSnap => {
+                FlowerReceipts.collapse(new Map(logSnap.docs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
                     const d = docSnap.data();
                     savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
@@ -963,20 +998,19 @@
                         auntNote:i.auntNote,actualQty:i.actualQty,driverNote:i.driverNote||''
                     })) || [];
                     await runTransaction(db, async tx => {
-                        const old = await tx.get(refDoc);
-                        const prior = old.exists() ? old.data() : {};
+                        const prior = await readFlowerReceipt(tx, refDoc, targetDept, main);
                         const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
                             update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
-                            if(clientUrl) update.clientSig=clientUrl;
-                            if(driverUrl) update.driverSig=driverUrl;
+                            if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
+                            if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
                         } else {
                             // 將司機簽名帶到尚無司機簽名的部門，不動飯店簽名及數量。
                             if (!prior.driverSig && driverUrl) update.driverSig=driverUrl;
                             else return;
                         }
-                        tx.set(refDoc,update,{merge:true});
+                        tx.set(refDoc,{...prior,...update},{merge:true});
                     });
                 };
                 await saveDept(dept,true);
