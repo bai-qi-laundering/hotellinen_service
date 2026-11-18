@@ -78,6 +78,7 @@
         const parts = String(record.hotel || '').trim().split(/\s+/);
         const hotel = normalize(record.baseHotel || parts[0]);
         const dept = department(record.department || parts.slice(1).join(''));
+        if (hotel === '鉑麗') return !dept || dept === '房務';
         if (hotel === '洲際') return !!record.outlet && dept !== '制服';
         return (hotel === '承億休閒' && (!dept || dept === '休閒')) ||
             (hotel === '承億健身房' && (!dept || dept === '健身房')) ||
