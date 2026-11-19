@@ -300,7 +300,7 @@ function visibleCases() {
     return cases.filter(item => {
         const stateMatches = activeFilter === 'all' || (activeFilter === 'needs_review' ? invoiceReviewPending(item) : item.state === activeFilter);
         const monthMatches = !month || String(item.endDate || '').slice(0, 7) === month;
-        const hotelMatches = !hotel || dispatchHotelName(item).toLocaleLowerCase().includes(hotel);
+        const hotelMatches = !hotel || ScopedReads.norm(dispatchHotelName(item)).includes(ScopedReads.norm(hotel));
         return stateMatches && monthMatches && hotelMatches;
     });
 }

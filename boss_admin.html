@@ -442,7 +442,7 @@
 
         async function readAdminPeriod(name, start, end, hotelKey = '', dateField = 'date') {
             const kind = ['logistics_records','special_items'].includes(name) ? 'logistics' : 'inventory';
-            return ScopedReads.read({collection, query, where, getDocsFromServer}, db, name, start, end, {
+            return ScopedReads.read({collection, query, where, getDocsFromServer:q=>adminReadTimeout(getDocsFromServer(q),'單據')}, db, name, start, end, {
                 field: name === 'logistics_records' ? 'hotelKeyword' : 'hotel',
                 values: ScopedReads.names(masterData, hotelKey, kind), dateField
             });
@@ -3046,7 +3046,9 @@
         document.getElementById('spDeleteOk').addEventListener('click', () => window.confirmSpecialDelete());
         document.getElementById('spDeleteCancel').addEventListener('click', () => window.cancelSpecialDelete());
 
+        let specialReadSequence=0;
         window.loadSpecialData = async function() {
+            const request=++specialReadSequence;
             const body = document.getElementById('spTableBody');
             const button = document.getElementById('spLoadBtn');
             if (!body) return;
@@ -3060,6 +3062,7 @@
                     const specialHotel = document.getElementById('fltSpHotel').value;
                     const snapshots = await readAdminPeriod('special_items', document.getElementById('spStartDate').value, document.getElementById('spEndDate').value, specialHotel, 'receivedDate');
                     const snap = {docs: [...new Map(snapshots.flatMap(s => s.docs).map(d => [d.id,d])).values()]};
+                    if(request!==specialReadSequence)return;
                     specialRows = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
                 }
                 applySpecialFilters();

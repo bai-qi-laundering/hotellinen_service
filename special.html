@@ -88,7 +88,7 @@
     <script type="module">
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261116-order-rework';
+        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, officeSheets, reworkBadge, signedMark, signPoolQty, newSpecialId } from './special-flow.js?v=20261119-scoped';
         import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261113-received-date';
         import { taipeiParts, taipeiToday, formatTaipeiStamp } from './special-time.js?v=20261027-inventory';
 
@@ -719,7 +719,10 @@
         document.getElementById('sentStart').value=dateOffset(-7);
         document.getElementById('sentEnd').value=dateOffset(60);
         document.getElementById('foldSearch').addEventListener('input',()=>{
-            clearTimeout(searchTimer); searchTimer=setTimeout(()=>subscribeSpecial(),450);
+            clearTimeout(searchTimer);
+            document.getElementById('cardScroller').textContent='查詢中…';
+            document.getElementById('sheetList').textContent='查詢中…';
+            searchTimer=setTimeout(()=>subscribeSpecial(),450);
         });
         for(const id of ['sentStart','sentEnd'])document.getElementById(id).addEventListener('change',()=>subscribeSpecial());
         function subscribeSpecial() {
@@ -730,13 +733,15 @@
             const keyword=document.getElementById('foldSearch').value, key=ScopedReads.norm(keyword);
             const filters=[];
             if(key){
-                const hotelValues=hotels.filter(name=>ScopedReads.norm(name).includes(key));
+                const hotelValues=hotels.filter(name=>ScopedReads.norm(name).includes(key)||key.includes(ScopedReads.norm(name)));
                 const itemValues=[...new Set([...catalog.values()].flatMap(entry=>entry.names||[]))].filter(name=>ScopedReads.norm(name).includes(key));
-                for(const [field,values] of [['hotel',hotelValues],['item',itemValues]])
+                for(const [field,values] of [['hotel',hotelValues],['item',itemValues],['officeName',itemValues]])
                     for(const group of ScopedReads.chunks(values,10))filters.push([api.where(field,'in',group)]);
-                if(!filters.length)filters.push([api.or(api.where('hotel','==',keyword.trim()),api.where('item','==',keyword.trim()))]);
+                if(!filters.length)filters.push([api.or(api.where('hotel','==',keyword.trim()),api.where('item','==',keyword.trim()),api.where('officeName','==',keyword.trim()))]);
             }else filters.push([]);
             const plans=[];
+            document.getElementById('cardScroller').textContent='查詢中…';
+            document.getElementById('sheetList').textContent='查詢中…';
             const start=document.getElementById('sentStart').value,end=document.getElementById('sentEnd').value;
             if(!start||!end||start>end){showBanner('請確認已送出出貨日區間');return;}
             for(const terms of filters){

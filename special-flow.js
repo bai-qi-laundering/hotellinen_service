@@ -445,7 +445,8 @@ function templateRanks({ hotels = [], catalog = new Map() } = {}) {
 
 export function foldCards(docs, query = '', order = {}) {
     const ranks = templateRanks(order);
-    const needle = String(query || '').trim().toLowerCase();
+    const normalizeSearch = value => String(value || '').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+    const needle = normalizeSearch(query);
     const open = (docs || []).filter(doc => !doc.deleted && doc.status !== SENT_STATUS);
     const dates = [...new Set(open.map(doc => doc.receivedDate))].sort((a, b) => b.localeCompare(a));
     const cards = [];
@@ -456,7 +457,7 @@ export function foldCards(docs, query = '', order = {}) {
             .slice()
             .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
         for (const row of rows) {
-            const hay = `${row.hotel} ${row.item} ${row.officeName || ''}`.toLowerCase();
+            const hay = normalizeSearch(`${row.hotel} ${row.item} ${row.officeName || ''}`);
             if (needle && !hay.includes(needle)) continue;
             let group = hotels.find(hotel => hotel.hotel === row.hotel);
             if (!group) {
@@ -501,4 +502,5 @@ export function officeSheets(docs, order = {}) {
         || ranks.hotel(a.hotel) - ranks.hotel(b.hotel)
         || a.hotel.localeCompare(b.hotel, 'zh-Hant'));
 }
+
 

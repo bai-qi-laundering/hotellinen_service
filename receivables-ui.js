@@ -66,7 +66,7 @@ function render(){
  if(!available)return;
  renderSummary();
  const month=$('month').value,q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
- const rows=cases.filter(c=>c.endDate?.startsWith(month)&&ledger(c)).map(c=>({name:c.customerKey||c.customerName,c,period:{start:c.startDate,end:c.endDate},status:ledger(c).pending?'待重寄':'已寄送',invoice:invoiceState(c)})).filter(r=>[r.name,r.c?.customerKey,r.c?.customerName].some(n=>String(n||'').toLowerCase().includes(q))&&(!filter||r.status===filter||r.invoice===filter));
+ const rows=cases.filter(c=>c.endDate?.startsWith(month)&&ledger(c)).map(c=>({name:c.customerKey||c.customerName,c,period:{start:c.startDate,end:c.endDate},status:ledger(c).pending?'待重寄':'已寄送',invoice:invoiceState(c)})).filter(r=>[r.name,r.c?.customerKey,r.c?.customerName].some(n=>ScopedReads.norm(n).includes(ScopedReads.norm(q)))&&(!filter||r.status===filter||r.invoice===filter));
  rows.forEach(r=>{r.config=customerConfig(r.c);});
  rows.sort((a,b)=>{
   const companyRank=r=>{const index=ISSUER_ORDER.indexOf(r.config.issuer);return index<0?ISSUER_ORDER.length:index;};
