@@ -288,7 +288,7 @@
                     <button onclick="openManualEntryModal()" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-black px-4 py-2 rounded-lg transition-colors text-sm shadow-sm border border-emerald-300">
                         ➕ 歷史補單
                     </button>
-                    <button onclick="document.getElementById('flowerCleanupPanel').hidden=false;previewFlowerCleanup()" class="bg-blue-100 text-blue-900 font-bold px-4 py-2 rounded-lg">核對花季重複單</button>
+                    <button onclick="document.getElementById('flowerCleanupPanel').hidden=false;previewFlowerCleanup()" class="bg-blue-100 text-blue-900 font-bold px-4 py-2 rounded-lg">核對飯店重複單</button>
                     <button onclick="loadLogData()" id="logLoadBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg transition-colors text-sm shadow-sm">
                         載入物流單據
                     </button>
@@ -388,7 +388,7 @@
         </div>
         <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
     </section>
-    <script src="flower-receipts.js?v=20261119"></script>
+    <script src="flower-receipts.js?v=20261119-fu1"></script>
 <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -977,6 +977,8 @@
                     deptName = (targetCat.deptName || deptName).trim();
                 }
 
+                const receiptAlias = FlowerReceipts.identity(hotelKeyword, deptName);
+                if (receiptAlias) ({hotelKeyword, deptName} = receiptAlias);
                 let safeHotelKeyForMatch = hotelKeyword.replace(/\s+/g, '');
                 let safeDeptKeyForMatch = deptName.replace(/\s+/g, '');
                 let matchKey = `${dDate}_${safeHotelKeyForMatch}${safeDeptKeyForMatch}`;
@@ -3080,11 +3082,12 @@
         let flowerCleanupPlan = [];
         window.previewFlowerCleanup = async function() {
             const output = document.getElementById('flowerCleanupOutput');
-            output.textContent = '正在查詢所有歷史花季單據…';
+            const cleanupHotel = document.getElementById('logFetchHotel').value.includes('富野') ? '富野' : '花季';
+            output.textContent = '正在查詢所有歷史' + cleanupHotel + '單據…';
             flowerCleanupPlan = [];
             try {
                 const snapshot = await getDocsFromServer(query(collection(db, 'logistics_records'),
-                    where('hotelKeyword', '>=', '花季'), where('hotelKeyword', '<=', '花季\uf8ff')));
+                    where('hotelKeyword', '>=', cleanupHotel), where('hotelKeyword', '<=', cleanupHotel + '\uf8ff')));
                 const groups = new Map();
                 snapshot.forEach(row => {
                     const data = row.data(), branch = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
@@ -3097,7 +3100,7 @@
                 const report = [];
                 let conflicts = 0;
                 for (const group of groups.values()) {
-                    const targetId = group.date + '_花季_' + group.branch.deptName;
+                    const targetId = group.date + '_' + group.branch.hotelKeyword + '_' + group.branch.deptName;
                     if (group.rows.length === 1 && group.rows[0].id === targetId) continue;
                     try {
                         FlowerReceipts.collapse(new Map(group.rows.map(row => [row.id, row])));
@@ -3109,7 +3112,7 @@
                         report.push('需核對｜' + error.message);
                     }
                 }
-                output.textContent = '掃描 ' + snapshot.size + ' 張花季歷史單據。可整理 ' + flowerCleanupPlan.length +
+                output.textContent = '掃描 ' + snapshot.size + ' 張' + cleanupHotel + '歷史單據。可整理 ' + flowerCleanupPlan.length +
                     ' 組，數量衝突 ' + conflicts + ' 組。\n' + report.join('\n');
                 document.getElementById('flowerCleanupRun').disabled = !flowerCleanupPlan.length;
             } catch (error) { output.textContent = '讀取失敗：' + error.message; }

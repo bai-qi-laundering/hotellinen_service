@@ -106,7 +106,7 @@
             box.appendChild(button);
         }, 20000);
     </script>
-    <script src="flower-receipts.js?v=20261119"></script>
+    <script src="flower-receipts.js?v=20261119-fu1"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
@@ -261,7 +261,7 @@
 
 
         async function readFlowerReceipt(tx, refDoc, dept, archive = true) {
-            const ids = currentHotel === '花季' ? flowerReceiptIds.get(dept) || [] : [];
+            const ids = ['花季','富野'].includes(currentHotel) ? flowerReceiptIds.get(dept) || [] : [];
             const refs = new Map([[refDoc.id, refDoc]]);
             ids.forEach(id => refs.set(id, doc(db, 'logistics_records', id)));
             const snapshots = await Promise.all([...refs.values()].map(ref => tx.get(ref)));
@@ -350,7 +350,8 @@
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
-            if (FlowerReceipts.identity(currentHotel, '房務')) currentHotel = '花季';
+            const alias = FlowerReceipts.identity(currentHotel, '房務');
+            if (alias) currentHotel = alias.hotelKeyword;
             let queryDate = urlParams.get('date'); 
             
             if (!currentHotel || currentHotel.trim() === "") {
@@ -471,7 +472,7 @@
             try {
                 let rawData = [];
                 const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
-                const logQ = currentHotel === "花季"
+                const logQ = ["花季","富野"].includes(currentHotel)
                     ? query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate))
                     : query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
                 
@@ -532,7 +533,7 @@
                     addInventoryQuantity(inventoryMap,outletKeys,key,{...row},outlet);
                 });
 
-                const hotelLogDocs = logSnap.docs.filter(snapshot => currentHotel !== '花季' || /^花季(?:[AC]館)?$/i.test(String(snapshot.data().hotelKeyword || '').normalize('NFKC').replace(/\s/g,'')));
+                const hotelLogDocs = logSnap.docs.filter(snapshot => !['花季','富野'].includes(currentHotel) || String(snapshot.data().hotelKeyword || '').normalize('NFKC').replace(/\s/g,'').startsWith(currentHotel));
                 flowerReceiptIds = new Map();
                 hotelLogDocs.forEach(snapshot => {
                     const data = snapshot.data(), branch = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
