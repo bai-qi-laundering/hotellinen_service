@@ -45,6 +45,15 @@
     }
     function settings(rows, template) {
         if (!Array.isArray(rows) || !Array.isArray(template)) throw new Error('對點設定格式錯誤');
+        // Leisure's special-treatment form owns its own inventory and submission keys.
+        const leisure = template.filter(t => /^日航休閒(?:中心)?$/.test(normalize(t.baseName)) && department(t.deptName) === '特處');
+        const extra = [];
+        for (const t of leisure) {
+            if ([...rows,...extra].some(r => normalize(r.hotel) === normalize(t.baseName) && department(r.department) === department(t.deptName) && normalize(r.item) === normalize(t.item))) continue;
+            const source = rows.find(r => normalize(r.hotel) === '日航' && department(r.department) === '特處' && normalize(r.item) === normalize(t.item));
+            if (source) extra.push({...source, hotel:t.baseName, department:t.deptName, item:t.item, defaultQuantity:''});
+        }
+        rows = [...rows,...extra];
         const seen = new Set();
         const result=rows.map(r => {
             if (!r.hotel || !r.department || !r.item) throw new Error('對點設定需有飯店、部門及品項');
