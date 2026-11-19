@@ -19,6 +19,13 @@
         const match = name.match(/^花季([AC])館(?:房務(?:部)?)?$/i);
         return match ? '花季' + match[1].toUpperCase() + '館 房務' : hotel;
     }
+    function receiptTime(data) {
+        const value = data.signedAt || data.updatedAt || data.timestamp || '';
+        if (value && typeof value.toMillis === 'function') return value.toMillis();
+        const raw = String(value).replace(/上午\s*/g, 'AM ').replace(/下午\s*/g, 'PM ');
+        const parsed = Date.parse(raw);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
     function collapse(documents) {
         const result = new Map(), groups = new Map();
         documents.forEach(snapshot => {
@@ -36,12 +43,13 @@
             const items = new Map(), sources = new Map();
             // Prefer signed rows, then the most recently updated receipt.
             entries.sort((a,b) => Number(!!(b.data.clientSig || b.data.driverSig)) - Number(!!(a.data.clientSig || a.data.driverSig))
+                || receiptTime(b.data) - receiptTime(a.data)
                 || String(b.data.timestamp || '').localeCompare(String(a.data.timestamp || '')));
             for (const entry of entries) {
                 for (const item of entry.data.items || []) {
                     const key = clean(item.inventoryItemName || item.itemName);
                     const existing = items.get(key);
-                    if (existing && entries.length > 1 &&
+                    if (existing && entries.length > 1 && entry.branch.hotelKeyword !== '花季' &&
                         !(entry.branch.hotelKeyword === '富野' && sources.get(key) &&
                             !(entry.data.clientSig || entry.data.driverSig)) &&
                         Number(existing.actualQty ?? existing.originalQty ?? 0) !== Number(item.actualQty ?? item.originalQty ?? 0)) {
