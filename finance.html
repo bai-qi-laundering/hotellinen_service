@@ -1643,10 +1643,10 @@ container.innerHTML = `<div class="text-gray-500 font-bold w-full py-2">該區�
 return;
 }
 
-retainedSelections.forEach(h=>hotels.add(h));
+financeHotelSelections.forEach(h=>hotels.add(h));
 container.innerHTML = Array.from(hotels).sort().map(h => `
 <label class="cb-label flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition">
-<input type="checkbox" value="${h}" ${retainedSelections.has(h)?'checked':''} class="hotel-cb rounded text-blue-600 w-4 h-4">
+<input type="checkbox" value="${h}" ${financeHotelSelections.has(h)?'checked':''} class="hotel-cb rounded text-blue-600 w-4 h-4">
 <span class="text-sm font-bold text-gray-700">${h}</span>
 </label>
 `).join('');
