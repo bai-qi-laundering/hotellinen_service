@@ -405,6 +405,17 @@
             if(sendwashSettingsError){
                 const retry=document.createElement('button');retry.type='button';retry.textContent='重新載入對點設定';retry.className='block w-full my-3 p-4 bg-blue-100 text-blue-800 rounded-xl font-bold text-lg';retry.onclick=()=>loadReceiptTemplate();container.append(retry);
             }
+            if(currentHotel==='日航'){
+                const leisureHotels=[...new Set(masterTemplate.filter(t=>/^日航休閒(?:中心)?$/.test(String(t.baseName||'').replace(/\s/g,'')) && t.deptName==='特處').map(t=>t.baseName))];
+                leisureHotels.forEach(hotel=>{
+                    const link=document.createElement('a'),url=new URL('sendwash.html',location.href);
+                    url.searchParams.set('hotel',hotel);url.searchParams.set('department','特處');
+                    if(currentDate)url.searchParams.set('date',currentDate);
+                    link.href=url.href;link.textContent='填寫特處對點單｜'+hotel;
+                    link.className='block w-full my-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center';
+                    container.append(link);
+                });
+            }
             if(currentHotel==='承億')return;
             const departments = [...new Set(sendwashSettings.filter(r => r.hotel === currentHotel).map(r => r.department))];
             departments.forEach(dept => {
