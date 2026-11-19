@@ -755,7 +755,13 @@
                 if(generation!==readGeneration)return;
                 buckets.set(index,snap.docs);
                 if(buckets.size!==plans.length)return;
-                const nextDocs=[...new Map([...buckets.values()].flat().map(row=>[row.id,{history:[],...row.data(),id:row.id}])).values()];
+                const merged=new Map();
+                const revision=row=>[row.sentAt,row.foldSignedAt,row.createdAt,...(row.history||[]).map(event=>event.time)].filter(Boolean).map(String).sort().pop()||'';
+                for(const snapshot of [...buckets.values()].flat()){
+                    const row={history:[],...snapshot.data(),id:snapshot.id},old=merged.get(snapshot.id);
+                    if(!old||revision(row)>=revision(old))merged.set(snapshot.id,row);
+                }
+                const nextDocs=[...merged.values()];
                 if(saving){deferredDocs=nextDocs;return;}
                 docs=nextDocs;render();
             },error=>{if(generation===readGeneration)showBanner('特處查詢失敗：'+error.message);}))); 
