@@ -1050,6 +1050,13 @@
                 let uniqueDocs = new Map();
                 logSnapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
+                if (hotelKey) {
+                    const search = hotelKey.normalize('NFKC').replace(/\s+/g, '');
+                    uniqueDocs = new Map([...uniqueDocs].filter(([, snapshot]) => {
+                        const data = snapshot.data();
+                        return ((data.hotelKeyword || '') + (data.deptName || '')).normalize('NFKC').replace(/\s+/g, '').includes(search);
+                    }));
+                }
                 uniqueDocs = FlowerReceipts.collapse(uniqueDocs);
                 logRecords = [];
                 let processedLogKeys = new Set();
