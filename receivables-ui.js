@@ -1,7 +1,7 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
 import {formatCardAmount} from './statement-case.js?v=20261104-split-customers';
-import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261119-scoped';
+import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261119-scoped2';
 import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';

@@ -32,12 +32,12 @@
   if(kind==='logistics'&&norm(keyword).startsWith('花季'))for(const branch of ['A','C'])for(const v of variants('花季'+branch+'館'))out.add(v);
   return [...out];
  }
- function queries(api,db,name,start,end,{field='',values=null,dateField='date',timestamps=false}={}){
+ function queries(api,db,name,start,end,{field='',values=null,dateField='date',timestamps=false,canonicalDates=false}={}){
   if(values&&values.length===0)return [];
   const filters=values?chunks([...new Set(values)],10):[null],result=[];
   for(const group of filters){
    const hotel=group?[api.where(field,group.length===1?'==':'in',group.length===1?group[0]:group)]:[];
-   for(const days of chunks(dates(start,end),Math.floor(30/(group?.length||1))))result.push(api.query(api.collection(db,name),...hotel,api.where(dateField,'in',days)));
+   for(const days of chunks(dates(start,end).filter(value=>!canonicalDates||/^\d{4}-\d{2}-\d{2}$/.test(value)),Math.floor(30/(group?.length||1))))result.push(api.query(api.collection(db,name),...hotel,api.where(dateField,'in',days)));
    if(timestamps)result.push(api.query(api.collection(db,name),...hotel,api.where(dateField,'>=',new Date(start+'T00:00:00+08:00')),api.where(dateField,'<=',new Date(end+'T23:59:59.999+08:00'))));
   }return result;
  }

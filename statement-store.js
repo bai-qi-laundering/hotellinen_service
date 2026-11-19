@@ -1,4 +1,5 @@
-import './scoped-reads.js?v=20261119-read1';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
+import './scoped-reads.js?v=20261119-read2';
 // 對帳單送件資料：正式路徑寫入 Firestore statement_cases。
 // 雲端暫時失敗時先留在這台電腦，下次打開送件中心再補送。
 
@@ -258,23 +259,23 @@ export function createFirestoreRepository(db, fns, storage) {
                 const collectionRef = fns.collection(db, STATEMENT_COLLECTION);
                 if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('結帳月份格式不正確');
                 const key=ScopedReads.norm(keyword);
-                let customerKeys=null;
+                let customerKeys=null, matchingKeys=[];
                 if(key){
                     // Resolve a partial name from configuration and already cached labels, without reading all statements.
                     if(fns.getDocFromServer){
                         const config=await fns.getDocFromServer(fns.doc(db,'inventory_config','master_template'));
                         const rows=config.exists()?(config.data().items||[]):[];
-                        customerNames=[...customerNames,...rows.flatMap(row=>[row.baseName,row.hotel,[row.baseName,row.deptName].filter(Boolean).join(' ')])];
+                        matchingKeys=rows.filter(row=>[row.baseName,row.hotel,[row.baseName,row.deptName].filter(Boolean).join(' '),statementCustomerKey(row.baseName,row.hotel,row.deptName)].some(name=>ScopedReads.norm(name).includes(key))).map(row=>statementCustomerKey(row.baseName,row.hotel,row.deptName));
                     }
                     customerNames.push(...readCache(storage).flatMap(row=>[row.customerKey,row.customerName]));
-                    customerKeys=[...new Set(customerNames.filter(name=>ScopedReads.norm(name).includes(key)).flatMap(ScopedReads.variants))];
+                    customerKeys=[...new Set([...matchingKeys,...customerNames.filter(name=>ScopedReads.norm(name).includes(key))].flatMap(ScopedReads.variants))];
                     for(const value of ScopedReads.variants(keyword))if(!customerKeys.includes(value))customerKeys.push(value);
                 }
                 const api={...fns};
                 let plans;
                 if(customerKeys&&month){
                     const end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10);
-                    plans=ScopedReads.queries(api,db,STATEMENT_COLLECTION,month+'-01',end,{field:'customerKey',values:customerKeys,dateField:'endDate'});
+                    plans=ScopedReads.queries(api,db,STATEMENT_COLLECTION,month+'-01',end,{field:'customerKey',values:customerKeys,dateField:'endDate',canonicalDates:true});
                 }else if(customerKeys){
                     plans=ScopedReads.chunks(customerKeys,30).map(names=>fns.query(collectionRef,fns.where('customerKey','in',names)));
                 }else plans=[month?fns.query(collectionRef,fns.where('endDate','>=',month+'-01'),fns.where('endDate','<',month+'-32')):collectionRef];
