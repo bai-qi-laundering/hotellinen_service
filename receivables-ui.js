@@ -1,7 +1,7 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
 import {formatCardAmount} from './statement-case.js?v=20261104-split-customers';
-import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261112-b2b-ledger';
+import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261119-scoped';
 import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
@@ -122,7 +122,7 @@ async function reload(){
  }
  const token=++sequence;available=false;$('uninvoiced').textContent='—';$('unpaid').textContent='—';$('list').textContent='讀取中…';$('message').textContent='';
  try{
- const result=await timeout(repo.list({skipFlush:true,month:$('month').value}));
+ const result=await timeout(repo.list({skipFlush:true,month:$('month').value,keyword:$('search').value.trim(),customerNames:PAYMENT_CONFIG.map(row=>row.name)}));
  if(token!==sequence)return;
  if(result.fromCache||result.cloudError)throw Error('雲端讀取未完成，暫不判定開票，請重新整理。');cases=result.cases.filter(c=>!c.cloudPending);available=true;
  $('message').textContent='只列出已登記寄送的對帳單；重寄後沿用同一筆貨款更新金額。'+(result.cases.some(c=>c.cloudPending)?' 部分資料尚未同步，暫不提供這些帳單的貨款操作。':'');render();
@@ -212,7 +212,8 @@ $('einvoice-test').onclick=async()=>{
  }catch(error){alert(callableMessage(error));}
  finally{button.disabled=false;}
 };
-$('search').oninput=render;$('filter').onchange=render;$('month').onchange=reload;$('refresh').onclick=reload;
+let searchTimer;$('search').oninput=event=>{if(event.isComposing)return;clearTimeout(searchTimer);searchTimer=setTimeout(reload,450);};$('filter').onchange=render;$('month').onchange=reload;$('refresh').onclick=reload;
 window.addEventListener('message',e=>{if(e.origin===location.origin&&['baiqi-refresh-statements','baiqi-ledger-updated'].includes(e.data?.type))reload();});
 window.addEventListener('baiqi-sent-registered',reload);
 reload();
+

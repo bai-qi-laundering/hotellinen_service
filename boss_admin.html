@@ -340,7 +340,7 @@
                     <thead>
                         <tr>
                             <th>收件日</th>
-                            <th><select id="fltSpHotel" class="header-select w-full" onchange="applySpecialFilters()"><option value="">飯店 ▾</option></select></th>
+                            <th><select id="fltSpHotel" class="header-select w-full" onchange="loadSpecialData()"><option value="">飯店 ▾</option></select></th>
                             <th><select id="fltSpItem" class="header-select w-full" onchange="applySpecialFilters()"><option value="">品項 ▾</option></select></th>
                             <th class="text-center">數量</th>
                             <th>寫入時間</th>
@@ -388,6 +388,7 @@
         </div>
         <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
     </section>
+    <script src="scoped-reads.js?v=20261119-read1"></script>
     <script src="flower-receipts.js?v=20261119-signed2"></script>
 <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -439,14 +440,12 @@
             return batches;
         }
 
-        async function readAdminPeriod(name, start, end) {
-            const batches=adminDateBatches(start,end),snapshots=[];
-            for(let i=0;i<batches.length;i+=4){
-                snapshots.push(...await Promise.all(batches.slice(i,i+4).map(dates=>
-                    adminReadTimeout(getDocsFromServer(query(collection(db,name),where('date','in',dates))),'單據')
-                )));
-            }
-            return snapshots;
+        async function readAdminPeriod(name, start, end, hotelKey = '', dateField = 'date') {
+            const kind = ['logistics_records','special_items'].includes(name) ? 'logistics' : 'inventory';
+            return ScopedReads.read({collection, query, where, getDocsFromServer}, db, name, start, end, {
+                field: name === 'logistics_records' ? 'hotelKeyword' : 'hotel',
+                values: ScopedReads.names(masterData, hotelKey, kind), dateField
+            });
         }
 
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
@@ -616,8 +615,8 @@
         if (spStartDate) {
             spStartDate.value = getLocalDateString(firstDay);
             document.getElementById('spEndDate').value = getLocalDateString(today);
-            spStartDate.addEventListener('change', applySpecialFilters);
-            document.getElementById('spEndDate').addEventListener('change', applySpecialFilters);
+            spStartDate.addEventListener('change', () => window.loadSpecialData());
+            document.getElementById('spEndDate').addEventListener('change', () => window.loadSpecialData());
         }
 
         function showToast(msg = "資料已自動儲存更新！") {
@@ -695,7 +694,7 @@
             try {
                 await ensureMasterData();
 
-                const snapshots = await readAdminPeriod('inventory_records', startDate, endDate);
+                const snapshots = await readAdminPeriod('inventory_records', startDate, endDate, hotelKey);
                 let uniqueDocs = new Map();
                 snapshots.forEach(snap => snap.forEach(doc => uniqueDocs.set(doc.id, doc)));
 
@@ -706,7 +705,7 @@
                     let hName = data.hotel || "";
                     
                     if (dDate >= startDate && dDate <= endDate) {
-                        if (hotelKey && !hName.includes(hotelKey)) return; 
+                        if (hotelKey && !ScopedReads.norm(hName).includes(ScopedReads.norm(hotelKey))) return; 
 
                         data.docId = docSnap.id;
                         data.date = dDate;
@@ -946,9 +945,9 @@
         // ★ 獨立封裝：讀取區間內所有盤點紀錄並組成 invMap 與 invRawDataMap（供載入與誤刪撈回共用）
         const isRestaurantDept = (hotel, dept) => String(hotel || '').replace(/\s/g, '') === '洲際' && ['餐廳', '餐飲', '餐飲部'].includes(String(dept || '').trim());
 
-        async function buildInventoryMapsForRange(startDate, endDate) {
+        async function buildInventoryMapsForRange(startDate, endDate, hotelKey = '') {
             await ensureMasterData();
-            const invSnapshots = await readAdminPeriod('inventory_records', startDate, endDate);
+            const invSnapshots = await readAdminPeriod('inventory_records', startDate, endDate, hotelKey);
 
             let invMap = {};
             let invRawDataMap = {};
@@ -1039,10 +1038,10 @@
             try {
                 await ensureMasterData();
 
-                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate);
+                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate, hotelKey);
                 const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
                     readLogPeriod,
-                    buildInventoryMapsForRange(startDate, endDate),
+                    buildInventoryMapsForRange(startDate, endDate, hotelKey),
                     loadDriverSchedule()
                 ]);
 
@@ -1107,7 +1106,7 @@
                             date: dDate
                         });
 
-                        if (hotelKey && !hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) return;
+                        if (hotelKey && !ScopedReads.norm(hotelName).includes(ScopedReads.norm(hotelKey))) return;
 
                         let hasQtyModified = false;
                         let isSigned = !!(d.driverSig && d.clientSig);
@@ -2245,10 +2244,10 @@
 
             try {
                 // 即時重新讀取區間內的物流單與盤點資料庫，確保不管有沒有先按載入都找得到！
-                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate);
+                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate, hotelKey);
                 const [logSnapshots, { invRawDataMap }] = await Promise.all([
                     readLogPeriod,
-                    buildInventoryMapsForRange(startDate, endDate)
+                    buildInventoryMapsForRange(startDate, endDate, hotelKey)
                 ]);
 
                 latestInvRawDataMap = invRawDataMap;
@@ -2920,7 +2919,7 @@
             const end = document.getElementById('spEndDate').value;
             const live = specialRows.filter(row => !row.deleted);
             const inRange = live.filter(row => (!start || (row.receivedDate || '') >= start) && (!end || (row.receivedDate || '') <= end));
-            fillSpecialSelect(document.getElementById('fltSpHotel'), new Set(inRange.map(row => row.hotel)), '飯店 ▾');
+            fillSpecialSelect(document.getElementById('fltSpHotel'), new Set([...masterData.map(row=>row.baseName).filter(Boolean), ...inRange.map(row => row.hotel)]), '飯店 ▾');
             const hotel = document.getElementById('fltSpHotel').value;
             const hotelRows = inRange.filter(row => !hotel || row.hotel === hotel);
             fillSpecialSelect(document.getElementById('fltSpItem'), new Set(hotelRows.map(row => row.item)), '品項 ▾');
@@ -3057,7 +3056,10 @@
                 if (new URLSearchParams(location.search).get('specialMock') === '1') {
                     specialRows = JSON.parse(localStorage.getItem('baiqi_special_items_mock_v1') || '[]');
                 } else {
-                    const snap = await getDocs(collection(db, 'special_items'));
+                    await ensureMasterData();
+                    const specialHotel = document.getElementById('fltSpHotel').value;
+                    const snapshots = await readAdminPeriod('special_items', document.getElementById('spStartDate').value, document.getElementById('spEndDate').value, specialHotel, 'receivedDate');
+                    const snap = {docs: [...new Map(snapshots.flatMap(s => s.docs).map(d => [d.id,d])).values()]};
                     specialRows = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
                 }
                 applySpecialFilters();
@@ -3171,4 +3173,5 @@
     </script>
 </body>
 </html>
+
 

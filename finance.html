@@ -505,6 +505,7 @@ body { background: white; padding: 0; margin: 0; }
 <!-- 財務系統已使用 finance-dashboard.html 的上方分頁導覽。
      此處不再顯示盤點／物流連結，避免混入財務操作畫面。 -->
 
+<script src="scoped-reads.js?v=20261119-read1"></script>
 <script src="flower-receipts.js?v=20261119-signed2"></script>
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
@@ -514,7 +515,7 @@ import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingRe
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
-import { createFirestoreRepository } from './statement-store.js?v=20261030-statement-dispatch';
+import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
@@ -532,7 +533,7 @@ const app = initializeApp(firebaseConfig);
 const db = initializeFirestore(app, {
 localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
-const statementRepo = createFirestoreRepository(db, { doc, runTransaction, collection, getDocsFromServer }, localStorage);
+const statementRepo = createFirestoreRepository(db, { doc, runTransaction, collection, query, where, getDocFromServer, getDocsFromServer }, localStorage);
 
 // 全域共用變數
 let rawLogisticsData = []; 
@@ -1531,16 +1532,20 @@ setTimeout(() => toast.classList.add('opacity-0', 'translate-y-[-20px]'), 2500);
 // ★ 純粹讀取 logistics_records（物流簽收查帳台資料庫），完全不讀盤點表，100% 以物流查帳台為主！
 const LOGISTICS_CACHE_MS = 600000;
 const logisticsPeriodCache = new Map();
-async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requireServer = false) {
-    const key = `${startDate}|${endDate}`;
+async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requireServer = false, selectedHotels = null) {
+    const key = `${startDate}|${endDate}|${JSON.stringify(selectedHotels?.slice().sort() || null)}`;
     const cached = logisticsPeriodCache.get(key);
     if (!requireServer && cached && (cached.promise || (!force && Date.now() - cached.fetchedAt < LOGISTICS_CACHE_MS))) return cached.promise || cached.docs;
     const staleDocs = cached?.docs || null;
     let usedPersistentCache = false;
     const promise = (async () => {
-        const dateQueries = legacyDatePrefixes(startDate, endDate).map(prefix =>
-            query(collection(db, 'logistics_records'), where('date', '>=', prefix), where('date', '<=', prefix + '\uf8ff')));
-        dateQueries.push(query(collection(db, 'logistics_records'), where('date', '>=', new Date(`${startDate}T00:00:00`)), where('date', '<=', new Date(`${endDate}T23:59:59.999`))));
+        await ensureLogisticsItemOrder();
+        const hotelNames = selectedHotels ? [...new Set(selectedHotels.flatMap(label => {
+            const parts = splitDepartmentLabel(logisticsMasterItems, label);
+            return ScopedReads.names(logisticsMasterItems, parts.hotelKeyword, 'logistics');
+        }))] : null;
+        const dateQueries = ScopedReads.queries({collection,query,where}, db, 'logistics_records', startDate, endDate,
+            {field:'hotelKeyword', values:hotelNames, timestamps:true});
         let snapshots;
         try {
             snapshots = await withTimeout(Promise.all(dateQueries.map(q => getDocsFromServer(q))), 15000, '物流明細');
@@ -1588,13 +1593,15 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requ
 
 async function fetchInitialHotels() {
 const container = document.getElementById('hotelCheckboxes');
+const retainedSelections = new Set([...container.querySelectorAll('.hotel-cb:checked')].map(cb=>cb.value));
 container.innerHTML = `<div class="text-gray-400 font-bold w-full py-2">載入名單中...</div>`;
 try {
 const startDate = document.getElementById('startDate').value;
 const endDate = document.getElementById('endDate').value;
 if(!startDate || !endDate) return;
-const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, true);
-if (document.getElementById('startDate').value !== startDate || document.getElementById('endDate').value !== endDate) return;
+const keyword=document.getElementById('keywordFilter')?.value.trim() || '';
+const uniqueDocs = await getLogisticsDocsForPeriod(startDate, endDate, false, false, keyword ? [keyword] : null);
+if (document.getElementById('startDate').value !== startDate || document.getElementById('endDate').value !== endDate || (document.getElementById('keywordFilter')?.value.trim() || '') !== keyword) return;
 
 let hotels = new Set();
 uniqueCompanies.clear();
@@ -1618,9 +1625,10 @@ container.innerHTML = `<div class="text-gray-500 font-bold w-full py-2">該區�
 return;
 }
 
+retainedSelections.forEach(h=>hotels.add(h));
 container.innerHTML = Array.from(hotels).sort().map(h => `
 <label class="cb-label flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition">
-<input type="checkbox" value="${h}" class="hotel-cb rounded text-blue-600 w-4 h-4">
+<input type="checkbox" value="${h}" ${retainedSelections.has(h)?'checked':''} class="hotel-cb rounded text-blue-600 w-4 h-4">
 <span class="text-sm font-bold text-gray-700">${h}</span>
 </label>
 `).join('');
@@ -1631,16 +1639,17 @@ container.innerHTML = `<div class="text-red-500 font-bold p-2 bg-red-50 rounded"
 }
 }
 
-let hotelKeywordComposing = false;
+let hotelKeywordComposing = false, keywordReadTimer;
 function setHotelKeywordComposing(active) {
 hotelKeywordComposing = !!active;
 // iOS 在 compositionend 當下還沒把選好的字寫進輸入框，要等這一輪事件結束再讀。
-if (!active) setTimeout(filterCheckboxes, 0);
+if (!active) setTimeout(()=>filterCheckboxes({type:"compositionend"}), 0);
 }
 
 function filterCheckboxes(event) {
 // 注音／拼音組字期間先不要改清單。這時 input 的內容仍是拼音，過濾會把店家全部藏起來，iOS 也會因此取消選字。
 if (hotelKeywordComposing || event?.isComposing) return;
+if(event){clearTimeout(keywordReadTimer);keywordReadTimer=setTimeout(fetchInitialHotels,450);}
 const clean = value => String(value || '').normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLocaleLowerCase();
 const kw = clean(document.getElementById('keywordFilter').value);
 const container = document.getElementById('hotelCheckboxes');
@@ -1693,7 +1702,7 @@ async function fetchRecordsForSelectedHotels({ requireServer = false } = {}) {
     if (selectedHotels.length === 0) throw new Error("請先在上方勾選要計算的飯店");
 
     const [uniqueDocs] = await Promise.all([
-        getLogisticsDocsForPeriod(startDate, endDate, true, requireServer),
+        getLogisticsDocsForPeriod(startDate, endDate, true, requireServer, selectedHotels),
         ensureEffectivePrices(),
         syncMasterDataFromSheet(),
         ensurePricingRules().catch(err => { console.warn('春節／回饋設定稍後再試', err); }),
@@ -2872,3 +2881,4 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
+

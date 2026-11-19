@@ -106,6 +106,7 @@
             box.appendChild(button);
         }, 20000);
     </script>
+    <script src="scoped-reads.js?v=20261119-read1"></script>
     <script src="flower-receipts.js?v=20261119-signed2"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script type="module">
@@ -471,21 +472,19 @@
             activeReceiptRead = { hotel: currentHotel, date: fetchTargetDate, sequence: thisFetch };
             try {
                 let rawData = [];
-                const invQ = query(collection(db, "inventory_records"), where("date", "==", fetchTargetDate));
-                const logQ = ["花季","富野"].includes(currentHotel)
-                    ? query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate))
-                    : query(collection(db, "logistics_records"), where("date", "==", fetchTargetDate), where("hotelKeyword", "==", currentHotel));
-                
-                // 原始資料有 hotel / hotelKeyword / hotelName 混用，保留日期查詢避免漏單。
-                // 兩份資料皆確認伺服器版本，防止舊數量搭配新簽名。
-                const fetchMethod = getDocsFromServer;
-                if (forceServer) showToastMsg("🔄 正在強制從雲端抓取最新單據...");
-
-                // 簽名狀態優先從伺服器確認，避免離線快取造成假性「未簽名」。
-                const inventoryRead = window.ReceiptInventoryRead
-                    ? window.ReceiptInventoryRead.read({projectId: firebaseConfig.projectId, date: fetchTargetDate, fallback: () => fetchMethod(invQ)})
-                    : fetchMethod(invQ);
-                const [invSnap, logSnap] = await Promise.all([withReadTimeout(inventoryRead, '出貨資料讀取'), withReadTimeout(getDocsFromServer(logQ), '簽收資料讀取')]);
+                if (!masterTemplate.length) await templatePromise;
+                if (!masterTemplate.length) throw new Error('飯店清單未載入，請重新整理');
+                const api={collection,query,where,getDocsFromServer};
+                const inventoryNames=ScopedReads.names(masterTemplate,currentHotel,'inventory');
+                const logisticsNames=ScopedReads.names(masterTemplate,currentHotel,'logistics');
+                const flatten=snaps=>{const docs=[...new Map(snaps.flatMap(s=>s.docs).map(d=>[d.id,d])).values()];return {docs,forEach:fn=>docs.forEach(fn)};};
+                const inventoryRead=Promise.all(['hotel','hotelKeyword','hotelName'].map(field=>
+                    ScopedReads.read(api,db,'inventory_records',fetchTargetDate,fetchTargetDate,{field,values:inventoryNames})
+                )).then(groups=>flatten(groups.flat()));
+                const receiptRead=ScopedReads.read(api,db,'logistics_records',fetchTargetDate,fetchTargetDate,
+                    {field:'hotelKeyword',values:logisticsNames}).then(flatten);
+                const [invSnap,logSnap]=await Promise.all([
+                    withReadTimeout(inventoryRead,'出貨資料讀取'),withReadTimeout(receiptRead,'簽收資料讀取')]);
 
                 if (currentDate !== fetchTargetDate || thisFetch !== fetchSequence || signatureSaving) {
                     return; 
@@ -1071,3 +1070,4 @@
     </script>
 </body>
 </html>
+

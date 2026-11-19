@@ -33,11 +33,14 @@
             <p id="mockBanner" class="hidden mt-2 text-xs font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-lg px-3 py-2">練習模式：資料只在這台手機，不會寫進正式資料庫。</p>
         </header>
 
-        <main id="foldPane" class="px-3">
+        <div class="px-3">
             <label class="block mt-4 mb-2">
                 <span class="sr-only">搜尋飯店或品項</span>
                 <input id="foldSearch" data-testid="fold-search" type="search" placeholder="搜尋飯店 / 品項" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-bold">
             </label>
+            <div class="grid grid-cols-2 gap-2 text-sm font-bold mb-3"><label>已送出出貨日起<input id="sentStart" type="date" class="block w-full border rounded p-2"></label><label>至<input id="sentEnd" type="date" class="block w-full border rounded p-2"></label></div>
+        </div>
+        <main id="foldPane" class="px-3">
             <div id="cardScroller" data-testid="card-scroller" class="day-scroller"></div>
         </main>
 
@@ -81,6 +84,7 @@
         </div>
     </div>
 
+    <script src="scoped-reads.js?v=20261119-read1"></script>
     <script type="module">
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { shipDateLabel } from './special-shipdate.js?v=20261027-special';
@@ -710,7 +714,47 @@
             } else if (action === 'clear-office') officePad?.clear();
             else if (action === 'confirm-office') confirmOffice();
         });
-        document.getElementById('foldSearch').addEventListener('input', renderCards);
+        let searchTimer, readGeneration=0, specialUnsubscribers=[];
+        const dateOffset = days => { const d=new Date(taipeiToday()+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10); };
+        document.getElementById('sentStart').value=dateOffset(-7);
+        document.getElementById('sentEnd').value=dateOffset(60);
+        document.getElementById('foldSearch').addEventListener('input',()=>{
+            clearTimeout(searchTimer); searchTimer=setTimeout(()=>subscribeSpecial(),450);
+        });
+        for(const id of ['sentStart','sentEnd'])document.getElementById(id).addEventListener('change',()=>subscribeSpecial());
+        function subscribeSpecial() {
+            if(useMock){render();return;}
+            if(!db)return;
+            const api=window.__specialFs, generation=++readGeneration;
+            specialUnsubscribers.forEach(stop=>stop()); specialUnsubscribers=[];
+            const keyword=document.getElementById('foldSearch').value, key=ScopedReads.norm(keyword);
+            const filters=[];
+            if(key){
+                const hotelValues=hotels.filter(name=>ScopedReads.norm(name).includes(key));
+                const itemValues=[...new Set([...catalog.values()].flatMap(entry=>entry.names||[]))].filter(name=>ScopedReads.norm(name).includes(key));
+                for(const [field,values] of [['hotel',hotelValues],['item',itemValues]])
+                    for(const group of ScopedReads.chunks(values,10))filters.push([api.where(field,'in',group)]);
+                if(!filters.length)filters.push([api.or(api.where('hotel','==',keyword.trim()),api.where('item','==',keyword.trim()))]);
+            }else filters.push([]);
+            const plans=[];
+            const start=document.getElementById('sentStart').value,end=document.getElementById('sentEnd').value;
+            if(!start||!end||start>end){showBanner('請確認已送出出貨日區間');return;}
+            for(const terms of filters){
+                plans.push(api.query(api.collection(db,'special_items'),api.where('status','in',['待摺疊','重工中','已簽名']),...terms));
+                // A sent line is selected by its shipment date, even when received long ago.
+                const days=ScopedReads.dates(start,end).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date));
+                for(const group of ScopedReads.chunks(days,key?3:30))plans.push(api.query(api.collection(db,'special_items'),api.where('shipDate','in',group),...terms));
+            }
+            const buckets=new Map();
+            plans.forEach((plan,index)=>specialUnsubscribers.push(api.onSnapshot(plan,snap=>{
+                if(generation!==readGeneration)return;
+                buckets.set(index,snap.docs);
+                if(buckets.size!==plans.length)return;
+                const nextDocs=[...new Map([...buckets.values()].flat().map(row=>[row.id,{history:[],...row.data(),id:row.id}])).values()];
+                if(saving){deferredDocs=nextDocs;return;}
+                docs=nextDocs;render();
+            },error=>{if(generation===readGeneration)showBanner('特處查詢失敗：'+error.message);}))); 
+        }
 
         async function loadConfig(fromServer = false) {
             if (!db) {
@@ -753,15 +797,7 @@
                 storage = stMod.getStorage(app);
                 await loadConfig();
                 if (!useMock) {
-                    fsMod.onSnapshot(fsMod.collection(db, 'special_items'), snap => {
-                        const nextDocs = snap.docs.map(row => ({ history: [], ...row.data(), id: row.id }));
-                        if (saving) { deferredDocs = nextDocs; return; }
-                        docs = nextDocs;
-                        render();
-                    }, error => {
-                        console.error(error);
-                        showBanner(permissionDenied(error) ? RULE_HINT : '特處資料讀取失敗，請稍後再試。');
-                    });
+                    subscribeSpecial();
                 }
             } catch (error) {
                 console.warn(error);
@@ -774,5 +810,6 @@
     </script>
 </body>
 </html>
+
 
 

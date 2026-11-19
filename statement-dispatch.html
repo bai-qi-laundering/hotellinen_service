@@ -200,7 +200,7 @@ import {
     statementFileBase,
     dispatchHotelName,
 } from './statement-case.js?v=20261104-split-customers';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261102-sent-invoice';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261119-scoped';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261104-split-customers';
 
@@ -280,6 +280,7 @@ async function setup() {
         query: fsMod.query,
         where: fsMod.where,
         getDocsFromServer: fsMod.getDocsFromServer,
+        getDocFromServer: fsMod.getDocFromServer,
     }, localStorage);
     (async () => { try {
         const template = await withTimeout(fsMod.getDoc(fsMod.doc(db, 'inventory_config', 'master_template')), 8000, '品項設定讀取逾時');
@@ -548,10 +549,11 @@ async function reload() {
     $('refresh').disabled = true;
     const generation = ++readGeneration;
     try {
-        const selectedMonth = $('filterMonth').value;
-        if (!pendingRead || pendingMonth !== selectedMonth) {
-            pendingMonth = selectedMonth;
-            const read = repo.cloud ? repo.list({ skipFlush: true, month: selectedMonth }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
+        const selectedMonth = $('filterMonth').value, keyword=$('filterHotel').value.trim();
+        const readScope=selectedMonth+'|'+keyword;
+        if (!pendingRead || pendingMonth !== readScope) {
+            pendingMonth = readScope;
+            const read = repo.cloud ? repo.list({ skipFlush: true, month: selectedMonth, keyword }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
             pendingRead = read;
             read.finally(() => { if (pendingRead === read) pendingRead = null; }).catch(() => {});
         }
@@ -597,7 +599,8 @@ function money(value) {
 }
 $('cancel').onclick = () => $('overlay').classList.remove('show');
 $('filterMonth').addEventListener('input', () => { hasLoaded = false; render(); reload(); });
-$('filterHotel').addEventListener('input', render);
+let hotelSearchTimer;
+$('filterHotel').addEventListener('input', event=>{if(event.isComposing)return;clearTimeout(hotelSearchTimer);hotelSearchTimer=setTimeout(()=>{hasLoaded=false;reload();},450);});
 $('clearSearch').onclick = () => {
     const changedMonth = !!$('filterMonth').value;
     $('filterMonth').value = '';
@@ -644,4 +647,5 @@ setup().then(() => {
 </script>
 </body>
 </html>
+
 
