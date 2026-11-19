@@ -388,7 +388,7 @@
         </div>
         <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
     </section>
-    <script src="flower-receipts.js?v=20261119-fu1"></script>
+    <script src="flower-receipts.js?v=20261119-signed2"></script>
 <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -3106,7 +3106,7 @@
                         FlowerReceipts.collapse(new Map(group.rows.map(row => [row.id, row])));
                         flowerCleanupPlan.push({...group, targetId});
                         report.push(group.date + ' ' + group.branch.deptName + '｜' + group.rows.length + ' 張 → 1 張｜' +
-                            group.rows.map(row => row.id).join('、'));
+                            group.rows.map(row => row.id + (group.date === '2026-11-18' ? ' [' + row.data().timestamp + '｜簽名:' + !!(row.data().clientSig || row.data().driverSig) + '｜中毛巾:' + JSON.stringify((row.data().items || []).filter(item => item.itemName === '中毛巾').map(item => ({original:item.originalQty,actual:item.actualQty}))) + ']' : '')).join('、'));
                     } catch (error) {
                         conflicts++;
                         report.push('需核對｜' + error.message);
