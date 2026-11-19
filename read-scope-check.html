@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>查詢範圍驗證</title><h1>查詢範圍驗證</h1><button id="run">核對指定日期及飯店</button><pre id="out"></pre><script src="scoped-reads.js?v=20261119-read1"></script><script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
+import * as f from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
+const db=f.getFirestore(initializeApp({projectId:'hotel-inventory-3a1ad',apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',appId:'1:363844184412:web:66cdd6425d53bde75f3999'}));
+run.onclick=async()=>{run.disabled=true;out.textContent='核對中…';try{
+const cfg=(await f.getDocFromServer(f.doc(db,'inventory_config','master_template'))).data().items;
+for(const name of ['inventory_records','logistics_records','special_items']){
+ const kind=name==='inventory_records'?'inventory':'logistics',field=name==='logistics_records'?'hotelKeyword':'hotel',dateField=name==='special_items'?'receivedDate':'date';
+ for(const key of ['鉑麗','花季','富野']){
+  const values=ScopedReads.names(cfg,key,kind),start='2026-11-18';
+  const snaps=await ScopedReads.read(f,db,name,start,start,{field,values,dateField});
+  out.textContent+='\n'+name+' '+key+' '+new Set(snaps.flatMap(s=>s.docs).map(d=>d.id)).size+' 筆 / '+snaps.length+' 查詢';
+ }
+}
+const active=await f.getDocsFromServer(f.query(f.collection(db,'special_items'),f.where('status','in',['待摺疊','重工中','已簽名'])));out.textContent+='\n待處理 '+active.size+' 筆\n完成';
+}catch(e){out.textContent+='\n'+e.message;}finally{run.disabled=false;}};
+</script>
