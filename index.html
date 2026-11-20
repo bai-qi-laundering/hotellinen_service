@@ -411,7 +411,9 @@
 
             if (normalizeScheduleName(baseName) === '喜達絲') {
                 if (xidasiDateLock) return xidasiDateLock;
-                return xidasiSelectedDate || getLocalDateString(d);
+                if (xidasiSelectedDate) return xidasiSelectedDate;
+                d.setDate(d.getDate() + 1);
+                return getLocalDateString(d);
             }
             const selectedDept = department === undefined ? getDefaultDept(baseName) : department;
             const setting = deliverySchedules.find(row =>
@@ -684,7 +686,7 @@
             if (normalizeScheduleName(baseName) === '喜達絲') {
                 if (xidasiOpening) return;
                 if (!window.startXidasiDateLock) return showMessage('正在連線，請稍後再開喜達絲。');
-                xidasiSelectedDate = document.getElementById('homeDatePicker').value;
+                xidasiSelectedDate = ''; // First open keeps the existing next-day document rule.
                 xidasiOpening = true;
                 const opening = ++xidasiOpeningSequence;
                 showToast('正在確認喜達絲未簽收單的日期…');

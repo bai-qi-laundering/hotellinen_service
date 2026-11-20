@@ -22,7 +22,7 @@ const context={window:{InventoryDateLock:lock,InventorySave:require('../inventor
 vm.createContext(context);
 for(const m of page.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g))if(!m[1].includes('src=')&&!m[1].includes('module'))vm.runInContext(m[2],context);
 assert.equal(vm.runInContext("isFieldInventoryHotel('喜達絲')",context),true);
-assert.equal(vm.runInContext("getTargetDateStr('喜達絲','2026-11-20','房務')",context),'2026-11-20');
+assert.equal(vm.runInContext("getTargetDateStr('喜達絲','2026-11-20','房務')",context),'2026-11-21');
 vm.runInContext("currentBaseHotel='喜達絲';handleInput('2026-11-21','喜達絲 房務','浴巾','count','8');updateXidasiDateControl()",context);
 assert.equal(el('datePicker').disabled,false); // a populated cache alone must not lock
 el('datePicker').value='2026-11-19';
