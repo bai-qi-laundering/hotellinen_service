@@ -215,7 +215,7 @@
 
     <script src="inventory-save.js?v=20261021-unlock-retry"></script>
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
-    <script src="inventory-date-lock.js?v=20261120-xidasi"></script>
+    <script src="inventory-date-lock.js?v=20261120-selected-date"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261117-pending-note"></script>
     <script>
@@ -239,6 +239,7 @@
         let calcExpr = "";
         let painting = false;
         let xidasiDateLock = '';
+        let xidasiSelectedDate = '';
         let xidasiLockReady = false;
         let xidasiOpening = false;
         let xidasiOpeningSequence = 0;
@@ -410,8 +411,7 @@
 
             if (normalizeScheduleName(baseName) === '喜達絲') {
                 if (xidasiDateLock) return xidasiDateLock;
-                d.setDate(d.getDate() + 1);
-                return getLocalDateString(d);
+                return xidasiSelectedDate || getLocalDateString(d);
             }
             const selectedDept = department === undefined ? getDefaultDept(baseName) : department;
             const setting = deliverySchedules.find(row =>
@@ -684,6 +684,7 @@
             if (normalizeScheduleName(baseName) === '喜達絲') {
                 if (xidasiOpening) return;
                 if (!window.startXidasiDateLock) return showMessage('正在連線，請稍後再開喜達絲。');
+                xidasiSelectedDate = document.getElementById('homeDatePicker').value;
                 xidasiOpening = true;
                 const opening = ++xidasiOpeningSequence;
                 showToast('正在確認喜達絲未簽收單的日期…');
@@ -776,7 +777,10 @@
         }
         
         function dateChanged() {
-            if (normalizeScheduleName(currentBaseHotel) === '喜達絲' && xidasiDateLock) document.getElementById('datePicker').value = xidasiDateLock; 
+            if (normalizeScheduleName(currentBaseHotel) === '喜達絲') {
+                if (xidasiDateLock) document.getElementById('datePicker').value = xidasiDateLock;
+                else xidasiSelectedDate = document.getElementById('datePicker').value;
+            } 
             const parts = document.getElementById('datePicker').value.split('-');
             document.getElementById('dateDisplay').innerText = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`; 
             if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
@@ -939,10 +943,7 @@
             if (!userInputs[date][category]) userInputs[date][category] = {};
             if (!userInputs[date][category][item]) userInputs[date][category][item] = { count: '', note: '', hasSigned: false, isSubmitted: false, signature: '', doubleCount: '', doubleSignature: '', doubleHasSigned: false, doubleSignDate: '', isSaving: false, saveError: false };
             userInputs[date][category][item][field] = value;
-            if (window.InventoryDateLock.hotel(category) && ['count','doubleCount'].includes(field) && window.InventoryDateLock.quantity(value)) {
-                xidasiDateLock = xidasiDateLock || date;
-                updateXidasiDateControl();
-            }
+
             saveToLocal(); 
         }
 
@@ -1153,6 +1154,14 @@
                 if (u.countSource !== 'sendwash' && !u.doubleSignature) handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
             } else {
                 handleInput(dateStr, activeCategory, activeItem, 'doubleCount', finalValue);
+            }
+            if (window.InventoryDateLock.hotel(activeCategory)) {
+                // Only an operator confirming a quantity starts a lock. Opening cards,
+                // notes, cached values and imported sendwash totals cannot start one.
+                handleInput(dateStr, activeCategory, activeItem, 'inventoryDateLockEnteredAt', Date.now());
+                xidasiDateLock = xidasiDateLock || dateStr;
+                xidasiSelectedDate = dateStr;
+                updateXidasiDateControl();
             }
             closeCalc(); renderItems(false); window.firebaseSubmit(activeCategory, activeItem);
         }
@@ -1429,7 +1438,7 @@
                     const rows = [];
                     for (const [date, hotels] of Object.entries(userInputs)) for (const [hotel, items] of Object.entries(hotels || {})) {
                         if (!InventoryDateLock.hotel(hotel)) continue;
-                        for (const [item, value] of Object.entries(items || {})) if (!value.isSubmitted) rows.push({...value,date,hotel,item});
+                        for (const [item, value] of Object.entries(items || {})) if (!value.isSubmitted && value.inventoryDateLockEnteredAt) rows.push({...value,date,hotel,item});
                     }
                     return rows;
                 }
@@ -1510,6 +1519,7 @@
                         const missingRole=saver.signatureRole(u,recheckOnly);
                         if(missingRole){const error=new Error('簽名影像未保留，請重新簽署');error.signatureRole=missingRole;throw error;}
                         const payload={date:dateStr,hotel:category,item,count:u.count !== undefined&&u.count !== null&&u.count !== ''?String(u.count):'',note:u.note || '',doubleCount:u.doubleCount !== undefined&&u.doubleCount !== null&&u.doubleCount !== ''?String(u.doubleCount):'',doubleSignDate:u.doubleSignDate || '',timestamp:new Date().toLocaleString()};
+                        if(InventoryDateLock.hotel(category) && u.inventoryDateLockEnteredAt) payload.inventoryDateLockEnteredAt=u.inventoryDateLockEnteredAt;
                         if(u.signature&&u.signature!=='CACHED')payload.signature=u.signature;
                         if(u.doubleSignature&&u.doubleSignature!=='CACHED')payload.doubleSignature=u.doubleSignature;
                         const recordRef=doc(db,'inventory_records',`${dateStr}_${category}_${item.replace(/\//g,'-')}`),updates={};
