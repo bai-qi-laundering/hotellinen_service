@@ -16,6 +16,16 @@ export function parsePriceCell(value) {
     return Number.isFinite(price) ? price : null;
 }
 
+export function normalizePriceDate(value) {
+    const text = String(value ?? '').trim();
+    const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(text);
+    if (!match) return null;
+    const [, y, m, d] = match;
+    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    if (date.getUTCFullYear() !== Number(y) || date.getUTCMonth() + 1 !== Number(m) || date.getUTCDate() !== Number(d)) return null;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
 export function sheetPricesFromRows(rows) {
     const prices = {};
     (rows || []).forEach((row, index) => {
@@ -26,7 +36,21 @@ export function sheetPricesFromRows(rows) {
         const price = parsePriceCell(row[3]);
         if (!hotel || !item || price === null) return;
         const combined = dept && dept !== hotel ? `${hotel} ${dept}` : hotel;
-        prices[`${combined}_${item}`] = price;
+        const key = `${combined}_${item}`;
+        const rawStart = String(row[4] ?? '').trim();
+        if (!rawStart) {
+            if (prices[key] && typeof prices[key] === 'object') prices[key].baseline = price;
+            else prices[key] = price;
+            return;
+        }
+        const start = normalizePriceDate(rawStart);
+        if (!start) throw new Error(`價格總表第 ${index + 1} 列生效日無效，請填 YYYY-MM-DD`);
+        if (!prices[key] || typeof prices[key] !== 'object') {
+            prices[key] = { baseline: parsePriceCell(prices[key]), history: [] };
+        }
+        const duplicate = prices[key].history.find(rule => rule.start === start);
+        if (duplicate && duplicate.price !== price) throw new Error(`價格總表第 ${index + 1} 列有同品項同生效日的不同價格`);
+        if (!duplicate) prices[key].history.push({ start, price });
     });
     return prices;
 }
@@ -46,13 +70,28 @@ export function datedPrice(rules, hotel, item, date) {
 
 function lookup(map, key) {
     if (!map || !Object.prototype.hasOwnProperty.call(map, key)) return null;
-    return parsePriceCell(map[key]);
+    const value = map[key];
+    return parsePriceCell(value && typeof value === 'object' ? value.baseline : value);
+}
+
+// Compare dated sheet contracts and dated manual changes by their start date.
+// Firebase wins a same-day tie; an older manual change cannot mask a new contract.
+function effectiveRule(catalog, hotel, item, date) {
+    if (!normalizePriceDate(date)) return null;
+    const key = `${hotel}_${item}`;
+    const sheet = catalog?.sheetPrices?.[key];
+    const sheetRules = sheet && typeof sheet === 'object' && Array.isArray(sheet.history) ? sheet.history : [];
+    return [
+        ...sheetRules.map(rule => ({ ...rule, source: 'sheet-effective', priority: 0 })),
+        ...(catalog?.rules || []).filter(rule => rule?.key === key).map(rule => ({ ...rule, source: 'effective', priority: 1 })),
+    ].filter(rule => normalizePriceDate(rule.start) && rule.start <= date && parsePriceCell(rule.price) !== null)
+        .sort((a, b) => b.start.localeCompare(a.start) || b.priority - a.priority)[0] || null;
 }
 
 // Effective-date history, then the Firebase catalog, then a parsed sheet cell.
 export function catalogPrice({ hotel, item, date = null, rules = [], customPrices = {}, sheetPrices = {} } = {}) {
-    const effective = datedPrice(rules, hotel, item, date);
-    if (effective !== null) return { price: effective, source: 'effective' };
+    const effective = effectiveRule({ rules, sheetPrices }, hotel, item, date);
+    if (effective) return { price: parsePriceCell(effective.price), source: effective.source };
     const exact = `${hotel}_${item}`;
     const unified = `${hotel}_統一折扣`;
     const custom = lookup(customPrices, exact);
@@ -74,8 +113,8 @@ function applyHoliday(price, percent) {
 
 // null means the price was not found. Callers must not turn that into $0.
 export function unitPriceForRecord(record, catalog, holidayPercent = 0) {
-    const effective = datedPrice(catalog?.rules, record?.hotel, record?.item, record?.date);
-    if (effective !== null) return applyHoliday(effective, holidayPercent);
+    const effective = effectiveRule(catalog, record?.hotel, record?.item, record?.date);
+    if (effective) return applyHoliday(parsePriceCell(effective.price), holidayPercent);
     if (record?.manualPriceOverride) {
         return parsePriceCell(record.currentPrice !== undefined ? record.currentPrice : record.savedPrice);
     }
@@ -124,3 +163,4 @@ export async function attemptWithBackoff(task, { attempts = 3, delayMs = 400, on
     }
     throw lastError instanceof Error ? lastError : new Error(String(lastError || '讀取失敗'));
 }
+

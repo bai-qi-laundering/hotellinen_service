@@ -515,7 +515,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
-import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261031-price-catalog';
+import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261122-contract-dates';
 import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped2';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
@@ -1404,7 +1404,7 @@ let priceCatalogDegraded = false;
 function priceCatalogReady() {
     return Object.keys(customPrices || {}).length > 0
         || (effectivePriceRules || []).length > 0
-        || Object.values(sheetPrices || {}).some(price => Number(price) > 0);
+        || Object.values(sheetPrices || {}).some(price => Number(price) > 0 || (price && typeof price === 'object' && price.history?.length > 0));
 }
 function persistPriceCatalog() {
     const merged = mergePriceCatalog(readLocalJson(LOCAL_CACHE_KEYS.financeMaster) || {}, {
@@ -1460,6 +1460,7 @@ async function readSheetPrices() {
     if (!res.ok) throw new Error(`價目表 HTTP ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || '價目表回傳失敗');
+    sheetPricesFromRows(json.prices); // Validate before accepting this response.
     return json;
 }
 async function readFirebaseCustomPrices() {
@@ -2900,4 +2901,5 @@ setTimeout(fetchInitialHotels, 500);
 </script>
 </body>
 </html>
+
 

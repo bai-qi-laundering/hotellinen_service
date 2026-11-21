@@ -124,3 +124,45 @@ test('statement uses the Firebase price when the sheet cell is blank and refuses
     assert.throws(() => createInvoiceEngine({ ...base, customPrices: {}, rawLogisticsData: [row] })
         .build('頭等艙', '2026-10-01', '2026-10-31'), /單價尚未取得/);
 });
+
+const contractRows = [
+ ['飯店名稱','部門分類','品項名稱','單價','生效日'],
+ ['A飯店','房務','浴巾',8,'2026-01-01'],
+ ['A飯店','房務','浴巾',9,'2026/11/1'],
+ ['A飯店','房務','浴巾',10,'2027-01-01'],
+];
+test('dated sheet contracts override saved prices on the first day, not before', () => {
+ const catalog = {sheetPrices:sheetPricesFromRows(contractRows),customPrices:{'A飯店 房務_浴巾':7},rules:[]};
+ const price = date => unitPriceForRecord({hotel:'A飯店 房務',item:'浴巾',date,savedPrice:6},catalog);
+ assert.equal(price('2026-10-31'),8);
+ assert.equal(price('2026-11-01'),9);
+ assert.equal(price('2026-11-25'),9);
+ assert.equal(price('2027-01-01'),10);
+ assert.equal(price('2025-12-31'),6);
+});
+test('newest dated manual or sheet rule wins; Firebase wins same-day ties', () => {
+ const catalog={sheetPrices:sheetPricesFromRows(contractRows),rules:[{key:'A飯店 房務_浴巾',start:'2026-10-01',price:7.5}]};
+ const get = date => catalogPrice({...catalog,hotel:'A飯店 房務',item:'浴巾',date}).price;
+ assert.equal(get('2026-10-31'),7.5);
+ assert.equal(get('2026-11-01'),9);
+ catalog.rules.push({key:'A飯店 房務_浴巾',start:'2026-11-01',price:9.5});
+ assert.equal(get('2026-11-01'),9.5);
+ assert.equal(get('2027-01-01'),10);
+});
+test('invalid dates and contradictory duplicate contract rows fail instead of using a wrong price',()=>{
+ assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-02-30']]),/生效日/);
+ assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-11-01']]),/不同價格/);
+});
+test('blank baseline plus dated zero preserves zero and does not activate future prices early',()=>{
+ const sheetPrices=sheetPricesFromRows([contractRows[0],['A飯店','房務','浴巾',8,''],['A飯店','房務','浴巾',0,'2026-11-01']]);
+ const get=date=>catalogPrice({sheetPrices,hotel:'A飯店 房務',item:'浴巾',date}).price;
+ assert.equal(get('2026-10-31'),8);assert.equal(get('2026-11-01'),0);
+});
+test('25th closing statement splits October and November contract prices and keeps both summary rows',()=>{
+ const rows=['2026-10-26','2026-10-31','2026-11-01','2026-11-25'].map((date,i)=>({docId:String(i),date,parentCompany:'A飯店',hotel:'A飯店 房務',item:'浴巾',qty:10,savedPrice:6}));
+ const engine=createInvoiceEngine({logisticsMasterItems:[{hotel:'A飯店 房務',item:'浴巾'}],pricingRules:{holidays:[],rebates:[],managementFees:[]},effectivePriceRules:[],sheetPrices:sheetPricesFromRows(contractRows),customPrices:{},sheetClients:{'A飯店':{name:'A飯店'}},rawLogisticsData:rows});
+ const result=engine.build('A飯店','2026-10-26','2026-11-25');
+ assert.equal(result.totals.grandTotal,340);
+ assert.deepEqual(result.departments[0].records.map(r=>r.price),[8,8,9,9]);
+ assert.equal(result.departments[0].summary.length,2);
+});
