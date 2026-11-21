@@ -26,7 +26,9 @@
    const lit=new Set(),needed=new Set();
    for(const [key,rows] of groups){
     const config=byHotel.get(rows[0].hotel),items=required(config.items,config.room);
-    if(completed(rows,items)===date){lit.add(config.base);continue;}
+    const a=config.items.findIndex(n=>n.includes('床單')),b=config.items.findIndex(n=>n.includes('抹布'));
+    const beddingRange=config.room&&a>=0&&b>=a;
+    if(beddingRange&&completed(rows,items)===date){lit.add(config.base);continue;}
     needed.add(key);
     let state=fallback.get(key);
     if(!state){
@@ -36,7 +38,8 @@
       if(stopped||fallback.get(key)!==state)return;state.rows=snapshot.docs.map(d=>d.data());paint();
      },onError);
     }
-    if(completed(state.rows,items)===date)lit.add(config.base);
+    const allItems=beddingRange?items:[...new Set([...items,...state.rows.map(r=>r.item).filter(item=>item&&!item.startsWith('_MANUAL_'))])];
+    if(completed(state.rows,allItems)===date)lit.add(config.base);
    }
    for(const [key,state] of fallback)if(!needed.has(key)){state.stop();fallback.delete(key);}
    onChange(lit);

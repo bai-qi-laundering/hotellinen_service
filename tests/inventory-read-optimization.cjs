@@ -27,6 +27,15 @@ test('dashboard watches completion day, verifies a cross-day batch narrowly, and
  f.emit(f.targets[0],[]);assert.equal(lit.size,0);
  stop();f.emit(f.targets[1],mixed);assert.equal(lit.size,0);
 });
+test('all-item departments include temporary recorded items before lighting',()=>{
+ const f=fixture();let lit;
+ const stop=progress.watch(f.api,{},'2026-11-22',[{base:'餐廳',hotel:'餐廳 餐飲',room:false,items:['口布']}],value=>lit=value);
+ const row={date:'2026-11-23',hotel:'餐廳 餐飲',item:'口布',doubleCount:'0',doubleSignature:'sig',doubleSignDate:'2026-11-22 12:00:00'};
+ f.emit(f.targets[0],[row]);assert.equal(f.targets.length,2);
+ f.emit(f.targets[1],[row,{...row,item:'臨時布品',doubleSignature:''}]);assert(!lit.has('餐廳'));
+ f.emit(f.targets[1],[row,{...row,item:'臨時布品'}]);assert(lit.has('餐廳'));
+ stop();
+});
 test('喜達絲 only explicit records lock; 床單 through 抹布 release without signatures',async()=>{
  const f=fixture();let date;
  const config=names.map(item=>({hotel:'喜達絲 房務',item}));
