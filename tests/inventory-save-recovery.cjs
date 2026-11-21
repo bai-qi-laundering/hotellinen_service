@@ -6,7 +6,7 @@ function fixture({write=async()=>{},log=async()=>{}}={}){
  const date='2026-10-21',hotel='連線測試'+ ++sequence,item='浴巾',input={count:'0',doubleCount:'',signature:'data:image/jpeg;base64,'+'a'.repeat(120),hasSigned:true,note:'保留備註'},inputs={[date]:{[hotel]:{[item]:input}}};
  const saver={...save,withTimeout:(promise,ms,message)=>save.withTimeout(promise,ms===25000?12:ms===10000?4:8,message)};
  const elements={datePicker:{value:date}};let writes=0,logs=0;
- const c=vm.createContext({window:{InventorySave:saver},userInputs:inputs,isFirebaseLoaded:true,db:{},document:{getElementById:id=>elements[id]},handleInput:(d,h,i,k,v)=>inputs[d][h][i][k]=v,renderItems(){},saveToLocal(){c.cached=save.cacheItem(input);},showMessage:message=>c.message=message,openSign:(hotel,item,role)=>c.openedRole=role,doc:()=>({}),setDoc:async(_,payload)=>{writes++;c.payload=payload;await write(payload);},collection:()=>({}),addDoc:()=>{logs++;return log();},getLocalDateString:()=>date,getLocalTimeString:()=>date,console});
+ const c=vm.createContext({InventoryDateLock:require('../inventory-date-lock.js'),window:{InventorySave:saver},userInputs:inputs,isFirebaseLoaded:true,db:{},document:{getElementById:id=>elements[id]},handleInput:(d,h,i,k,v)=>inputs[d][h][i][k]=v,renderItems(){},saveToLocal(){c.cached=save.cacheItem(input);},showMessage:message=>c.message=message,openSign:(hotel,item,role)=>c.openedRole=role,doc:()=>({}),setDoc:async(_,payload)=>{writes++;c.payload=payload;await write(payload);},collection:()=>({}),addDoc:()=>{logs++;return log();},getLocalDateString:()=>date,getLocalTimeString:()=>date,console});
  const begin=html.indexOf('                window.firebaseSubmit = async function('),end=html.indexOf('                window.syncSettingsFromSheet =',begin);vm.runInContext(html.slice(begin,end),c);
  return{c,input,inputs,date,hotel,item,elements,saver,get writes(){return writes;},get logs(){return logs;},submit:()=>c.window.firebaseSubmit(hotel,item)};
 }
@@ -58,7 +58,7 @@ test('a confirmed edit during a timed-out write queues after its acknowledgement
 test('the actual signature dialog remains available while a previous write is pending and a missing cached image stays blank',async()=>{
  let acknowledge;const f=fixture({write:()=>new Promise(resolve=>acknowledge=resolve)});await f.submit();f.input.signature='CACHED';
  for(const id of ['signModal','signModalTitle','signCancelBtn','signConfirmBtn','signUploadStatus'])f.elements[id]={classList:{hidden:true,remove(){this.hidden=false},add(){this.hidden=true}}};
- let placeholderDrawn=false;Object.assign(f.c,{canvas:{offsetWidth:300},ctx:{clearRect(){},fillRect(){},fillText(){placeholderDrawn=true;}},activeCategory:'',activeItem:'',activeRole:'',requestAnimationFrame:fn=>fn()});
+ let placeholderDrawn=false;Object.assign(f.c,{signatureView:0,canvas:{offsetWidth:300},ctx:{clearRect(){},fillRect(){},fillText(){placeholderDrawn=true;}},activeCategory:'',activeItem:'',activeRole:'',requestAnimationFrame:fn=>fn()});
  const begin=html.indexOf('        function openSign('),end=html.indexOf('        async function confirmSignature()',begin);vm.runInContext(html.slice(begin,end),f.c);
  f.c.openSign(f.hotel,f.item,'aunt');assert.equal(f.elements.signModal.classList.hidden,false);assert.equal(f.c.canvas.isLocked,false);assert.equal(placeholderDrawn,false);assert.match(f.elements.signModalTitle.innerText,/重新簽名/);
  acknowledge();await tick();await tick();
@@ -69,3 +69,4 @@ test('legacy source signature errors also route to the right signing step instea
   const f=fixture({write:async()=>{throw new Error(message);}});await f.submit();assert.equal(f.c.openedRole,role);assert.equal(f.input.count,'0');assert.equal(f.input.saveError,true);
  }
 });
+

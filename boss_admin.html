@@ -1033,17 +1033,16 @@
             const tbody = document.getElementById('logTableBody');
             const btn = document.getElementById('logLoadBtn');
             btn.innerHTML = `載入中...`; btn.disabled = true;
-            tbody.innerHTML = `<tr class="main-row"><td colspan="6" class="py-10 text-center text-gray-500 font-bold">📡 正在同步物流與盤點資料庫...</td></tr>`;
+            tbody.innerHTML = `<tr class="main-row"><td colspan="6" class="py-10 text-center text-gray-500 font-bold">📡 正在讀取已儲存的物流單據...</td></tr>`;
 
             try {
                 await ensureMasterData();
 
-                const readLogPeriod = readAdminPeriod('logistics_records', startDate, endDate, hotelKey);
-                const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
-                    readLogPeriod,
-                    buildInventoryMapsForRange(startDate, endDate, hotelKey),
+                const [logSnapshots] = await Promise.all([
+                    readAdminPeriod('logistics_records', startDate, endDate, hotelKey),
                     loadDriverSchedule()
                 ]);
+                const invMap={},invRawDataMap={};
 
                 latestInvRawDataMap = invRawDataMap;
                 deletedReceiptTombstones.clear();
@@ -1061,7 +1060,6 @@
                 uniqueDocs = FlowerReceipts.collapse(uniqueDocs);
                 logRecords = [];
                 let processedLogKeys = new Set();
-                const logisticsRepairPromises = [];
                 const driverWriteRecords = []; 
 
                 // 1. 處理已存在的物流單據
@@ -1142,39 +1140,6 @@
                             });
                         });
 
-                        const invGroup = invRawDataMap[matchKey];
-                        const missingToPersist = [];
-                        if (!restaurantTotals && !d.manualItemDeleted && invGroup && Array.isArray(invGroup.items)) {
-                            const existingNames = new Set(existingLogItems.map(i => normalizedLogItemName(i.itemName)));
-                            invGroup.items.forEach(invItem => {
-                                const itemName = String(invItem.itemName || '').trim();
-                                const qty = String(invItem.qty ?? '0');
-                                const normItem = normalizedLogItemName(itemName);
-                                if (!normItem || qty === '0' || existingLogItems.some(i => itemMatchesName(i, itemName)) || existingNames.has(normItem)) return;
-                                existingNames.add(normItem);
-                                validItems.push({ itemName, bqQty: qty, actualQty: qty });
-                                missingToPersist.push({
-                                    itemName,
-                                    originalQty: qty,
-                                    actualQty: qty,
-                                    auntNote: '',
-                                    driverNote: '物流後台依盤點自動補齊'
-                                });
-                            });
-                        }
-                        if (!restaurantTotals && (missingToPersist.length || hasDuplicates)) {
-                            logisticsRepairPromises.push(runTransaction(db, async tx => {
-                                const refDoc = doc(db, 'logistics_records', docSnap.id);
-                                const freshSnap = await tx.get(refDoc);
-                                if (!freshSnap.exists()) return;
-                                const latest = uniqueLogItems(freshSnap.data().items || []);
-                                missingToPersist.forEach(i => {
-                                    if (!latest.some(saved => itemMatchesName(saved, i.itemName))) latest.push(i);
-                                });
-                                tx.update(refDoc,{items:latest,autoRepairedFromInventory:true,autoRepairTime:getLocalTimeString(new Date())});
-                            }).catch(err => console.error('物流去重同步失敗', docSnap.id, err)));
-                        }
-
                         let status = "green";
                         if (hasQtyModified) {
                             status = "red";
@@ -1212,80 +1177,8 @@
                     }
                 });
 
-                if (logisticsRepairPromises.length) await Promise.allSettled(logisticsRepairPromises);
-
-                // 2. ★ 補齊盤點有、但物流資料庫「真的沒有」的單據（並自動同步寫入物流資料庫，讓結帳系統 100% 依物流查帳台為準）
-                const newReceiptPromises = [];
-                for (const [matchKey, data] of Object.entries(invRawDataMap)) {
-                     let standardId = `${data.date}_${data.hotelKeyword}_${data.deptName}`;
-                     
-                     if (!processedLogKeys.has(matchKey) && !processedLogKeys.has(standardId)) {
-                         if (hotelKey && !data.hotelName.replace(/\s+/g, '').includes(hotelKey.replace(/\s+/g, ''))) continue;
-
-                         let validItems = [];
-                         data.items.forEach(item => {
-                             if (item.qty === "0") return;
-                             validItems.push({
-                                 itemName: item.itemName,
-                                 bqQty: item.qty,
-                                 actualQty: item.qty 
-                             });
-                         });
-
-                         if (validItems.length > 0) {
-                             validItems.sort((a, b) => {
-                                let indexA = getItemSortIndex(data.hotelName, a.itemName);
-                                let indexB = getItemSortIndex(data.hotelName, b.itemName);
-                                if (indexA !== indexB) return indexA - indexB;
-                                return (a.itemName < b.itemName) ? -1 : 1;
-                             });
-
-                             const scheduleFields = driverWritebackFields({
-                                id: standardId,
-                                assignedDriver: '',
-                                hotelKeyword: data.hotelKeyword,
-                                deptName: data.deptName,
-                                date: data.date
-                             }, driverScheduleContext()) || {};
-                             logRecords.push({
-                                id: standardId, 
-                                date: data.date,
-                                hotelKeyword: data.hotelKeyword,
-                                deptName: data.deptName,
-                                hotel: data.hotelName,
-                                items: validItems,
-                                deletedBackupItems: [],
-                                assignedDriver: scheduleFields.assignedDriver || "",
-                                driverSource: scheduleFields.driverSource || "",
-                                driverRoute: scheduleFields.driverRoute || "",
-                                driverEffectiveDate: scheduleFields.driverEffectiveDate || "",
-                                driverSig: "",
-                                clientSig: "",
-                                signDate: "",
-                                status: "yellow" 
-                             });
-
-                             newReceiptPromises.push(setDoc(doc(db, 'logistics_records', standardId), {
-                                date: data.date,
-                                hotelKeyword: data.hotelKeyword,
-                                deptName: data.deptName,
-                                clientSig: "",
-                                driverSig: "",
-                                timestamp: "",
-                                forcedSync: true,
-                                assignedDriver: "",
-                                ...scheduleFields,
-                                items: validItems.map(i => ({
-                                    itemName: i.itemName,
-                                    originalQty: String(i.bqQty),
-                                    actualQty: String(i.actualQty),
-                                    auntNote: "",
-                                    driverNote: "物流查帳台自動同步建立"
-                                }))
-                             }, { merge: true }).catch(err => console.error('自動建立物流單失敗', standardId, err)));
-                         }
-                     }
-                }
+                // Receipt lookup is read-only for quantities/signatures. Inventory recovery
+                // remains an explicit operation through the existing recovery controls.
                 const driverPlans = planDriverWritebacks(driverWriteRecords, driverScheduleContext());
                 const writebackPromise = (async () => {
                     if (!driverPlans.length) return;
@@ -1301,7 +1194,6 @@
                     showToast('排班司機沒有全部回寫，請稍後再載入');
                 });
                 await Promise.all([
-                    newReceiptPromises.length ? Promise.allSettled(newReceiptPromises) : null,
                     writebackPromise
                 ]);
 
@@ -2233,6 +2125,7 @@
 
         // ★ 4. 誤刪救援 B：一鍵撈回被「整張刪除」的單據（即時掃描封條備份＋盤點資料庫，保證明細 100% 完整出來！）
         window.restoreDeletedReceiptsFromInv = async function() {
+            const hotelKey = document.getElementById('logFetchHotel').value.trim();
             const startDate = document.getElementById('logStartDate').value;
             const endDate = document.getElementById('logEndDate').value;
             if (!startDate || !endDate) {
@@ -3176,5 +3069,6 @@
     </script>
 </body>
 </html>
+
 
 

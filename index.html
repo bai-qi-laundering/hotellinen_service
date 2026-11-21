@@ -215,9 +215,10 @@
 
     <script src="inventory-save.js?v=20261021-unlock-retry"></script>
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
-    <script src="inventory-date-lock.js?v=20261120-selected-date"></script>
+    <script src="inventory-progress.js?v=20261122-completion-day"></script>
+    <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
-    <script src="sendwash-verification.js?v=20261117-pending-note"></script>
+    <script src="sendwash-verification.js?v=20261122-hotel-scope"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -239,6 +240,8 @@
         let calcExpr = "";
         let painting = false;
         let xidasiDateLock = '';
+        let inventoryDashboardLit = new Set();
+        let inventoryDashboardDay = '';
         let xidasiSelectedDate = '';
         let xidasiLockReady = false;
         let xidasiOpening = false;
@@ -248,9 +251,9 @@
             const picker = document.getElementById('datePicker');
             const locked = normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock;
             picker.disabled = locked;
-            picker.title = locked ? '日期已固定，簽收單任一格簽名後解除；後台可更改。' : '';
+            picker.title = locked ? '日期已固定，床單到抹布都有數量紀錄後解除；後台可更改。' : '';
             const hint = document.getElementById('inventoryDateLockHint');
-            if (hint) {hint.hidden = !locked;hint.textContent = locked ? '🔒 固定單據日期 ' + xidasiDateLock + '｜簽收單任一格簽名後解除' : '';}
+            if (hint) {hint.hidden = !locked;hint.textContent = locked ? '🔒 固定單據日期 ' + xidasiDateLock + '｜床單到抹布都有紀錄後解除' : '';}
         }
 
 
@@ -503,89 +506,11 @@
             if (filtered.length > 0) {
                 let htmlContent = "";
                 filtered.forEach(c => {
-                    let isOrange = false;
                     const safeId = window.getSafeId(c);
-                    
                     const dashboardDateStr = document.getElementById('homeDatePicker').value;
                     const targetDateStr = getTargetDateStr(c, dashboardDateStr);
-                    
-                    let isManualBlackBorder = false;
-                    if (userInputs[targetDateStr] && userInputs[targetDateStr]['_MANUAL_STATES_'] && userInputs[targetDateStr]['_MANUAL_STATES_'][c]) {
-                        isManualBlackBorder = true;
-                    }
-
-                    let depts = hotelStructure[c] || [];
-                    let targetDept = depts.includes("房務") ? "房務" : (depts[0] || "");
-                    let targetCat = masterData.find(d => d.baseName === c && d.deptName === targetDept);
-                    let fullHotelName = targetCat ? targetCat.hotel : (targetDept === "房務" ? (c + " 房務") : (c + " " + targetDept));
-                    let templateItems = masterData.filter(d => d.hotel === fullHotelName).map(d => d.item);
-                    let targetItems = []; let canCheck = false;
-                    
-                    if (targetDept === "房務") {
-                        let startIdx = templateItems.findIndex(i => (i || "").trim().includes("浴巾"));
-                        let endIdx = templateItems.findIndex(i => (i || "").trim().includes("抹布"));
-                        
-                        if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
-                            targetItems = templateItems.slice(startIdx, endIdx + 1);
-                        } else if (startIdx !== -1) {
-                            targetItems = templateItems.slice(startIdx);
-                        } else {
-                            targetItems = [...templateItems];
-                        }
-                        canCheck = true;
-                    } else if (targetDept !== "") {
-                        targetItems = [...templateItems]; canCheck = true;
-                    }
-                    
-                    if (canCheck && targetItems.length > 0) {
-                        for (let docDate in userInputs) {
-                            if (docDate === '_MANUAL_STATES_') continue;
-                            let hData = userInputs[docDate][fullHotelName];
-                            if (!hData) continue; 
-
-                            let isAllSigned = true;
-                            let latestSignDateStr = "";
-                            let hasAnyTargetData = false;
-
-                            for (let item of targetItems) {
-                                let u = hData[item];
-                                if (!u || !u.doubleSignature) {
-                                    isAllSigned = false;
-                                    break;
-                                }
-                                hasAnyTargetData = true;
-                                let signDate = u.doubleSignDate || (docDate + " 00:00:00");
-                                if (signDate > latestSignDateStr) {
-                                    latestSignDateStr = signDate;
-                                }
-                            }
-
-                            if (isAllSigned && hasAnyTargetData) {
-                                const customItems = Object.keys(hData).filter(item => 
-                                    !templateItems.includes(item) && item !== '_MANUAL_BORDER_' && item !== '_MANUAL_STATES_'
-                                );
-                                for (let item of customItems) {
-                                    let u = hData[item];
-                                    if (!u || !u.doubleSignature) {
-                                        isAllSigned = false;
-                                        break;
-                                    }
-                                    let signDate = u.doubleSignDate || (docDate + " 00:00:00");
-                                    if (signDate > latestSignDateStr) {
-                                        latestSignDateStr = signDate;
-                                    }
-                                }
-                            }
-
-                            if (isAllSigned && hasAnyTargetData && latestSignDateStr) {
-                                let completionDay = latestSignDateStr.split(' ')[0]; 
-                                if (completionDay === dashboardDateStr) {
-                                    isOrange = true;
-                                    break; 
-                                }
-                            }
-                        }
-                    }
+                    const isOrange = inventoryDashboardDay === dashboardDateStr && inventoryDashboardLit.has(c);
+                    const isManualBlackBorder = !!userInputs[targetDateStr]?.['_MANUAL_STATES_']?.[c];
 
                     let baseClasses = "rounded-2xl p-1 min-w-0 flex items-center justify-center aspect-square border-2 ";
                     
@@ -768,7 +693,8 @@
                 const apply = pendingInventoryTemplate;
                 pendingInventoryTemplate = null;
                 apply();
-            } else renderHome(false); 
+            } else renderHome(false);
+            if (window.attachRealtimeListener) window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
         }
         
         function homeDateChanged() { 
@@ -1161,6 +1087,7 @@
                 // Only an operator confirming a quantity starts a lock. Opening cards,
                 // notes, cached values and imported sendwash totals cannot start one.
                 handleInput(dateStr, activeCategory, activeItem, 'inventoryDateLockEnteredAt', Date.now());
+                handleInput(dateStr, activeCategory, activeItem, 'inventoryDateLockRequested', true);
                 xidasiDateLock = xidasiDateLock || dateStr;
                 xidasiSelectedDate = dateStr;
                 updateXidasiDateControl();
@@ -1278,15 +1205,15 @@
                 };
                 let sendwashDatesKey = '';
 
-                function syncInventoryDateWindow(windowState, dates) {
-                    const key = dates.join('|');
+                function syncInventoryDateWindow(windowState, dates, hotel) {
+                    const key = hotel && dates.length ? JSON.stringify([dates,hotel]) : '';
                     if (key === windowState.key) return;
                     if (windowState.unsubscribe) windowState.unsubscribe();
                     windowState.unsubscribe = null;
                     windowState.key = key;
                     if (!key) return;
 
-                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", dates));
+                    const recordsQ = query(collection(db, 'inventory_records'), where("date", "in", dates), where('hotel','==',hotel));
                     windowState.unsubscribe = onSnapshot(recordsQ, (snapshot) => {
                         let dataChanged = false;
                         let visibleDataChanged = false;
@@ -1352,6 +1279,8 @@
                                 }
                                 
                                 userInputs[dDate][r.hotel][r.item] = { 
+                                    inventoryDateLockEnteredAt: r.inventoryDateLockEnteredAt || null,
+                                    inventoryDateLockActive: r.inventoryDateLockActive || false,
                                     countSource: r.countSource || '',
                                     baseHotel: r.baseHotel || '',
                                     department: r.department || '',
@@ -1390,30 +1319,38 @@
                     });
                 }
 
+                let boardKey='', stopBoard=null, borderKey='', stopBorders=null;
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
-
-                    const parts = baseDateStr.split('-');
-                    const d = new Date(parts[0], parts[1] - 1, parts[2]);
-                    const baseDates = [];
-                    for (let offset = -2; offset <= 7; offset++) {
-                        const date = new Date(d);
-                        date.setDate(date.getDate() + offset);
-                        baseDates.push(getLocalDateString(date));
+                    const configs=allBaseHotels.map(base=>{const dept=getDefaultDept(base);const hotel=InventoryHotel.resolve(base,dept,masterData);return {base,hotel,room:dept==='房務',items:masterData.filter(r=>r.hotel===hotel).map(r=>r.item)};});
+                    const nextBoardKey=JSON.stringify([baseDateStr,configs]);
+                    if(nextBoardKey!==boardKey){
+                        if(stopBoard)stopBoard();boardKey=nextBoardKey;
+                        inventoryDashboardDay=baseDateStr;inventoryDashboardLit=new Set();renderHome(false);
+                        stopBoard=InventoryProgress.watch({collection,query,where,onSnapshot},db,baseDateStr,configs,lit=>{
+                            inventoryDashboardLit=lit;
+                            if(!document.getElementById('homeView').classList.contains('hidden'))renderHome(false);
+                        },error=>{console.error('當日完成燈號讀取失敗',error);showToast('當日完成燈號讀取失敗，請重新載入。');});
                     }
-
-                    // Keep the board's date window live when a detail date is outside it.
-                    const selectedDate = document.getElementById('datePicker').value;
-                    const extraDates = selectedDate && !baseDates.includes(selectedDate) ? [selectedDate] : [];
-                    const sendwashDates = [...baseDates, ...extraDates];
-                    const nextSendwashDatesKey = sendwashEnabled ? sendwashDates.slice().sort().join('|') : '';
-                    if (nextSendwashDatesKey !== sendwashDatesKey) {
-                        sendwashDatesKey = nextSendwashDatesKey;
-                        if (sendwashEnabled && window.attachSendwashListener) window.attachSendwashListener(sendwashDates);
+                    // Manual black borders are small marker records, not all item quantities.
+                    const borderDates=[...new Set(allBaseHotels.map(base=>getTargetDateStr(base,baseDateStr)))].sort();
+                    const nextBorderKey=borderDates.join('|');
+                    if(nextBorderKey!==borderKey){
+                        if(stopBorders)stopBorders();borderKey=nextBorderKey;
+                        if(borderDates.length)stopBorders=onSnapshot(query(collection(db,'inventory_records'),where('item','==','_MANUAL_BORDER_'),where('date','in',borderDates)),snapshot=>{
+                            for(const d of borderDates){if(!userInputs[d])userInputs[d]={};userInputs[d]['_MANUAL_STATES_']={};}
+                            snapshot.docs.forEach(d=>{const r=d.data();if(!userInputs[r.date])userInputs[r.date]={};if(!userInputs[r.date]['_MANUAL_STATES_'])userInputs[r.date]['_MANUAL_STATES_']={};userInputs[r.date]['_MANUAL_STATES_'][r.hotel]=!!r.isBorder;});
+                            if(!document.getElementById('homeView').classList.contains('hidden'))renderHome(false);else window.updateBorderBtnState();
+                        },error=>console.error('黑框標記讀取失敗',error));
                     }
-                    // Stop an overlapping extra listener before moving its date into the base window.
-                    syncInventoryDateWindow(inventoryDateWindows.extra, extraDates);
-                    syncInventoryDateWindow(inventoryDateWindows.base, baseDates);
+                    const detailOpen=!document.getElementById('hotelView').classList.contains('hidden');
+                    const selectedDate=detailOpen?document.getElementById('datePicker').value:'';
+                    const hotel=detailOpen?currentHotelName:'';
+                    const dates=selectedDate?[selectedDate]:[];
+                    syncInventoryDateWindow(inventoryDateWindows.extra,[], '');
+                    syncInventoryDateWindow(inventoryDateWindows.base,dates,hotel);
+                    const nextSendwashDatesKey=sendwashEnabled?JSON.stringify([dates,hotel]):'';
+                    if(nextSendwashDatesKey!==sendwashDatesKey){sendwashDatesKey=nextSendwashDatesKey;if(window.attachSendwashListener)window.attachSendwashListener(dates,hotel);}
                 };
 
                 window.attachRealtimeListener(document.getElementById('homeDatePicker').value);
@@ -1433,48 +1370,21 @@
                     originalDateChanged();
                 }
 
-                let xidasiUnsubscribers = [];
-                let xidasiInventory = [], xidasiReceipts = [];
-                let xidasiSession = 0;
-                function xidasiDrafts() {
-                    const rows = [];
-                    for (const [date, hotels] of Object.entries(userInputs)) for (const [hotel, items] of Object.entries(hotels || {})) {
-                        if (!InventoryDateLock.hotel(hotel)) continue;
-                        for (const [item, value] of Object.entries(items || {})) if (!value.isSubmitted && value.inventoryDateLockEnteredAt) rows.push({...value,date,hotel,item});
-                    }
-                    return rows;
-                }
+                let xidasiWatcher=null, xidasiCloudDate='';
                 function updateXidasiLock() {
-                    xidasiDateLock = InventoryDateLock.date(xidasiInventory, xidasiReceipts) || InventoryDateLock.date(xidasiDrafts(), xidasiReceipts);
+                    const drafts=[];
+                    for(const [date,hotels]of Object.entries(userInputs))for(const [hotel,items]of Object.entries(hotels||{}))if(InventoryDateLock.hotel(hotel))
+                        for(const value of Object.values(items||{}))if(!value.isSubmitted&&value.inventoryDateLockRequested&&(InventoryDateLock.quantity(value.count)||InventoryDateLock.quantity(value.doubleCount)))drafts.push(date);
+                    xidasiDateLock=xidasiCloudDate || drafts.sort()[0] || '';
                     updateXidasiDateControl();
                 }
-                window.stopXidasiDateLock = function() {
-                    ++xidasiSession;
-                    xidasiUnsubscribers.forEach(stop=>stop());
-                    xidasiUnsubscribers = [];
-                    xidasiLockReady = false;
-                };
+                window.stopXidasiDateLock = function() {if(xidasiWatcher)xidasiWatcher.stop();xidasiWatcher=null;xidasiLockReady=false;};
                 window.startXidasiDateLock = async function() {
                     window.stopXidasiDateLock();
-                    const session = xidasiSession;
-                    const hotels = [...new Set(['喜達絲','喜達絲 房務',...masterData.filter(r=>normalizeScheduleName(r.baseName)==='喜達絲'&&InventoryDateLock.hotel(r.hotel)).map(r=>r.hotel)])];
-                    const sources = [query(collection(db,'inventory_records'),where('hotel','in',hotels)),query(collection(db,'logistics_records'),where('hotelKeyword','==','喜達絲'))];
-                    const loaded = [false,false];
-                    try {
-                        await InventorySave.withTimeout(Promise.all(sources.map((source,index)=>new Promise((resolve,reject)=>{
-                            const stop=onSnapshot(source,{includeMetadataChanges:true},snapshot=>{
-                                if(session!==xidasiSession)return;
-                                // Pending local writes do not prove the shared date has been saved.
-                                if(snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites)return;
-                                const rows=snapshot.docs.map(d=>d.data());
-                                if(index===0)xidasiInventory=rows;else xidasiReceipts=rows;
-                                loaded[index]=true;
-                                if(loaded.every(Boolean)){xidasiLockReady=true;updateXidasiLock();}
-                                resolve();
-                            },error=>{xidasiLockReady=false;reject(error);if(normalizeScheduleName(currentBaseHotel)==='喜達絲')showToast('喜達絲日期同步中斷，請返回重開。');});
-                            xidasiUnsubscribers.push(stop);
-                        }))),15000,'日期讀取逾時');
-                    } catch(error) {window.stopXidasiDateLock();throw error;}
+                    xidasiCloudDate='';
+                    xidasiWatcher=InventoryDateLock.watch({collection,query,where,onSnapshot,writeBatch},db,masterData,date=>{xidasiCloudDate=date;updateXidasiLock();},error=>{xidasiLockReady=false;console.error('喜達絲批次日期讀取失敗',error);});
+                    try{await InventorySave.withTimeout(xidasiWatcher.ready,15000,'批次日期讀取逾時');xidasiLockReady=true;}
+                    catch(error){window.stopXidasiDateLock();throw error;}
                 };
 
                 window.firebaseSubmit = async function(category, item, requestedDate) {
@@ -1521,7 +1431,7 @@
                         const missingRole=saver.signatureRole(u,recheckOnly);
                         if(missingRole){const error=new Error('簽名影像未保留，請重新簽署');error.signatureRole=missingRole;throw error;}
                         const payload={date:dateStr,hotel:category,item,count:u.count !== undefined&&u.count !== null&&u.count !== ''?String(u.count):'',note:u.note || '',doubleCount:u.doubleCount !== undefined&&u.doubleCount !== null&&u.doubleCount !== ''?String(u.doubleCount):'',doubleSignDate:u.doubleSignDate || '',timestamp:new Date().toLocaleString()};
-                        if(InventoryDateLock.hotel(category) && u.inventoryDateLockEnteredAt) payload.inventoryDateLockEnteredAt=u.inventoryDateLockEnteredAt;
+                        if(InventoryDateLock.hotel(category) && u.inventoryDateLockRequested) Object.assign(payload,{inventoryDateLockEnteredAt:u.inventoryDateLockEnteredAt,inventoryDateLockActive:true});
                         if(u.signature&&u.signature!=='CACHED')payload.signature=u.signature;
                         if(u.doubleSignature&&u.doubleSignature!=='CACHED')payload.doubleSignature=u.doubleSignature;
                         const recordRef=doc(db,'inventory_records',`${dateStr}_${category}_${item.replace(/\//g,'-')}`),updates={};
@@ -1548,9 +1458,11 @@
                         const current=userInputs[dateStr]?.[category]?.[item];if(current!==u)return;
                         const unchanged=fingerprint(current)===result.submitted;
                         Object.assign(current,result.updates,{isSaving:false,saveError:!unchanged});
+                        if(unchanged)current.inventoryDateLockRequested=false;
                         if(unchanged&&!result.noteOnly)Object.assign(current,{isSubmitted:true,hasSigned:false,doubleHasSigned:false});
                         else if(!unchanged)current.isSubmitted=false;
                         const queued=current.saveQueued;current.saveQueued=false;
+                        if(InventoryDateLock.hotel(category))updateXidasiLock();
                         saveToLocal();renderItems(false);
                         if(queued&&!unchanged)window.firebaseSubmit(category,item,dateStr);
                     },()=>{}).catch(error=>console.error('儲存畫面更新失敗',error));
@@ -1654,6 +1566,7 @@
     </script>
 </body>
 </html>
+
 
 
 

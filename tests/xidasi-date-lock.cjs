@@ -5,16 +5,14 @@ const lock = require('../inventory-date-lock.js');
 const inv=(date,count='2',extra={})=>({date,count,hotel:'喜達絲 房務',item:'浴巾',...extra});
 const entered=(date,count='2')=>inv(date,count,{inventoryDateLockEnteredAt:123});
 const receipt=(date,sig={})=>({date,hotelKeyword:'喜達絲',...sig});
-// Cached/imported/default values do not constitute the first operator entry.
-assert.equal(lock.date([inv('2026-11-21')],[]),'');
-assert.equal(lock.date([inv('2026-11-21','0',{countSource:'sendwash'})],[]),'');
-assert.equal(lock.date([inv('2026-11-21','2',{signature:'old-cache'})],[]),'');
-assert.equal(lock.date([entered('2026-11-20')],[]),'2026-11-20');
-assert.equal(lock.date([entered('2026-11-19','0')],[]),'2026-11-19');
-assert.equal(lock.date([entered('2026-11-19','')],[]),'');
-for(const field of ['clientSig','driverSig'])assert.equal(lock.date([entered('2026-11-20')],[receipt('2026-11-20',{[field]:'signature'})]),'');
-assert.equal(lock.date([entered('2026-11-19')],[receipt('2026-11-20',{clientSig:'signature'})]),'2026-11-19');
-assert.equal(lock.date([entered('2026-11-22')],[]),'2026-11-22'); // backend moved record
+// Only explicit entries remain active until required inventory records exist.
+const required=['床單','被套','枕套','浴巾','抹布'];
+const active={...entered('2026-11-20'),inventoryDateLockActive:true};
+assert.equal(lock.date([inv('2026-11-21')],[],required),'');
+assert.equal(lock.date([active],[],required),'2026-11-20');
+const complete=required.map(item=>({...inv('2026-11-20','0'),item}));
+assert.equal(lock.date([active],complete,required),'');
+assert.equal(lock.date([active],complete.filter(r=>r.item!=='床單'),required),'2026-11-20');
 const page=fs.readFileSync('index.html','utf8');
 const elements=new Map();
 const el=id=>{if(!elements.has(id))elements.set(id,{value:'2026-11-20',getContext:()=>({}),addEventListener(){},classList:{contains:()=>false,add(){},remove(){}}});return elements.get(id);};
@@ -38,4 +36,5 @@ vm.runInContext('dateChanged()',context);
 assert.equal(el('datePicker').value,'2026-11-19');
 vm.runInContext("xidasiDateLock='';updateXidasiDateControl();currentBaseHotel='鉑麗';calcExpr='3';activeCategory='鉑麗 房務';calcConfirm()",context);
 assert.equal(el('datePicker').disabled,false);
-console.log('Passed: no empty/import/cache lock; selected date locks only on quantity confirmation; zero, either signature, backend date, other hotels.');
+console.log('Passed: no empty/import/cache lock; selected date locks only on quantity confirmation; zero and recorded required items.');
+

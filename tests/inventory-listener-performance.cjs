@@ -24,7 +24,7 @@ test('sendwash updates preserve active department and render only visible change
   context.fixtureApi = api;
   vm.runInContext(instrumented, context);
   await context.window.startSendwashVerification({});
-  await context.window.attachSendwashListener(['2026-10-22']);
+  await context.window.attachSendwashListener(['2026-10-22'], '洲際 餐廳');
   const change = (type, id, hotel, date = '2026-10-22') => ({ type, doc: { id, data: () => ({ targetDate: date, inventoryHotel: hotel, items: [{ item: '口布', quantity: 1 }] }) } });
   emit({ docChanges: () => [change('added', 'other', '其他飯店')] });
   assert.equal(renders, 0);
@@ -35,3 +35,4 @@ test('sendwash updates preserve active department and render only visible change
   assert.equal(renders, 2);
   assert.deepEqual(Array.from(context.window.sendwashPendingItems('2026-10-22', '洲際 餐廳')), []);
 });
+

@@ -41,10 +41,11 @@
   const complete=core.displayRows([...new Set([...templateItems,...configured.map(row=>row.item)])].map(item=>({...configured[0],item,defaultQuantity:''}))).map(row=>core.outletItem(selected,row.item));
   return [...new Set([...complete,...visible])].filter(item=>!core.retiredOutletItem({...configured[0],item:item.slice(`【${selected}】`.length)}));
  };
- window.attachSendwashListener=async dates=>{
+ window.attachSendwashListener=async (dates,inventoryHotel)=>{
   const request=++sequence;if(!ready){await window.sendwashVerificationReady;if(!ready)return;}if(request!==sequence)return;
   if(unsubscribe)unsubscribe();records.clear();
-  unsubscribe=api.onSnapshot(api.query(api.collection(db,'sendwash_records'),api.where('targetDate','in',dates)),snap=>{
+   if(!dates.length||!inventoryHotel)return;
+  unsubscribe=api.onSnapshot(api.query(api.collection(db,'sendwash_records'),api.where('targetDate','in',dates),api.where('inventoryHotel','==',inventoryHotel)),snap=>{
    const date=typeof document==='undefined' ? '' : document.getElementById('datePicker')?.value;
    const hotel=typeof currentHotelName==='undefined' ? '' : currentHotelName;
    let visibleChanged=false;
@@ -152,5 +153,6 @@
   });
  };
 })();
+
 
 
