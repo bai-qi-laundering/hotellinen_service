@@ -614,7 +614,7 @@
                 xidasiSelectedDate = ''; // First open keeps the existing next-day document rule.
                 xidasiOpening = true;
                 const opening = ++xidasiOpeningSequence;
-                showToast('正在確認喜達絲未簽收單的日期…');
+                showToast('正在確認喜達絲目前批次日期…');
                 try { await window.startXidasiDateLock(); }
                 catch (error) { showMessage('喜達絲日期確認失敗，請重新開啟：' + error.message); return; }
                 finally { xidasiOpening = false; }
