@@ -1322,7 +1322,7 @@
                 let boardKey='', stopBoard=null, borderKey='', stopBorders=null;
                 window.attachRealtimeListener = function(baseDateStr) {
                     if (!baseDateStr) return;
-                    const configs=allBaseHotels.map(base=>{const dept=getDefaultDept(base);const hotel=InventoryHotel.resolve(base,dept,masterData);return {base,hotel,room:dept==='房務',items:masterData.filter(r=>r.hotel===hotel).map(r=>r.item)};});
+                    const configs=allBaseHotels.map(base=>{const dept=getDefaultDept(base);const hotel=InventoryHotel.resolve(base,dept,masterData);return {base,hotel,batchDate:getTargetDateStr(base,baseDateStr,dept),room:dept==='房務',items:masterData.filter(r=>r.hotel===hotel).map(r=>r.item)};});
                     const nextBoardKey=JSON.stringify([baseDateStr,configs]);
                     if(nextBoardKey!==boardKey){
                         if(stopBoard)stopBoard();boardKey=nextBoardKey;
@@ -1330,7 +1330,7 @@
                         stopBoard=InventoryProgress.watch({collection,query,where,onSnapshot},db,baseDateStr,configs,lit=>{
                             inventoryDashboardLit=lit;
                             if(!document.getElementById('homeView').classList.contains('hidden'))renderHome(false);
-                        },error=>{console.error('當日完成燈號讀取失敗',error);showToast('當日完成燈號讀取失敗，請重新載入。');});
+                        },error=>{console.error('批次完成燈號讀取失敗',error);showToast('批次完成燈號讀取失敗，請重新載入。');});
                     }
                     // Manual black borders are small marker records, not all item quantities.
                     const borderDates=[...new Set(allBaseHotels.map(base=>getTargetDateStr(base,baseDateStr)))].sort();
