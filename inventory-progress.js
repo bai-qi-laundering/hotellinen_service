@@ -1,4 +1,4 @@
-/* Completion is indexed by the actual recheck day, independently of document date. */
+/* A dashboard lamp describes the selected batch, regardless of the recheck day. */
 (function(root){
  const quantity=v=>v!==undefined&&v!==null&&String(v).trim()!=='';
  const day=v=>{const m=String(v||'').match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);return m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:'';};
@@ -16,36 +16,38 @@
   return latest;
  }
  function watch(api,db,date,configs,onChange,onError=console.error){
-  let stopped=false,today=[],fallback=new Map();
-  const byHotel=new Map(configs.map(c=>[c.hotel,c]));
-  const groupKey=r=>JSON.stringify([day(r.date),r.hotel]);
+  let stopped=false;
+  const batches=[...new Set(configs.map(c=>c.batchDate).filter(Boolean))].sort();
+  const stops=[],snapshots=new Map();
+  if(!batches.length){onChange(new Set());return()=>{stopped=true;};}
   function paint(){
-   if(stopped)return;
-   const groups=new Map();
-   for(const r of today)if(byHotel.has(r.hotel)&&r.doubleSignature){const key=groupKey(r);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
-   const lit=new Set(),needed=new Set();
-   for(const [key,rows] of groups){
-    const config=byHotel.get(rows[0].hotel),items=required(config.items,config.room);
+   if(stopped||snapshots.size!==Math.ceil(batches.length/30))return;
+   const rows=[...snapshots.values()].flat();
+   const byBatch=new Map();
+   for(const row of rows){
+    const key=JSON.stringify([row.hotel,day(row.date)]);
+    if(!byBatch.has(key))byBatch.set(key,[]);
+    byBatch.get(key).push(row);
+   }
+   const lit=new Set();
+   for(const config of configs){
+    const batchRows=byBatch.get(JSON.stringify([config.hotel,config.batchDate]))||[];
+    const requiredItems=required(config.items,config.room);
     const a=config.items.findIndex(n=>n.includes('床單')),b=config.items.findIndex(n=>n.includes('抹布'));
     const beddingRange=config.room&&a>=0&&b>=a;
-    if(beddingRange&&completed(rows,items)===date){lit.add(config.base);continue;}
-    needed.add(key);
-    let state=fallback.get(key);
-    if(!state){
-     state={rows:[],stop:()=>{}};fallback.set(key,state);
-     const [documentDate,hotel]=JSON.parse(key);
-     state.stop=api.onSnapshot(api.query(api.collection(db,'inventory_records'),api.where('date','==',documentDate),api.where('hotel','==',hotel)),snapshot=>{
-      if(stopped||fallback.get(key)!==state)return;state.rows=snapshot.docs.map(d=>d.data());paint();
-     },onError);
-    }
-    const allItems=beddingRange?items:[...new Set([...items,...state.rows.map(r=>r.item).filter(item=>item&&!item.startsWith('_MANUAL_'))])];
-    if(completed(state.rows,allItems)===date)lit.add(config.base);
+    const items=beddingRange?requiredItems:[...new Set([...requiredItems,...batchRows.map(r=>r.item).filter(item=>item&&!item.startsWith('_MANUAL_'))])];
+    if(completed(batchRows,items))lit.add(config.base);
    }
-   for(const [key,state] of fallback)if(!needed.has(key)){state.stop();fallback.delete(key);}
    onChange(lit);
   }
-  const stop=api.onSnapshot(api.query(api.collection(db,'inventory_records'),api.where('doubleSignDate','>=',date+' 00:00:00'),api.where('doubleSignDate','<=',date+' 23:59:59')),snapshot=>{today=snapshot.docs.map(d=>d.data());paint();},onError);
-  return ()=>{stopped=true;stop();for(const state of fallback.values())state.stop();fallback.clear();};
+  for(let offset=0;offset<batches.length;offset+=30){
+   const key=offset/30,dates=batches.slice(offset,offset+30);
+   stops.push(api.onSnapshot(api.query(api.collection(db,'inventory_records'),api.where('date','in',dates)),snapshot=>{
+    if(stopped)return;
+    snapshots.set(key,snapshot.docs.map(d=>d.data()));paint();
+   },onError));
+  }
+  return()=>{stopped=true;stops.forEach(stop=>stop());snapshots.clear();};
  }
  const api={quantity,day,required,completed,watch};
  root.InventoryProgress=api;if(typeof module==='object'&&module.exports)module.exports=api;
