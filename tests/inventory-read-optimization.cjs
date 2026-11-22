@@ -1,5 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
-const progress=require('../inventory-progress.js'),lock=require('../inventory-date-lock.js');
+const loadBrowserModule=file=>{const context=vm.createContext({module:{exports:{}}});vm.runInContext(fs.readFileSync(file,'utf8'),context);return context.module.exports;};
+const progress=loadBrowserModule('inventory-progress.js'),lock=loadBrowserModule('inventory-date-lock.js');
+const plain=value=>JSON.parse(JSON.stringify(value));
 const names=['床單','被套','枕套','浴巾','抹布','浴袍'];
 const batch=(date='2026-11-23')=>names.map(item=>({date,hotel:'喜達絲 房務',item,count:'0',doubleCount:'0',doubleSignature:'sig',doubleSignDate:'2026-11-22 12:00:00'}));
 function fixture(){
@@ -9,31 +11,28 @@ function fixture(){
  return {api,targets,writes,emit,get stops(){return stops;}};
 }
 test('dashboard includes 床單 through 抹布 and accepts zero rechecks',()=>{
- assert.deepEqual(progress.required(names),names.slice(0,5));
+ assert.deepEqual(plain(progress.required(names)),names.slice(0,5));
  assert.equal(progress.completed(batch(),progress.required(names)),'2026-11-22');
  assert.equal(progress.completed(batch().filter(r=>r.item!=='床單'),progress.required(names)),'');
  const rows=batch();rows[0].doubleCount='';assert.equal(progress.completed(rows,progress.required(names)),'');
 });
-test('dashboard watches completion day, verifies a cross-day batch narrowly, and cancels stale watches',()=>{
+test('dashboard watches selected batch even when rechecks happen on another day',()=>{
  const f=fixture();let lit;
- const stop=progress.watch(f.api,{},'2026-11-22',[{base:'喜達絲',hotel:'喜達絲 房務',room:true,items:names}],value=>lit=value);
- assert.equal(f.targets[0].query.filters[0].field,'doubleSignDate');
- f.emit(f.targets[0],[batch()[4]]);
- assert.equal(f.targets.length,2);
- assert.deepEqual(f.targets[1].query.filters.map(x=>[x.field,x.value]),[['date','2026-11-23'],['hotel','喜達絲 房務']]);
- const mixed=batch();mixed[0].doubleSignDate='2026-11-21 23:00:00';f.emit(f.targets[1],mixed);assert(lit.has('喜達絲'));
- const broken=mixed.map(r=>r.item==='床單'?{...r,doubleSignature:''}:r);f.emit(f.targets[1],broken);assert(!lit.has('喜達絲'));
- f.emit(f.targets[0],batch());assert(lit.has('喜達絲'));assert(f.targets[1].stopped);
+ const stop=progress.watch(f.api,{},'2026-11-22',[{base:'喜達絲',hotel:'喜達絲 房務',batchDate:'2026-11-23',room:true,items:names}],value=>lit=value);
+ assert.deepEqual(plain(f.targets[0].query.filters.map(x=>[x.field,x.op,x.value])),[['date','in',['2026-11-23']]]);
+ const mixed=batch();mixed[0].doubleSignDate='2026-11-21 23:00:00';f.emit(f.targets[0],mixed);assert(lit.has('喜達絲'));
+ f.emit(f.targets[0],batch('2026-11-22'));assert(!lit.has('喜達絲'),'a completed older batch cannot light the selected batch');
+ const broken=mixed.map(r=>r.item==='床單'?{...r,doubleSignature:''}:r);f.emit(f.targets[0],broken);assert(!lit.has('喜達絲'));
+ f.emit(f.targets[0],[...mixed,batch('2026-11-22')[0]]);assert(lit.has('喜達絲'));
  f.emit(f.targets[0],[]);assert.equal(lit.size,0);
- stop();f.emit(f.targets[1],mixed);assert.equal(lit.size,0);
+ stop();f.emit(f.targets[0],mixed);assert.equal(lit.size,0);assert(f.targets[0].stopped);
 });
 test('all-item departments include temporary recorded items before lighting',()=>{
  const f=fixture();let lit;
- const stop=progress.watch(f.api,{},'2026-11-22',[{base:'餐廳',hotel:'餐廳 餐飲',room:false,items:['口布']}],value=>lit=value);
+ const stop=progress.watch(f.api,{},'2026-11-22',[{base:'餐廳',hotel:'餐廳 餐飲',batchDate:'2026-11-23',room:false,items:['口布']}],value=>lit=value);
  const row={date:'2026-11-23',hotel:'餐廳 餐飲',item:'口布',doubleCount:'0',doubleSignature:'sig',doubleSignDate:'2026-11-22 12:00:00'};
- f.emit(f.targets[0],[row]);assert.equal(f.targets.length,2);
- f.emit(f.targets[1],[row,{...row,item:'臨時布品',doubleSignature:''}]);assert(!lit.has('餐廳'));
- f.emit(f.targets[1],[row,{...row,item:'臨時布品'}]);assert(lit.has('餐廳'));
+ f.emit(f.targets[0],[row,{...row,item:'臨時布品',doubleSignature:''}]);assert(!lit.has('餐廳'));
+ f.emit(f.targets[0],[row,{...row,item:'臨時布品'}]);assert(lit.has('餐廳'));
  stop();
 });
 test('喜達絲 only explicit records lock; 床單 through 抹布 release without signatures',async()=>{
@@ -47,8 +46,8 @@ test('喜達絲 only explicit records lock; 床單 through 抹布 release withou
  assert.equal(f.writes.length,0);
  f.emit(f.targets[1],batch().map(r=>({...r,doubleSignature:'',doubleSignDate:'',doubleCount:''})));
  assert.equal(date,'');assert.equal(f.writes.length,1);
- assert.deepEqual(f.writes[0].data,{inventoryDateLockActive:false});
- assert.deepEqual(f.writes[0].options,{merge:true});
+ assert.deepEqual(plain(f.writes[0].data),{inventoryDateLockActive:false});
+ assert.deepEqual(plain(f.writes[0].options),{merge:true});
  assert(!JSON.stringify(f.targets).includes('logistics_records'));
  controller.stop();assert(f.targets.every(t=>t.stopped));
 });
