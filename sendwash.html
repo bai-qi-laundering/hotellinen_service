@@ -183,6 +183,8 @@ const rawLocked=record=>Boolean(record?.acceptedAt || Object.keys(record?.receiv
 const locked=record=>!adminMode && rawLocked(record);
 function disable(value){$('department').disabled=value;$('sourceDate').disabled=value;$('submit').disabled=value;for(const id of ['extraItemName','addExtraItem'])$(id).disabled=value||locked(current)||!rows.length;}
 function showError(error){$('message').textContent=error.message || String(error);}
+function specialDept(name){const n=String(name||'').normalize('NFKC').replace(/\s+/g,'').trim();return n==='特處'||n==='特處部';}
+function paintTarget(dept,dateText){const el=$('target');el.hidden=false;el.textContent=specialDept(dept)?'特處單不填送回日期。送出後先到洗滌部點收；出貨日由辦公室依收送規則寫進盤點。':dateText;}
 function outletsFor(dept){return [...new Set(settings.filter(r=>r.department===dept).map(r=>r.outlet || ''))];}
 const batchRows=list=>list.filter(r=>core.normalize(r.hotel)==='洲際'&&r.outlet&&core.department(r.department)!=='制服');
 const batchEnabled=dept=>batchRows(settings).some(r=>r.department===dept);
@@ -242,7 +244,7 @@ async function loadBatch(request,dept,sourceDate){
  groups.forEach(group=>{const button=document.createElement('button'),entry=batchDrafts.get(group.id),duplicate=groups.some(other=>other.department!==group.department&&other.outlet===group.outlet);button.type='button';button.textContent=(duplicate?`${group.department}／`:'')+group.outlet+(rawLocked(entry.current)?' ✓ 已點收':'');button.setAttribute('aria-selected',String(group.id===activeBatchId));button.onclick=()=>{if(busy)return;activeBatchId=group.id;if(currentMode==='reconcile'){activeOutlet=group.outlet;loadReconcile();}else{return load();}};nav.append(button);});nav.scrollLeft=scroll;
  rows=selected.rows;current=selected.current;shownBatchId=selected.id;
  const target=core.targetDate(hotel,selected.department,sourceDate,config.deliverySchedules);
- $('target').textContent=`共 ${groups.length} 個餐廳，切換填寫後一次送出。\n${selected.outlet} 預計送回：${target}`;
+ paintTarget(selected.department, `共 ${groups.length} 個餐廳，切換填寫後一次送出。\n${selected.outlet} 預計送回：${target}`);
  renderInputs(selected);
  disable(false);$('submit').textContent='一次送出全部餐廳';$('submit').disabled=groups.every(group=>locked(batchDrafts.get(group.id).current));
  $('message').textContent=locked(current)?'這個餐廳已開始點收，原單保留；其他尚未點收的餐廳仍可填寫後一起送出。':'左右切換餐廳會保留已填數量，全部填完後按一次送出即可。';
@@ -286,7 +288,7 @@ async function load(){
   const id=core.submissionId(hotel,dept,sourceDate,activeOutlet),snap=await getDocFromServer(doc(db,'sendwash_records',id));
   if(request!==sequence)return;
   current=snap.exists()?snap.data():null;
-  $('target').textContent=`預計送回／寫入登記單：${target}`;
+  paintTarget(dept, `預計送回／寫入登記單：${target}`);
   let draft=batchDrafts.get(id);
   if(!draft||locked(current)||(draft.current?.revision || 0)!==(current?.revision || 0)){
    const complete=supplementalRows(rows,current);draft={id,rows:complete,current,values:complete.map(row=>current?(current.items.find(item=>item.item===row.item)?.quantity ?? ''):row.defaultQuantity)};batchDrafts.set(id,draft);
@@ -565,7 +567,7 @@ async function loadReconcile(){
    const dMeta=document.createElement('div');
    dMeta.className='daily-item-meta';
    const subTime=formatSubmitTime(rec.submittedAt);
-   dMeta.textContent=`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 飯店填寫時間：${subTime}`:'');
+   dMeta.textContent=specialDept(dept)?(subTime?`飯店填寫時間：${subTime}`:'特處單不填送回日期'):(`預計送回：${rec.targetDate || '—'}`+(subTime?` ｜ 飯店填寫時間：${subTime}`:''));
    leftInfo.append(dTitle,dMeta);
 
    const actBox=document.createElement('div');
@@ -751,7 +753,8 @@ $('form').onsubmit=async e=>{
   const originalRows=settings.filter(r=>r.hotel===hotel&&r.department===dept&&(r.outlet || '')===outlet);
   if(JSON.stringify(originalRows)!==JSON.stringify(latestRows))throw new Error('對點設定已更新，請重新整理後填寫');
   const target=core.targetDate(hotel,dept,sourceDate,latest.deliverySchedules);
-  if($('target').textContent!==`預計送回／寫入登記單：${target}`)throw new Error('收送日設定已更新，請重新整理後確認日期');
+  const shownTarget=specialDept(dept)?'特處單不填送回日期。送出後先到洗滌部點收；出貨日由辦公室依收送規則寫進盤點。':`預計送回／寫入登記單：${target}`;
+  if($('target').textContent!==shownTarget)throw new Error('收送日設定已更新，請重新整理後確認日期');
   const id=core.submissionId(hotel,dept,sourceDate,outlet);
   const ref=doc(db,'sendwash_records',id);
   const expected=current?.revision || 0;
@@ -770,7 +773,7 @@ $('form').onsubmit=async e=>{
    writeSpecialChanges(tx,changes);
   });
   shownBatchId=null;batchDrafts.delete(id);await load();
-  const specialNote=skipped.length ? `以下特處品項已有作業紀錄，未更動：${skipped.join('、')}` : specialPlan ? '特處頁的待摺疊品項已同步。' : '';
+  const specialNote=skipped.length ? `以下特處品項已有作業紀錄，未更動：${skipped.join('、')}` : specialPlan ? '特處單已送到洗滌部。' : '';
   $('message').textContent=(items.length ? '已送出！場內只會確認有填數量的品項。' : '已送出，已登記本次無送洗；之後有送洗可再填寫。')+(specialNote ? '\n'+specialNote : '');
  }catch(e){showError(e);disable(false);rows.forEach((_,i)=>{if($(`qty${i}`))$(`qty${i}`).disabled=locked(current);});}finally{busy=false;}
 };

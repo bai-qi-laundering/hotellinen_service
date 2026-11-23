@@ -10,8 +10,8 @@ header.sticky h1 { color: #fff !important; font-size: 34px !important; font-weig
 header.sticky h1::before { content: "百麒"; display: block; font-size: 13px; font-weight: 700; letter-spacing: .3em; color: var(--amber); }
 #configStatus { color: #a7f3d0 !important; font-size: 13px !important; }
 header.sticky .grid { gap: 8px !important; margin-top: 14px !important; }
-#tabFold, #tabOffice { border: 0 !important; border-radius: 16px 16px 0 0 !important; padding: 16px 0 !important; font-size: 20px !important; font-weight: 900 !important; background: #0b403b !important; color: #9fd3cb !important; }
-#tabFold.bg-blue-700, #tabOffice.bg-blue-700 { background: var(--cream) !important; color: var(--teal2) !important; }
+#tabWash, #tabSpread, #tabFold, #tabOffice { border: 0 !important; border-radius: 16px 16px 0 0 !important; padding: 16px 0 !important; font-size: 20px !important; font-weight: 900 !important; background: #0b403b !important; color: #9fd3cb !important; text-decoration: none !important; display: flex; align-items: center; justify-content: center; min-height: 64px; }
+#tabWash.bg-blue-700, #tabSpread.bg-blue-700, #tabFold.bg-blue-700, #tabOffice.bg-blue-700 { background: var(--cream) !important; color: var(--teal2) !important; }
 
 #foldPane, #officePane { padding: 0 12px !important; }
 #foldSearch { border: 2px solid var(--line) !important; border-radius: 14px !important; font-size: 18px !important; padding: 14px 16px !important; background: var(--paper) !important; margin-top: 14px !important; }
@@ -100,7 +100,7 @@ input[data-office-for] { flex: 1 1 auto !important; min-width: 0 !important; wid
     header.sticky { padding: 10px 16px 0 !important; }
     header.sticky h1 { font-size: 26px !important; }
     header.sticky h1::before { font-size: 12px; }
-    #tabFold, #tabOffice { font-size: 16px !important; padding: 10px 0 !important; border-radius: 12px 12px 0 0 !important; }
+    #tabWash, #tabSpread, #tabFold, #tabOffice { font-size: 16px !important; padding: 10px 0 !important; border-radius: 12px 12px 0 0 !important; min-height: 44px; }
     header.sticky .grid { margin-top: 8px !important; }
     #foldPane, #officePane { padding: 0 16px !important; }
     #foldSearch { font-size: 15px !important; padding: 8px 12px !important; margin-top: 10px !important; }

@@ -367,7 +367,7 @@ function mentionsHotelOrItem(text, options) {
 function entryDeleteDecision(docs) {
     const live = (docs || []).filter(doc => doc && !doc.deleted);
     if (!live.length) return { ok: false, code: 'missing' };
-    const locked = live.some(doc => doc.status === '已簽名' || doc.status === '已送出' || doc.foldSignature || doc.foldSignedAt);
+    const locked = live.some(doc => doc.status === '已簽名' || doc.status === '已送出' || doc.status === '待撐開' || doc.status === '重工中' || doc.status === '數量不符' || doc.foldSignature || doc.foldSignedAt || doc.washSignedAt || doc.spreadSignedAt);
     if (locked) return { ok: false, code: 'locked' };
     return { ok: true, code: 'ok' };
 }
@@ -414,8 +414,15 @@ function buildLineDocs(entry, meta) {
         source: 'line',
         createdAt: info.time || '',
         round: 1,
-        status: '待摺疊',
+        status: '待洗滌',
         history: [{ type: 'created', time: info.time || '', qty: line.qty, round: 1 }],
+        expectedQty: line.qty,
+        washSignature: '',
+        washSignedAt: '',
+        spreadSignature: '',
+        spreadSignedAt: '',
+        discrepancyOpen: false,
+        discrepancyAckAt: '',
         foldSignature: '',
         foldSignedAt: '',
         shipDate: '',

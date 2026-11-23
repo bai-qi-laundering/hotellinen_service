@@ -411,7 +411,7 @@
                     const link=document.createElement('a'),url=new URL('sendwash.html',location.href);
                     url.searchParams.set('hotel',hotel);url.searchParams.set('department','特處');
                     if(currentDate)url.searchParams.set('date',currentDate);
-                    link.href=url.href;link.textContent='填寫特處對點單｜'+hotel;
+                    link.href=url.href;link.textContent='填寫送洗對點單｜'+hotel;
                     link.className='block w-full my-3 p-4 bg-white border-2 border-blue-200 text-blue-700 rounded-xl font-bold text-lg text-center';
                     container.append(link);
                 });
