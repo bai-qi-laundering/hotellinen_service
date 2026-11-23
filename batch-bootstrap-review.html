@@ -1,0 +1,56 @@
+<!doctype html><html lang="zh-TW"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>批次日期初始化核對</title>
+<style>body{font:16px system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;color:#172b32}button{padding:.7rem 1rem;margin:.5rem 0;background:#124c59;color:white;border:0;border-radius:.4rem}button:disabled{opacity:.45}table{border-collapse:collapse;width:100%}td,th{padding:.55rem;border-bottom:1px solid #ccd;text-align:left}tr.conflict{background:#fff0d5}#status{white-space:pre-wrap}</style>
+<h1>一次性批次日期核對</h1><p>先讀取近 30 天已簽收單與盤點紀錄。只為沒有狀態且沒有多日期衝突的飯店建立狀態。執行完畢後移除此頁。</p>
+<button id="preview">重新核對</button> <button id="apply" disabled>建立已核對狀態</button><p id="status">等待核對</p><table><thead><tr><th>飯店</th><th>最新簽收單</th><th>既有盤點日期</th><th>處理</th></tr></thead><tbody id="rows"></tbody></table>
+<script src="inventory-batch-state.js?v=20261123-shared-batch"></script>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
+import {initializeFirestore,memoryLocalCache,collection,doc,query,where,getDocsFromServer,runTransaction} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
+const app=initializeApp({apiKey:'AIzaSyBEXcnXOKRags29CvhM6TKe3N-zty-ela4',authDomain:'hotel-inventory-3a1ad.firebaseapp.com',projectId:'hotel-inventory-3a1ad',appId:'1:363844184412:web:66cdd6425d53bde75f3999'},'batch-bootstrap-review');
+const db=initializeFirestore(app,{localCache:memoryLocalCache(),experimentalForceLongPolling:true});
+const $=id=>document.getElementById(id), key=InventoryBatchState.key;
+let prepared=[];
+async function preview(){
+ $('apply').disabled=true;$('status').textContent='讀取正式資料中…';$('rows').replaceChildren();
+ const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);const since=cutoff.toISOString().slice(0,10);
+ const [receipts,inventory,existing]=await Promise.all([
+  getDocsFromServer(query(collection(db,'logistics_records'),where('date','>=',since))),
+  getDocsFromServer(query(collection(db,'inventory_records'),where('date','>=',since))),
+  getDocsFromServer(collection(db,'inventory_batch_states'))]);
+ const already=new Set(existing.docs.map(d=>d.id)), latest=new Map();
+ for(const receipt of receipts.docs){const value=receipt.data(),hotel=key(value.hotelKeyword),date=InventoryBatchState.day(value.date);
+  if(!hotel||hotel==='喜達絲'||!date||value.manualDeletedReceipt||!(value.clientSig||value.driverSig))continue;
+  const prior=latest.get(hotel);if(!prior||date>prior.date)latest.set(hotel,{hotel,date,id:receipt.id});
+ }
+ const hotelKeys=[...latest.keys()].sort((a,b)=>b.length-a.length);
+ prepared=[...latest.values()].sort((a,b)=>a.hotel.localeCompare(b.hotel,'zh-TW')).map(row=>{
+  const dates=[...new Set(inventory.docs.filter(record=>{const v=record.data(),name=key(v.baseHotel||v.hotel);
+   return hotelKeys.find(h=>name.startsWith(h))===row.hotel&&InventoryBatchState.day(v.date)>row.date&&
+    (v.count!==undefined&&v.count!==''||v.doubleCount!==undefined&&v.doubleCount!=='');
+  }).map(record=>InventoryBatchState.day(record.data().date)))].sort();
+  return {...row,dates,existing:already.has(row.hotel),conflict:dates.length>1};
+ });
+ for(const row of prepared){const tr=document.createElement('tr');if(row.conflict)tr.className='conflict';
+  for(const value of [row.hotel,row.date,row.dates.join('、')||'尚未輸入',row.existing?'已建立':row.conflict?'多日期，略過':'待建立']){
+   const td=document.createElement('td');td.textContent=value;tr.append(td);
+  }$('rows').append(tr);
+ }
+ const pending=prepared.filter(r=>!r.existing&&!r.conflict);
+ $('status').textContent=`讀取：簽收 ${receipts.size} 筆、盤點 ${inventory.size} 筆；飯店 ${prepared.length} 家，待建立 ${pending.length} 家，日期衝突 ${prepared.filter(r=>r.conflict).length} 家。`;
+ $('apply').disabled=!pending.length;
+}
+$('preview').onclick=()=>preview().catch(e=>{$('status').textContent='核對失敗：'+e.message;$('apply').disabled=true;});
+$('apply').onclick=async()=>{
+ $('apply').disabled=true;$('preview').disabled=true;$('status').textContent='重新確認正式資料後建立…';
+ try{await preview();$('apply').disabled=true;const pending=prepared.filter(r=>!r.existing&&!r.conflict);if(prepared.some(r=>r.conflict))throw Error('仍有多日期衝突，未寫入任何狀態');
+  let made=0,skipped=0;for(const row of pending){const ref=doc(db,'inventory_batch_states',row.hotel);
+   const result=await runTransaction(db,async tx=>{const prior=await tx.get(ref),receipt=await tx.get(doc(db,'logistics_records',row.id));
+    if(prior.exists())return false;if(!receipt.exists())throw Error(row.hotel+' 簽收資料已刪除，停止');const value=receipt.data();if(value.manualDeletedReceipt||!(value.clientSig||value.driverSig)||InventoryBatchState.day(value.date)!==row.date)throw Error(row.hotel+' 簽收資料已變更，停止');
+    tx.set(ref,{latestSignedReceiptDate:row.date,latestSignedReceiptId:row.id,lockedDate:row.dates[0]||'',updatedAt:Date.now(),initializedFrom:'review'});return true;
+   });result?made++:skipped++;
+  }$('status').textContent=`完成：新建 ${made} 家，已存在跳過 ${skipped} 家。`;
+ }catch(e){$('status').textContent='已停止：'+e.message+'。請重新核對實際狀態。';}
+ finally{$('preview').disabled=false;}
+};
+preview().catch(e=>{$('status').textContent='核對失敗：'+e.message;});
+</script></html>
