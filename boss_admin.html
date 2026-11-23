@@ -389,6 +389,7 @@
         <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
     </section>
     <script src="scoped-reads.js?v=20261119-read2"></script>
+    <script src="inventory-batch-state.js?v=20261123-shared-batch"></script>
     <script src="flower-receipts.js?v=20261119-signed2"></script>
 <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -818,8 +819,9 @@
         }
 
         async function moveInventoryRecordWithLogistics(docId, oldDate, newDate, hotel, item) {
+            return runTransaction(db, async tx => {
             const oldInvRef = doc(db, 'inventory_records', docId);
-            const oldInvSnap = await getDoc(oldInvRef);
+            const oldInvSnap = await tx.get(oldInvRef);
             if (!oldInvSnap.exists()) throw new Error('找不到舊盤點資料，可能已被刪除。');
 
             const invData = oldInvSnap.data();
@@ -832,7 +834,8 @@
             const newLogId = `${newDate}_${hotelKeyword}_${deptName}`;
             const oldLogRef = doc(db, 'logistics_records', oldLogId);
             const newLogRef = doc(db, 'logistics_records', newLogId);
-            const [oldLogSnap, newLogSnap] = await Promise.all([getDoc(oldLogRef), getDoc(newLogRef)]);
+            const stateRef=doc(db,'inventory_batch_states',InventoryBatchState.key(hotelKeyword));
+            const [oldLogSnap, newLogSnap, stateSnap] = await Promise.all([tx.get(oldLogRef),tx.get(newLogRef),tx.get(stateRef)]);
 
             let oldLogData = oldLogSnap.exists() ? oldLogSnap.data() : null;
             let oldItems = oldLogData ? [...(oldLogData.items || [])] : [];
@@ -873,9 +876,11 @@
             const newInvId = `${newDate}_${hotel}_${safeItem}`;
             const newInvRef = doc(db, 'inventory_records', newInvId);
 
-            const batch = writeBatch(db);
+            const batch = tx;
             batch.set(newInvRef, newInvData);
             batch.delete(oldInvRef);
+            if(stateSnap.exists()&&stateSnap.data().lockedDate===oldDate)
+                batch.set(stateRef,{lockedDate:newDate,updatedAt:Date.now()},{merge:true});
 
             if (oldLogSnap.exists()) {
                 if (oldItems.length > 0) batch.set(oldLogRef, { items: oldItems }, { merge: true });
@@ -899,8 +904,8 @@
                 });
             }
 
-            await batch.commit();
             return newInvId;
+            });
         }
 
         // 盤點後台：批量修改日期
