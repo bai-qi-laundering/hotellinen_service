@@ -5,8 +5,8 @@
  function required(items,room=true){
   const names=[...new Set(items)].filter(Boolean);
   if(!room)return names;
-  const start=names.findIndex(n=>n.includes('床單')),end=names.findIndex(n=>n.includes('抹布'));
-  return start>=0&&end>=start?names.slice(start,end+1):names;
+  const start=names.indexOf('枕套'),end=names.findIndex(n=>n.includes('抹布'));
+  return start>=0&&end>start?names.slice(start+1,end+1):names;
  }
  function completed(rows,items){
   const records=new Map(rows.map(r=>[r.item,r]));
@@ -33,8 +33,8 @@
    for(const config of configs){
     const batchRows=byBatch.get(JSON.stringify([config.hotel,config.batchDate]))||[];
     const requiredItems=required(config.items,config.room);
-    const a=config.items.findIndex(n=>n.includes('床單')),b=config.items.findIndex(n=>n.includes('抹布'));
-    const beddingRange=config.room&&a>=0&&b>=a;
+    const a=config.items.indexOf('枕套'),b=config.items.findIndex(n=>n.includes('抹布'));
+    const beddingRange=config.room&&a>=0&&b>a;
     const items=beddingRange?requiredItems:[...new Set([...requiredItems,...batchRows.map(r=>r.item).filter(item=>item&&!item.startsWith('_MANUAL_'))])];
     if(completed(batchRows,items))lit.add(config.base);
    }
