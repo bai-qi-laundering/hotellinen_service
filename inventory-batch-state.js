@@ -13,7 +13,9 @@
  const addDays=(value,amount)=>{const [y,m,d]=value.split('-').map(Number),date=new Date(y,m-1,d);date.setDate(date.getDate()+amount);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;};
  function nextDate(receiptDate,targetForDay){
   const last=day(receiptDate);if(!last)throw Error('找不到已簽收單據日期');
-  for(let offset=1;offset<=60;offset++){
+  // The existing schedule receives a reference day and already advances it when needed.
+  // Starting at last + 1 advances daily hotels twice (signed 24th -> 26th).
+  for(let offset=0;offset<=60;offset++){
    const next=day(targetForDay(addDays(last,offset)));
    if(next>last)return next;
   }
