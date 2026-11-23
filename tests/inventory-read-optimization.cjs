@@ -10,11 +10,13 @@ function fixture(){
  const emit=(target,rows)=>target.callback({metadata:{fromCache:false,hasPendingWrites:false},docs:rows.map((row,i)=>({id:''+i,ref:'ref'+i,data:()=>row}))});
  return {api,targets,writes,emit,get stops(){return stops;}};
 }
-test('dashboard includes 床單 through 抹布 and accepts zero rechecks',()=>{
- assert.deepEqual(plain(progress.required(names)),names.slice(0,5));
+test('dashboard lights for items after 枕套 through 抹布 and accepts zero rechecks',()=>{
+ assert.deepEqual(plain(progress.required(names)),['浴巾','抹布']);
  assert.equal(progress.completed(batch(),progress.required(names)),'2026-11-22');
- assert.equal(progress.completed(batch().filter(r=>r.item!=='床單'),progress.required(names)),'');
- const rows=batch();rows[0].doubleCount='';assert.equal(progress.completed(rows,progress.required(names)),'');
+ assert.equal(progress.completed(batch().filter(r=>r.item!=='床單'&&r.item!=='枕套'),progress.required(names)),'2026-11-22');
+ assert.equal(progress.completed(batch().filter(r=>r.item!=='浴巾'),progress.required(names)),'');
+ const rows=batch();rows[3].doubleCount='';assert.equal(progress.completed(rows,progress.required(names)),'');
+ assert.deepEqual(plain(progress.required(['床單','被套','浴巾','抹布'])),['床單','被套','浴巾','抹布']);
 });
 test('dashboard watches selected batch even when rechecks happen on another day',()=>{
  const f=fixture();let lit;
@@ -22,7 +24,7 @@ test('dashboard watches selected batch even when rechecks happen on another day'
  assert.deepEqual(plain(f.targets[0].query.filters.map(x=>[x.field,x.op,x.value])),[['date','in',['2026-11-23']]]);
  const mixed=batch();mixed[0].doubleSignDate='2026-11-21 23:00:00';f.emit(f.targets[0],mixed);assert(lit.has('喜達絲'));
  f.emit(f.targets[0],batch('2026-11-22'));assert(!lit.has('喜達絲'),'a completed older batch cannot light the selected batch');
- const broken=mixed.map(r=>r.item==='床單'?{...r,doubleSignature:''}:r);f.emit(f.targets[0],broken);assert(!lit.has('喜達絲'));
+ const broken=mixed.map(r=>r.item==='浴巾'?{...r,doubleSignature:''}:r);f.emit(f.targets[0],broken);assert(!lit.has('喜達絲'));
  f.emit(f.targets[0],[...mixed,batch('2026-11-22')[0]]);assert(lit.has('喜達絲'));
  f.emit(f.targets[0],[]);assert.equal(lit.size,0);
  stop();f.emit(f.targets[0],mixed);assert.equal(lit.size,0);assert(f.targets[0].stopped);
