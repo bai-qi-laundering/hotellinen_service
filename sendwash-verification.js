@@ -96,6 +96,7 @@
   const count=core.quantity(payload.count);
   const recordRef=api.doc(db,'inventory_records',core.inventoryId(date,hotel,item));
   return api.runTransaction(db,async tx=>{
+   const commitBatch=await window.inventoryBatchGuard(tx,date,hotel);
    const inv=await tx.get(recordRef),old=inv.exists()?inv.data():{};
    if(inv.exists()&&(old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項來源不一致，請重新載入');
    // A successful receipt can leave a stale pending flag in local storage.
@@ -105,7 +106,7 @@
     const unchanged=String(old.count)===count&&String(old.doubleCount ?? '')===String(payload.doubleCount ?? '')&&(!payload.signature||old.signature===payload.signature)&&(!payload.doubleSignature||old.doubleSignature===payload.doubleSignature)&&String(old.note ?? '')===String(payload.note ?? '');
     if(unchanged&&old.countSource==='sendwash'&&(old.signature||core.recheckOnly(old)&&old.doubleSignature)&&(!payload.doubleCount||old.doubleSignature))return old;
     const updated=core.sendwashInventoryPatch(old,payload,String(old.count)===count?old.count:expectedCount,expectedDoubleCount);
-    const value={...updated,timestamp:new Date().toISOString()};tx.set(recordRef,value,{merge:true});return {...old,...value};
+    const value={...updated,timestamp:new Date().toISOString()};tx.set(recordRef,value,{merge:true});commitBatch();return {...old,...value};
    }
    const refs=expectedSources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
    const first=snaps[0]?.exists()?snaps[0].data():{},single=core.recheckOnly(first);
@@ -134,7 +135,7 @@
    });
    const outlet=first.outlet || '';
    const value={...payload,...(outlet?{baseHotel:first.hotel,department:first.department,outlet,sourceItem:sourceItem(first,item)}:{}),count,...(single?{signature:old.signature || '',doubleCount:core.quantity(payload.doubleCount)}:{doubleCount:'',doubleSignature:'',doubleSignDate:''}),countSource:'sendwash',sendwashStage:single?'ready':'received',sendwashSources:sources,timestamp:time};
-   tx.set(recordRef,value,{merge:true});refs.forEach((ref,i)=>tx.update(ref,updates[i]));return {...old,...value};
+   tx.set(recordRef,value,{merge:true});refs.forEach((ref,i)=>tx.update(ref,updates[i]));commitBatch();return {...old,...value};
   });
  };
  window.persistSupplementalSendwash=async(date,hotel,item,payload,expectedCount,expectedDoubleCount)=>{
@@ -142,6 +143,7 @@
   const context=window.sendwashItemContext(date,hotel,item);
   if(!context?.outlet)throw new Error('找不到補登品項的餐廳，請重新載入');
   return api.runTransaction(db,async tx=>{
+   const commitBatch=await window.inventoryBatchGuard(tx,date,hotel);
    const ref=api.doc(db,'inventory_records',core.inventoryId(date,hotel,item)),snap=await tx.get(ref);
    const receipt=await tx.get(api.doc(db,'logistics_records',`${date}_${context.baseHotel}_${context.department}`));
    if(receipt.exists()&&(receipt.data().clientSig||receipt.data().driverSig))throw new Error('餐廳總單已簽收，不能新增或修改補登品項');
@@ -149,7 +151,7 @@
    if(snap.exists()&&(!old.sendwashSupplemental||old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項已有其他來源，請重新載入後核對，系統不會覆蓋');
    const updated=core.sendwashInventoryPatch(old,payload,expectedCount,expectedDoubleCount);
    const value={...updated,...context,sendwashSupplemental:true,timestamp:new Date().toISOString()};
-   tx.set(ref,value,{merge:true});return {...old,...value};
+   tx.set(ref,value,{merge:true});commitBatch();return {...old,...value};
   });
  };
 })();
