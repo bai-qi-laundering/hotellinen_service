@@ -642,9 +642,9 @@
                 if (!window.startInventoryBatchState) return showMessage('正在連線，請稍後再開飯店。');
                 xidasiOpening = true;
                 const opening = ++xidasiOpeningSequence;
-                showToast('正在確認此飯店已簽收的批次日期…');
+                showToast('正在確認此飯店的批次日期…');
                 try { await InventorySave.withTimeout(window.startInventoryBatchState(baseName),15000,'批次日期讀取逾時'); }
-                catch (error) { window.stopInventoryBatchState();showMessage('此飯店暫停輸入，批次日期無法確認：' + error.message); return; }
+                catch (error) { window.stopInventoryBatchState();showMessage('批次日期讀取失敗，請重新開啟飯店：' + error.message); return; }
                 finally { xidasiOpening = false; }
                 if (opening !== xidasiOpeningSequence || document.getElementById('homeView').classList.contains('hidden')) return;
             }
@@ -1428,9 +1428,18 @@
                         const ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
                         stopInventoryBatch=onSnapshot(ref,{includeMetadataChanges:true},snapshot=>{
                             if(snapshot.metadata.fromCache||snapshot.metadata.hasPendingWrites)return;
-                            if(!snapshot.exists()||!snapshot.data().latestSignedReceiptDate){
-                                if(!settled){settled=true;window.stopInventoryBatchState();reject(new Error('尚無已簽收的批次狀態，須先由後台初始化'));}
-                                else showMessage('簽收批次狀態已移除，請暫停盤點並通知後台');
+                            if(!snapshot.exists()){
+                                // Staged rollout: a hotel keeps its existing workflow until its next signed receipt.
+                                // Keep this listener alive so that signature activates the shared date immediately.
+                                const hadBatch=!!inventoryBatchState;
+                                inventoryBatchState=null;
+                                if(!settled){settled=true;resolve();}
+                                else if(hadBatch)showMessage('批次狀態已移除，請暫停盤點並通知後台');
+                                return;
+                            }
+                            if(!snapshot.data().latestSignedReceiptDate){
+                                if(!settled){settled=true;window.stopInventoryBatchState();reject(new Error('簽收批次狀態不完整，請通知後台'));}
+                                else showMessage('簽收批次狀態不完整，請暫停盤點並通知後台');
                                 return;
                             }
                             inventoryBatchState={...snapshot.data(),base};
@@ -1447,8 +1456,11 @@
                     if(!row)throw new Error('找不到這家飯店的盤點設定，暫停儲存');
                     const base=row.baseName,ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
                     const snapshot=await tx.get(ref);
+                    // A newly signed receipt creates this state in the same transaction as the signature.
+                    // A concurrent signature makes this transaction retry and recheck the locked date.
+                    if(!snapshot.exists())return ()=>{};
                     const scheduleBase=batchScheduleBase(base);
-                    const patch=InventoryBatchState.validate(snapshot.exists()?snapshot.data():null,date,
+                    const patch=InventoryBatchState.validate(snapshot.data(),date,
                         day=>getTargetDateStr(scheduleBase,day,getDefaultDept(scheduleBase),true));
                     return ()=>{if(patch)tx.set(ref,patch,{merge:true});};
                 };
