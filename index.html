@@ -217,8 +217,9 @@
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
+    <script src="inventory-batch-state.js?v=20261123-shared-batch"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
-    <script src="sendwash-verification.js?v=20261122-hotel-scope"></script>
+    <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
         
@@ -246,14 +247,23 @@
         let xidasiLockReady = false;
         let xidasiOpening = false;
         let xidasiOpeningSequence = 0;
+        let inventoryBatchState = null;
+
+        function activeBatchFor(base) {
+            return inventoryBatchState && InventoryBatchState.key(inventoryBatchState.base)===InventoryBatchState.key(base)
+                ? inventoryBatchState : null;
+        }
 
         function updateXidasiDateControl() {
             const picker = document.getElementById('datePicker');
-            const locked = normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock;
+            const shared=activeBatchFor(currentBaseHotel);
+            const locked = !!shared || (normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock);
             picker.disabled = locked;
-            picker.title = locked ? '日期已固定，床單到抹布都有數量紀錄後解除；後台可更改。' : '';
+            picker.title = shared ? '此飯店單據日期由已簽收批次決定，現場不可改期；後台可更改。' : locked ? '日期已固定；後台可更改。' : '';
             const hint = document.getElementById('inventoryDateLockHint');
-            if (hint) {hint.hidden = !locked;hint.textContent = locked ? '🔒 固定單據日期 ' + xidasiDateLock + '｜床單到抹布都有紀錄後解除' : '';}
+            if (hint) {hint.hidden = !locked;hint.textContent = shared
+                ? '🔒 批次日期 '+picker.value+(shared.lockedDate?'｜第一筆已儲存，日期已鎖定':'｜首筆儲存後鎖定')
+                : locked ? '🔒 固定單據日期 ' + xidasiDateLock : '';}
         }
 
 
@@ -403,7 +413,10 @@
             });
         }
 
-        function getTargetDateStr(baseName, refDateStr, department) {
+        function getTargetDateStr(baseName, refDateStr, department, ignoreBatchState = false) {
+            const shared=!ignoreBatchState&&activeBatchFor(baseName);
+            if(shared)return shared.lockedDate || InventoryBatchState.nextDate(shared.latestSignedReceiptDate,
+                ref=>getTargetDateStr(baseName,ref,department,true));
             let d;
             if (refDateStr) {
                 const parts = refDateStr.split('-');
@@ -413,8 +426,8 @@
             }
 
             if (normalizeScheduleName(baseName) === '喜達絲') {
-                if (xidasiDateLock) return xidasiDateLock;
-                if (xidasiSelectedDate) return xidasiSelectedDate;
+                if (!ignoreBatchState && xidasiDateLock) return xidasiDateLock;
+                if (!ignoreBatchState && xidasiSelectedDate) return xidasiSelectedDate;
                 d.setDate(d.getDate() + 1);
                 return getLocalDateString(d);
             }
@@ -611,15 +624,25 @@
             if (normalizeScheduleName(baseName) === '喜達絲') {
                 if (xidasiOpening) return;
                 if (!window.startXidasiDateLock) return showMessage('正在連線，請稍後再開喜達絲。');
-                xidasiSelectedDate = ''; // First open keeps the existing next-day document rule.
-                xidasiOpening = true;
-                const opening = ++xidasiOpeningSequence;
+                xidasiSelectedDate='';
+                xidasiOpening=true;
+                const opening=++xidasiOpeningSequence;
                 showToast('正在確認喜達絲目前批次日期…');
                 try { await window.startXidasiDateLock(); }
-                catch (error) { showMessage('喜達絲日期確認失敗，請重新開啟：' + error.message); return; }
+                catch (error) { showMessage('喜達絲日期確認失敗，請重新開啟：'+error.message);return; }
+                finally { xidasiOpening=false; }
+                if(opening!==xidasiOpeningSequence||document.getElementById('homeView').classList.contains('hidden'))return;
+            } else {
+                if (xidasiOpening) return;
+                if (!window.startInventoryBatchState) return showMessage('正在連線，請稍後再開飯店。');
+                xidasiOpening = true;
+                const opening = ++xidasiOpeningSequence;
+                showToast('正在確認此飯店已簽收的批次日期…');
+                try { await InventorySave.withTimeout(window.startInventoryBatchState(baseName),15000,'批次日期讀取逾時'); }
+                catch (error) { window.stopInventoryBatchState();showMessage('此飯店暫停輸入，批次日期無法確認：' + error.message); return; }
                 finally { xidasiOpening = false; }
                 if (opening !== xidasiOpeningSequence || document.getElementById('homeView').classList.contains('hidden')) return;
-            } else ++xidasiOpeningSequence;
+            }
             openPoliWhenReady = normalizeScheduleName(baseName) === '鉑麗' && !inventoryTemplateReady;
             if (openPoliWhenReady) {
                 showToast('正在載入鉑麗盤點資料…');
@@ -684,6 +707,7 @@
         
         function goHome() {
             ++xidasiOpeningSequence;
+            if (window.stopInventoryBatchState) window.stopInventoryBatchState();
             if (window.stopXidasiDateLock) window.stopXidasiDateLock();
             document.getElementById('datePicker').disabled = false; 
             document.getElementById('homeView').classList.remove('hidden'); 
@@ -705,7 +729,8 @@
         }
         
         function dateChanged() {
-            if (normalizeScheduleName(currentBaseHotel) === '喜達絲') {
+            if (activeBatchFor(currentBaseHotel)) document.getElementById('datePicker').value=getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept);
+            else if (normalizeScheduleName(currentBaseHotel) === '喜達絲') {
                 if (xidasiDateLock) document.getElementById('datePicker').value = xidasiDateLock;
                 else xidasiSelectedDate = document.getElementById('datePicker').value;
             } 
@@ -1387,6 +1412,41 @@
                     catch(error){window.stopXidasiDateLock();throw error;}
                 };
 
+                let stopInventoryBatch=null;
+                window.stopInventoryBatchState=function(){
+                    if(stopInventoryBatch)stopInventoryBatch();stopInventoryBatch=null;inventoryBatchState=null;
+                };
+                window.startInventoryBatchState=function(base){
+                    window.stopInventoryBatchState();
+                    return new Promise((resolve,reject)=>{
+                        let settled=false;
+                        const ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
+                        stopInventoryBatch=onSnapshot(ref,{includeMetadataChanges:true},snapshot=>{
+                            if(snapshot.metadata.fromCache||snapshot.metadata.hasPendingWrites)return;
+                            if(!snapshot.exists()||!snapshot.data().latestSignedReceiptDate){
+                                if(!settled){settled=true;window.stopInventoryBatchState();reject(new Error('尚無已簽收的批次狀態，須先由後台初始化'));}
+                                else showMessage('簽收批次狀態已移除，請暫停盤點並通知後台');
+                                return;
+                            }
+                            inventoryBatchState={...snapshot.data(),base};
+                            if(!settled){settled=true;resolve();return;}
+                            if(currentBaseHotel===base&&!document.getElementById('hotelView').classList.contains('hidden')){
+                                applyDepartmentDate();renderItems(true);
+                            }
+                        },error=>{if(!settled){settled=true;window.stopInventoryBatchState();reject(error);}else showMessage('批次日期同步失敗，請暫停輸入並重開飯店');});
+                    });
+                };
+                window.inventoryBatchGuard=async function(tx,date,hotel){
+                    if(InventoryDateLock.hotel(hotel))return ()=>{}; // 喜達絲沿用第一筆鎖定，不查物流簽收。
+                    const row=masterData.find(item=>item.hotel===hotel);
+                    if(!row)throw new Error('找不到這家飯店的盤點設定，暫停儲存');
+                    const base=row.baseName,ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
+                    const snapshot=await tx.get(ref);
+                    const patch=InventoryBatchState.validate(snapshot.exists()?snapshot.data():null,date,
+                        day=>getTargetDateStr(base,day,row.deptName,true));
+                    return ()=>{if(patch)tx.set(ref,patch,{merge:true});};
+                };
+
                 window.firebaseSubmit = async function(category, item, requestedDate) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     if (window.inventorySaveTargetsOpenHotel && !window.inventorySaveTargetsOpenHotel(category)) {
@@ -1395,7 +1455,7 @@
                         return;
                     }
                     const dateStr = requestedDate || document.getElementById('datePicker').value;
-                    if (InventoryDateLock.hotel(category)) {
+                    if (InventoryDateLock.hotel(category) && !activeBatchFor(currentBaseHotel)) {
                         if (!xidasiLockReady) return showMessage('喜達絲日期尚未確認，請返回重開後儲存。');
                         updateXidasiLock();
                         if (xidasiDateLock && xidasiDateLock !== dateStr) return showMessage('喜達絲目前固定在 ' + xidasiDateLock + '，這筆尚未寫入。請返回重新開啟喜達絲。');
@@ -1443,12 +1503,16 @@
                             Object.assign(updates,{sendwashLoadedCount:saved.count,sendwashLoadedDoubleCount:saved.doubleCount});
                         }else if(u.countSource==='sendwash'){
                             await runTransaction(db,async tx=>{
+                                const commitBatch=await window.inventoryBatchGuard(tx,dateStr,category);
                                 const latest=await tx.get(recordRef);if(!latest.exists())throw new Error('來源單已不存在，請重新載入');
                                 const updated=SendwashCore.sendwashInventoryPatch(latest.data(),payload,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
-                                tx.set(recordRef,{...updated,timestamp:new Date().toISOString()},{merge:true});
+                                tx.set(recordRef,{...updated,timestamp:new Date().toISOString()},{merge:true});commitBatch();
                             });
                             Object.assign(updates,{sendwashLoadedCount:payload.count,sendwashLoadedDoubleCount:payload.doubleCount});
-                        }else await setDoc(recordRef,payload,{merge:true});
+                        }else await runTransaction(db,async tx=>{
+                            const commitBatch=await window.inventoryBatchGuard(tx,dateStr,category);
+                            tx.set(recordRef,payload,{merge:true});commitBatch();
+                        });
                         // A secondary log must never hold the confirmed inventory save open.
                         saver.withTimeout(Promise.resolve().then(()=>addDoc(collection(db,'history_logs'),{logDate:getLocalDateString(new Date()),timestamp:Date.now(),actionTime:getLocalTimeString(new Date()),date:dateStr,hotel:category,item,count:payload.count,doubleCount:payload.doubleCount,signature:payload.signature || 'CACHED_RETAINED',doubleSignature:payload.doubleSignature || 'CACHED_RETAINED',note:payload.note})),10000,'操作紀錄逾時').catch(()=>{});
                         return {submitted,updates};
@@ -1462,7 +1526,7 @@
                         if(unchanged&&!result.noteOnly)Object.assign(current,{isSubmitted:true,hasSigned:false,doubleHasSigned:false});
                         else if(!unchanged)current.isSubmitted=false;
                         const queued=current.saveQueued;current.saveQueued=false;
-                        if(InventoryDateLock.hotel(category))updateXidasiLock();
+                        if(InventoryDateLock.hotel(category) && !activeBatchFor(currentBaseHotel))updateXidasiLock();
                         saveToLocal();renderItems(false);
                         if(queued&&!unchanged)window.firebaseSubmit(category,item,dateStr);
                     },()=>{}).catch(error=>console.error('儲存畫面更新失敗',error));
