@@ -7,10 +7,11 @@ import {
 } from '../special-receipt.js';
 
 const LINE_KEYS = [
-    'createdAt', 'deleted', 'deletedAt', 'edits', 'entryId', 'foldSignature', 'foldSignedAt',
-    'history', 'hotel', 'item', 'lineDisplayName', 'lineMessageId', 'lineUserId', 'officeName',
-    'officeSignature', 'qty', 'receivedDate', 'round', 'sentAt', 'shipDate', 'shipRule',
-    'source', 'splitOf', 'status', 'unknown',
+    'createdAt', 'deleted', 'deletedAt', 'discrepancyAckAt', 'discrepancyOpen', 'edits', 'entryId',
+    'expectedQty', 'foldSignature', 'foldSignedAt', 'history', 'hotel', 'item', 'lineDisplayName',
+    'lineMessageId', 'lineUserId', 'officeName', 'officeSignature', 'qty', 'receivedDate', 'round',
+    'sentAt', 'shipDate', 'shipRule', 'source', 'splitOf', 'spreadSignature', 'spreadSignedAt',
+    'status', 'unknown', 'washSignature', 'washSignedAt',
 ];
 
 const settings = [
@@ -66,7 +67,7 @@ test('receipt documents match the LINE special_items shape and use a stable id',
     assert.equal(docs[0].officeName, '特處床單');
     assert.equal(docs[0].qty, 3);
     assert.equal(docs[0].source, RECEIPT_SOURCE);
-    assert.equal(docs[0].status, '待摺疊');
+    assert.equal(docs[0].status, '待洗滌');
     assert.equal(docs[0].unknown, false);
     assert.equal(docs[0].history[0].qty, 3);
     assert.equal(docs[0].id, receiptSpecialId('2026-11-11', '巨蛋', '特處床單'));

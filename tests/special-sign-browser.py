@@ -63,13 +63,14 @@ with sync_playwright() as p:
  page.evaluate("document.querySelector('[data-action=open-item][data-id=a]').dispatchEvent(new MouseEvent('click',{bubbles:true}))")
  expect(page.locator('#itemPopup')).to_be_hidden()
  page.wait_for_timeout(750)
- page.locator('[data-action=open-item][data-id=b]').click()
+ page.locator('[data-action=open-item][data-id=c]').click()
  expect(page.locator('[data-action=confirm-rework]')).to_be_visible()
  page.locator('[data-reason="髒污"]').click()
  page.locator('[data-action=confirm-rework]').click()
  expect(page.locator('[data-testid=save-success]')).to_contain_text('已退回重工')
- assert page.evaluate("window.__specialTest.docs.find(d=>d.id==='b').status")=='重工中'
- assert page.evaluate("window.__specialTest.docs.find(d=>d.id==='b').foldSignature") == ''
+ assert page.evaluate("window.__specialTest.docs.find(d=>d.id==='c').status")=='重工中'
+ assert page.evaluate("window.__specialTest.docs.find(d=>d.id==='c').foldSignature") == ''
+ assert page.evaluate("window.__specialTest.docs.find(d=>d.id==='b').status")=='已簽名'
  page.locator('[data-action=close-popup]').click();page.wait_for_timeout(750)
  page.locator('[data-action=open-item][data-id=a]').click();draw()
  page.evaluate('window.__specialTest.failNext=true')

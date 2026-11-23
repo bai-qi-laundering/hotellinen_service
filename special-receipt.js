@@ -98,8 +98,15 @@ export function buildReceiptSpecialDocs({ hotel, receivedDate, lines, time, entr
             source: RECEIPT_SOURCE,
             createdAt: time,
             round: 1,
-            status: '待摺疊',
+            status: '待洗滌',
             history: [{ type: 'created', time, qty, round: 1 }],
+            expectedQty: qty,
+            washSignature: '',
+            washSignedAt: '',
+            spreadSignature: '',
+            spreadSignedAt: '',
+            discrepancyOpen: false,
+            discrepancyAckAt: '',
             foldSignature: '',
             foldSignedAt: '',
             shipDate: '',
@@ -120,14 +127,23 @@ export function buildReceiptSpecialDocs({ hotel, receivedDate, lines, time, entr
     });
 }
 
+// A slip can still be corrected until any department has signed it.
+// Legacy unsigned 待摺疊 rows (already in the fold queue before this workflow) stay editable the same way.
+export function receiptIntakeOpen(existing) {
+    if (!existing || existing.deleted) return true;
+    if (existing.washSignedAt || existing.spreadSignedAt || existing.foldSignature || existing.foldSignedAt) return false;
+    const status = existing.status || '待洗滌';
+    return status === '待洗滌' || status === '待摺疊';
+}
+
 // Second submit of the same receipt line replaces the quantity. It does not add another document.
 export function nextReceiptWrite(existing, nextDoc) {
     if (!existing || existing.deleted) return { action: 'create', doc: nextDoc };
     if (existing.source !== RECEIPT_SOURCE || existing.hotel !== nextDoc.hotel || existing.item !== nextDoc.item) {
         throw new Error(`${nextDoc.item} 已經有另一筆特處資料，沒有覆寫。`);
     }
-    if ((existing.status && existing.status !== '待摺疊') || existing.foldSignature || existing.foldSignedAt) {
-        throw new Error(`${nextDoc.item} 已經進入摺疊或出貨，沒有覆寫。`);
+    if (!receiptIntakeOpen(existing)) {
+        throw new Error(`${nextDoc.item} 已經進入作業，沒有覆寫。`);
     }
     const createdAt = existing.createdAt || nextDoc.createdAt;
     const doc = {
@@ -148,7 +164,7 @@ export function removedReceiptWrite(existing, { hotel, receivedDate, item, time 
     if (!existing || existing.deleted) return null;
     if (existing.source !== RECEIPT_SOURCE || existing.hotel !== hotel ||
         existing.receivedDate !== receivedDate || existing.item !== item) return null;
-    if (existing.status !== '待摺疊' || existing.foldSignature || existing.foldSignedAt) {
+    if (!receiptIntakeOpen(existing)) {
         return { action: 'skip' };
     }
     return { action: 'delete', doc: {

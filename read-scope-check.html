@@ -12,6 +12,6 @@ for(const name of ['inventory_records','logistics_records','special_items']){
   out.textContent+='\n'+name+' '+key+' '+new Set(snaps.flatMap(s=>s.docs).map(d=>d.id)).size+' 筆 / '+snaps.length+' 查詢';
  }
 }
-const active=await f.getDocsFromServer(f.query(f.collection(db,'special_items'),f.where('status','in',['待摺疊','重工中','已簽名'])));out.textContent+='\n待處理 '+active.size+' 筆\n完成';
+const active=await f.getDocsFromServer(f.query(f.collection(db,'special_items'),f.where('status','in',['待洗滌','待撐開','待摺疊','重工中','已簽名','數量不符'])));out.textContent+='\n待處理 '+active.size+' 筆\n完成';
 }catch(e){out.textContent+='\n'+e.message;}finally{run.disabled=false;}};
 </script>

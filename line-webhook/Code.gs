@@ -14,7 +14,7 @@ var FALLBACK_HOTELS = [
     '鴨點棧明誠', '鴨點棧華夏', '麥當勞', '鼎王',
 ];
 var PARSE_HINT = '沒看懂。請先講飯店再講數量和品項，例如：好六一條床單一條被套三條足巾';
-var LOCKED_TEXT = '這筆已經簽名或送出，不能從 LINE 刪除。請跟辦公室或老闆後台說。';
+var LOCKED_TEXT = '這筆已經開始作業或送出，不能從 LINE 刪除。請跟辦公室或老闆後台說。';
 
 function doGet() {
     return ContentService.createTextOutput('特處 LINE webhook 已部署。LINE 要呼叫的網址必須帶 ?token=。');
@@ -185,7 +185,7 @@ function flexSaved_(summary, entryId) {
                 contents: [
                     { type: 'text', text: '已寫入特處', weight: 'bold', size: 'md', color: '#134e4a' },
                     { type: 'text', text: shown, wrap: true, weight: 'bold', size: 'xl', margin: 'md' },
-                    { type: 'text', text: '打錯可以按刪除。已經簽名或送出的，要請辦公室或老闆後台處理。', wrap: true, size: 'sm', color: '#78716c', margin: 'md' },
+                    { type: 'text', text: '打錯可以按刪除。已經洗滌簽名或送出的，要請辦公室或老闆後台處理。', wrap: true, size: 'sm', color: '#78716c', margin: 'md' },
                 ],
             },
             footer: {

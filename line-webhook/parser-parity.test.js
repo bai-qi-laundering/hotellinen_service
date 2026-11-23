@@ -98,13 +98,14 @@ test('LINE documents use the temporary-input fields and can only be soft-deleted
     });
     assert.equal(docs.length, 2);
     assert.deepEqual(Object.keys(docs[0]).sort(), [
-        'createdAt', 'deleted', 'deletedAt', 'edits', 'entryId', 'foldSignature', 'foldSignedAt',
-        'history', 'hotel', 'item', 'lineDisplayName', 'lineMessageId', 'lineUserId', 'officeName',
-        'officeSignature', 'qty', 'receivedDate', 'round', 'sentAt', 'shipDate', 'shipRule',
-        'source', 'splitOf', 'status', 'unknown',
+        'createdAt', 'deleted', 'deletedAt', 'discrepancyAckAt', 'discrepancyOpen', 'edits', 'entryId',
+        'expectedQty', 'foldSignature', 'foldSignedAt', 'history', 'hotel', 'item', 'lineDisplayName',
+        'lineMessageId', 'lineUserId', 'officeName', 'officeSignature', 'qty', 'receivedDate', 'round',
+        'sentAt', 'shipDate', 'shipRule', 'source', 'splitOf', 'spreadSignature', 'spreadSignedAt',
+        'status', 'unknown', 'washSignature', 'washSignedAt',
     ]);
     assert.equal(docs[0].source, 'line');
-    assert.equal(docs[0].status, '待摺疊');
+    assert.equal(docs[0].status, '待洗滌');
     assert.equal(docs[0].createdAt, '2026-10-27T01:02:03.000Z');
     assert.equal(docs[0].lineUserId, 'U123');
     assert.equal(docs[0].lineDisplayName, '阿花');
@@ -121,4 +122,6 @@ test('LINE documents use the temporary-input fields and can only be soft-deleted
     assert.equal(gas.entryDeleteDecision([{ ...docs[0], status: '已簽名', foldSignedAt: 't' }]).code, 'locked');
     assert.equal(gas.entryDeleteDecision([{ ...docs[0], status: '已送出' }]).code, 'locked');
     assert.equal(gas.entryDeleteDecision([{ ...docs[0], foldSignature: 'sig' }]).code, 'locked');
+    assert.equal(gas.entryDeleteDecision([{ ...docs[0], status: '待撐開', washSignedAt: 't' }]).code, 'locked');
+    assert.equal(gas.entryDeleteDecision([{ ...docs[0], status: '待洗滌' }]).ok, true);
 });
