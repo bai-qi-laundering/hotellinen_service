@@ -17,6 +17,14 @@ test('the next daily previous-day document follows the signed receipt',()=>{
  const target=day=>batch.day(new Date(new Date(day+'T12:00:00').getTime()-86400000).toISOString());
  assert.equal(batch.nextDate('2026-11-21',target),'2026-11-22');
 });
+test('daily schedule advances only once after the signed receipt',()=>{
+ const target=day=>batch.day(new Date(new Date(day+'T12:00:00').getTime()+86400000).toISOString());
+ assert.equal(batch.nextDate('2026-11-24',target),'2026-11-25');
+});
+test('fixed delivery schedule can still choose a later valid day',()=>{
+ const target=day=>day==='2026-11-24'?'2026-11-26':'2026-11-28';
+ assert.equal(batch.nextDate('2026-11-24',target),'2026-11-26');
+});
 test('one signature advances once; the other signature on the same car does not unlock',()=>{
  const first=batch.signedPatch(null,{date:'2026-11-23',id:'receipt-A'},1);
  assert.deepEqual(plain(first),{latestSignedReceiptDate:'2026-11-23',latestSignedReceiptId:'receipt-A',lockedDate:'',updatedAt:1});

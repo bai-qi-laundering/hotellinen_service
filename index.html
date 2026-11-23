@@ -217,7 +217,7 @@
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
-    <script src="inventory-batch-state.js?v=20261123-physical-hotel"></script>
+    <script src="inventory-batch-state.js?v=20261124-next-date"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
     <script>
@@ -263,12 +263,12 @@
         function updateXidasiDateControl() {
             const picker = document.getElementById('datePicker');
             const shared=activeBatchFor(currentBaseHotel);
-            const locked = !!shared || (normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock);
+            const locked = !!shared?.lockedDate || (normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock);
             picker.disabled = locked;
-            picker.title = shared ? '此飯店單據日期由已簽收批次決定，現場不可改期；後台可更改。' : locked ? '日期已固定；後台可更改。' : '';
+            picker.title = shared ? (locked ? '第一筆數量已寫入，日期已鎖定；後台可更改。' : '尚未鎖定日期；其他日期可查看，儲存仍須符合簽收規則。') : locked ? '日期已固定；後台可更改。' : '';
             const hint = document.getElementById('inventoryDateLockHint');
-            if (hint) {hint.hidden = !locked;hint.textContent = shared
-                ? '🔒 批次日期 '+picker.value+(shared.lockedDate?'｜第一筆已儲存，日期已鎖定':'｜首筆儲存後鎖定')
+            if (hint) {hint.hidden = !shared&&!locked;hint.textContent = shared
+                ? (locked?'🔒 批次日期 '+picker.value+'｜第一筆已儲存，日期已鎖定':'批次預設日期 '+getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept)+'｜尚未鎖定，首筆儲存後鎖定')
                 : locked ? '🔒 固定單據日期 ' + xidasiDateLock : '';}
         }
 
@@ -736,7 +736,7 @@
         }
         
         function dateChanged() {
-            if (activeBatchFor(currentBaseHotel)) document.getElementById('datePicker').value=getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept);
+            if (activeBatchFor(currentBaseHotel)?.lockedDate) document.getElementById('datePicker').value=getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept);
             else if (normalizeScheduleName(currentBaseHotel) === '喜達絲') {
                 if (xidasiDateLock) document.getElementById('datePicker').value = xidasiDateLock;
                 else xidasiSelectedDate = document.getElementById('datePicker').value;
