@@ -65,17 +65,37 @@ test('production page scopes detail and sendwash to selected hotel/date, without
  assert.match(sendwash,/where\('inventoryHotel','==',inventoryHotel\)/);
  assert(!html.includes("query(collection(db,'logistics_records'),where('hotelKeyword','==','喜達絲'))"));
 });
-test('ordinary logistics lookup reads only receipts and leaves signed quantities intact',async()=>{
+test('logistics lookup keeps signed quantities intact while reading inventory groups',async()=>{
  const source=fs.readFileSync('boss_admin.html','utf8');
  const body=source.slice(source.indexOf('window.loadLogData = async function()'),source.indexOf('let outletCorrectionDialog')).replace(/;\s*$/,'');
  const raw=[{id:'signed',date:'2026-11-22',hotelKeyword:'喜達絲',deptName:'房務',clientSig:'client-image',driverSig:'driver-image',items:[{itemName:'床單',originalQty:'100',actualQty:'97'}]}, {id:'unsigned',date:'2026-11-22',hotelKeyword:'鉑麗',deptName:'房務',items:[{itemName:'浴巾',originalQty:'0',actualQty:'2'}]}];
  const before=JSON.stringify(raw),queries=[],elements={};
  for(const [id,value]of Object.entries({logStartDate:'2026-11-01',logEndDate:'2026-11-22',logFetchHotel:''}))elements[id]={value};
  elements.logTableBody={};elements.logLoadBtn={};
- const context={window:{},document:{getElementById:id=>elements[id]},ensureMasterData:async()=>{},loadDriverSchedule:async()=>{},readAdminPeriod:async(name)=>{queries.push(name);assert.equal(name,'logistics_records');return[{forEach:cb=>raw.forEach(r=>cb({id:r.id,data:()=>r}))}];},latestInvRawDataMap:{},deletedReceiptTombstones:new Map(),FlowerReceipts:{collapse:m=>m},logRecords:[],standardizeDate:d=>d,isRestaurantDept:()=>false,uniqueLogItems:x=>x,planDriverWritebacks:()=>[],driverScheduleContext:()=>({}),getItemSortIndex:()=>0,populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console};
+ const context={window:{},document:{getElementById:id=>elements[id]},ensureMasterData:async()=>{},loadDriverSchedule:async()=>{},readAdminPeriod:async(name)=>{queries.push(name);assert.equal(name,'logistics_records');return[{forEach:cb=>raw.forEach(r=>cb({id:r.id,data:()=>r}))}];},buildInventoryMapsForRange:async()=>({invMap:{'2026-11-22_喜達絲房務_床單':'200'},invRawDataMap:{}}),latestInvRawDataMap:{},deletedReceiptTombstones:new Map(),FlowerReceipts:{collapse:m=>m},logRecords:[],standardizeDate:d=>d,isRestaurantDept:()=>false,uniqueLogItems:x=>x,planDriverWritebacks:()=>[],driverScheduleContext:()=>({}),getItemSortIndex:()=>0,populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console};
  vm.createContext(context);vm.runInContext(body,context);await context.window.loadLogData();
  assert.equal(JSON.stringify(raw),before);assert.deepEqual(queries,['logistics_records']);
  assert.equal(context.logRecords[0].clientSig,'client-image');assert.equal(context.logRecords[0].driverSig,'driver-image');
  assert.equal(context.logRecords[0].items[0].bqQty,'100');assert.equal(context.logRecords[0].items[0].actualQty,'97');
  assert.equal(context.logRecords[1].items[0].actualQty,'2');assert(!elements.logTableBody.innerHTML.includes('讀取失敗'));
+});
+test('H2O first inventory item creates a visible unsigned logistics receipt immediately',async()=>{
+ const source=fs.readFileSync('boss_admin.html','utf8');
+ const body=source.slice(source.indexOf('window.loadLogData = async function()'),source.indexOf('let outletCorrectionDialog')).replace(/;\s*$/,'');
+ const saved={},elements={logStartDate:{value:'2026-11-24'},logEndDate:{value:'2026-11-24'},logFetchHotel:{value:'H2O'},logTableBody:{},logLoadBtn:{}};
+ const group={date:'2026-11-24',hotelKeyword:'H2O',deptName:'房務',hotelName:'H2O 房務',items:[{itemName:'床單',qty:'3'}]};
+ const context={window:{},document:{getElementById:id=>elements[id]},ensureMasterData:async()=>{},loadDriverSchedule:async()=>{},
+  readAdminPeriod:async()=>[{forEach(){}}],buildInventoryMapsForRange:async()=>({invMap:{},invRawDataMap:{'2026-11-24_H2O房務':group}}),
+  latestInvRawDataMap:{},deletedReceiptTombstones:new Map(),FlowerReceipts:{collapse:m=>m},logRecords:[],
+  standardizeDate:d=>d,isRestaurantDept:()=>false,uniqueLogItems:x=>x,getItemSortIndex:()=>0,
+  ScopedReads:{norm:x=>String(x).replace(/\s/g,'')},driverWritebackFields:()=>({}),driverScheduleContext:()=>({}),
+  planDriverWritebacks:()=>[],populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console,
+  db:{},doc:(_,collection,id)=>({collection,id}),runTransaction:async(_,callback)=>callback({
+   get:async ref=>({exists:()=>!!saved[ref.id]}),set:(ref,value)=>{saved[ref.id]=value;}
+  })};
+ vm.createContext(context);vm.runInContext(body,context);await context.window.loadLogData();
+ assert.equal(context.logRecords.length,1);assert.equal(context.logRecords[0].items[0].bqQty,'3');
+ assert.equal(saved['2026-11-24_H2O_房務'].items[0].originalQty,'3');
+ assert.equal(saved['2026-11-24_H2O_房務'].driverSig,'');
+ assert(!elements.logTableBody.innerHTML.includes('讀取失敗'));
 });
