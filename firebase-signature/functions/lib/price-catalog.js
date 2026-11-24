@@ -26,31 +26,84 @@ export function normalizePriceDate(value) {
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
-export function sheetPricesFromRows(rows) {
+function rejectPriceRow(index, message, code) {
+    const error = new Error(`價格總表第 ${index + 1} 列${message}`);
+    error.code = code;
+    return error;
+}
+
+function isPriceCatalogReject(error) {
+    return error?.code === 'invalid-price-date' || error?.code === 'contradictory-price-date';
+}
+
+// Call console.warn as a method. Detaching it breaks in browsers.
+function reportPriceIssue(options, message, detail) {
+    const warn = typeof options?.warn === 'function' ? options.warn : null;
+    if (detail === undefined) {
+        if (warn) warn(message);
+        else console.warn(message);
+        return;
+    }
+    if (warn) warn(message, detail);
+    else console.warn(message, detail);
+}
+
+function setBaselinePrice(prices, key, price) {
+    if (prices[key] && typeof prices[key] === 'object') prices[key].baseline = price;
+    else prices[key] = price;
+}
+
+// Column E is an effective date only when the whole cell is YYYY-MM-DD or YYYY/M/D.
+// Size and item remarks stay on the row as its price, with no effective date.
+// A cell that looks like a date but is not a real day still rejects the catalog.
+function readPriceRow(prices, row, index, options) {
+    const hotel = String(row[0] ?? '').trim();
+    const dept = String(row[1] ?? '').trim();
+    const item = String(row[2] ?? '').trim();
+    const price = parsePriceCell(row[3]);
+    if (!hotel || !item || price === null) return;
+    const combined = dept && dept !== hotel ? `${hotel} ${dept}` : hotel;
+    const key = `${combined}_${item}`;
+    const rawStart = String(row[4] ?? '').trim();
+    if (!rawStart) {
+        setBaselinePrice(prices, key, price);
+        return;
+    }
+    const start = normalizePriceDate(rawStart);
+    if (!start) {
+        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(rawStart)) {
+            throw rejectPriceRow(index, '生效日無效，請填 YYYY-MM-DD', 'invalid-price-date');
+        }
+        reportPriceIssue(options, `價格總表第 ${index + 1} 列 E 欄「${rawStart}」不是生效日，已當成備註並仍載入價格`);
+        setBaselinePrice(prices, key, price);
+        return;
+    }
+    if (!prices[key] || typeof prices[key] !== 'object' || Array.isArray(prices[key])) {
+        prices[key] = { baseline: parsePriceCell(prices[key]), history: [] };
+    }
+    if (!Array.isArray(prices[key].history)) prices[key].history = [];
+    const duplicate = prices[key].history.find(rule => rule.start === start);
+    if (duplicate && duplicate.price !== price) {
+        throw rejectPriceRow(index, '有同品項同生效日的不同價格', 'contradictory-price-date');
+    }
+    if (!duplicate) prices[key].history.push({ start, price });
+}
+
+export function sheetPricesFromRows(rows, options = {}) {
     const prices = {};
-    (rows || []).forEach((row, index) => {
+    if (!rows) return prices;
+    if (!Array.isArray(rows)) {
+        reportPriceIssue(options, '價格總表不是列陣列，已略過整份價格解析');
+        return prices;
+    }
+    rows.forEach((row, index) => {
         if (index === 0 || !Array.isArray(row)) return;
-        const hotel = String(row[0] ?? '').trim();
-        const dept = String(row[1] ?? '').trim();
-        const item = String(row[2] ?? '').trim();
-        const price = parsePriceCell(row[3]);
-        if (!hotel || !item || price === null) return;
-        const combined = dept && dept !== hotel ? `${hotel} ${dept}` : hotel;
-        const key = `${combined}_${item}`;
-        const rawStart = String(row[4] ?? '').trim();
-        if (!rawStart) {
-            if (prices[key] && typeof prices[key] === 'object') prices[key].baseline = price;
-            else prices[key] = price;
-            return;
+        try {
+            readPriceRow(prices, row, index, options);
+        } catch (error) {
+            if (isPriceCatalogReject(error)) throw error;
+            reportPriceIssue(options, `價格總表第 ${index + 1} 列略過`, error);
         }
-        const start = normalizePriceDate(rawStart);
-        if (!start) throw new Error(`價格總表第 ${index + 1} 列生效日無效，請填 YYYY-MM-DD`);
-        if (!prices[key] || typeof prices[key] !== 'object') {
-            prices[key] = { baseline: parsePriceCell(prices[key]), history: [] };
-        }
-        const duplicate = prices[key].history.find(rule => rule.start === start);
-        if (duplicate && duplicate.price !== price) throw new Error(`價格總表第 ${index + 1} 列有同品項同生效日的不同價格`);
-        if (!duplicate) prices[key].history.push({ start, price });
     });
     return prices;
 }

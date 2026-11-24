@@ -515,7 +515,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
-import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261122-contract-dates';
+import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261124-price-notes';
 import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped2';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
@@ -1460,7 +1460,7 @@ async function readSheetPrices() {
     if (!res.ok) throw new Error(`價目表 HTTP ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || '價目表回傳失敗');
-    sheetPricesFromRows(json.prices); // Validate before accepting this response.
+    // 價格改由 fetchFinanceMasterData 另行解析，避免 E 欄備註或壞列讓路線與排班整包失敗。
     return json;
 }
 async function readFirebaseCustomPrices() {
@@ -1485,13 +1485,22 @@ const [sheetResult, customResult] = await Promise.allSettled([
 const problems = [];
 if (sheetResult.status === 'fulfilled') {
     const json = sheetResult.value;
-    const parsed = sheetPricesFromRows(json.prices);
-    if (Object.keys(parsed).length) sheetPrices = parsed;
-    if (Array.isArray(json.clients) && json.clients.length) {
-        const clients = parseFinanceClientRows(json.clients);
-        if (Object.keys(clients).length) sheetClients = clients;
-    }
     applyDriverMasterRows(json);
+    try {
+        if (Array.isArray(json.clients) && json.clients.length) {
+            const clients = parseFinanceClientRows(json.clients);
+            if (Object.keys(clients).length) sheetClients = clients;
+        }
+    } catch (err) {
+        console.warn('客戶資料解析失敗，路線與排班已更新', err);
+    }
+    try {
+        const parsed = sheetPricesFromRows(json.prices);
+        if (parsed && Object.keys(parsed).length) sheetPrices = parsed;
+    } catch (err) {
+        problems.push(`價目表：${err.message || '價格解析失敗'}`);
+        console.warn('價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新', err);
+    }
 } else {
     problems.push(`價目表：${sheetResult.reason?.message || '讀取失敗'}`);
     console.warn('價目表讀取失敗，沿用上次成功的資料', sheetResult.reason);
