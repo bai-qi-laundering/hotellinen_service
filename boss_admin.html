@@ -1043,11 +1043,11 @@
             try {
                 await ensureMasterData();
 
-                const [logSnapshots] = await Promise.all([
+                const [logSnapshots, { invMap, invRawDataMap }] = await Promise.all([
                     readAdminPeriod('logistics_records', startDate, endDate, hotelKey),
+                    buildInventoryMapsForRange(startDate, endDate, hotelKey),
                     loadDriverSchedule()
                 ]);
-                const invMap={},invRawDataMap={};
 
                 latestInvRawDataMap = invRawDataMap;
                 deletedReceiptTombstones.clear();
@@ -1065,6 +1065,7 @@
                 uniqueDocs = FlowerReceipts.collapse(uniqueDocs);
                 logRecords = [];
                 let processedLogKeys = new Set();
+                const logisticsRepairPromises = [];
                 const driverWriteRecords = []; 
 
                 // 1. 處理已存在的物流單據
@@ -1125,7 +1126,8 @@
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.inventoryItemName || item.itemName || "").trim();
 
-                            let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
+                            // An already signed receipt is a snapshot; later inventory edits must not change it.
+                            let trueOrig = (d.clientSig || d.driverSig) ? undefined : invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
                             if(restaurantTotals && d.clientSig)trueOrig=String(item.originalQty ?? item.bqQty ?? '0');
                             if (trueOrig === undefined) trueOrig = orig;
 
@@ -1144,6 +1146,27 @@
                                 actualQty: actual
                             });
                         });
+
+                        // Show each newly counted item immediately, even if an unsigned receipt
+                        // was created earlier while only part of the batch was entered.
+                        const invGroup = invRawDataMap[matchKey];
+                        const missingToPersist = [];
+                        if (!restaurantTotals && !d.clientSig && !d.driverSig && !d.manualItemDeleted && invGroup) {
+                            invGroup.items.forEach(invItem => {
+                                const itemName = String(invItem.itemName || '').trim(), qty = String(invItem.qty ?? '0');
+                                if (!itemName || Number(qty) === 0 || existingLogItems.some(i => itemMatchesName(i, itemName))) return;
+                                validItems.push({ itemName, bqQty: qty, actualQty: qty });
+                                missingToPersist.push({ itemName, originalQty: qty, actualQty: qty, auntNote: '', driverNote: '' });
+                            });
+                        }
+                        if (missingToPersist.length) logisticsRepairPromises.push(runTransaction(db, async tx => {
+                            const refDoc = doc(db, 'logistics_records', docSnap.id);
+                            const fresh = await tx.get(refDoc);
+                            if (!fresh.exists() || fresh.data().driverSig || fresh.data().clientSig || fresh.data().manualItemDeleted) return;
+                            const items = fresh.data().items || [];
+                            const additions = missingToPersist.filter(item => !items.some(saved => itemMatchesName(saved, item.itemName)));
+                            if (additions.length) tx.update(refDoc, { items: [...items, ...additions] });
+                        }));
 
                         let status = "green";
                         if (hasQtyModified) {
@@ -1182,8 +1205,36 @@
                     }
                 });
 
-                // Receipt lookup is read-only for quantities/signatures. Inventory recovery
-                // remains an explicit operation through the existing recovery controls.
+                // A single positive inventory item is enough to create an unsigned receipt.
+                // The transaction never overwrites a receipt created or signed concurrently.
+                const newReceiptPromises = [];
+                for (const [matchKey, data] of Object.entries(invRawDataMap)) {
+                    const standardId = `${data.date}_${data.hotelKeyword}_${data.deptName}`;
+                    if (processedLogKeys.has(matchKey) || processedLogKeys.has(standardId)) continue;
+                    if (hotelKey && !ScopedReads.norm(data.hotelName).includes(ScopedReads.norm(hotelKey))) continue;
+                    const items = data.items.filter(item => Number(item.qty) !== 0).map(item => ({
+                        itemName: item.itemName, bqQty: String(item.qty), actualQty: String(item.qty)
+                    }));
+                    if (!items.length) continue;
+                    items.sort((a,b) => getItemSortIndex(data.hotelName,a.itemName) - getItemSortIndex(data.hotelName,b.itemName));
+                    const scheduleFields = driverWritebackFields({id:standardId,assignedDriver:'',hotelKeyword:data.hotelKeyword,
+                        deptName:data.deptName,date:data.date},driverScheduleContext()) || {};
+                    newReceiptPromises.push(runTransaction(db, async tx => {
+                        const refDoc = doc(db,'logistics_records',standardId);
+                        if ((await tx.get(refDoc)).exists()) return false;
+                        tx.set(refDoc, {date:data.date,hotelKeyword:data.hotelKeyword,deptName:data.deptName,
+                            clientSig:'',driverSig:'',timestamp:'',forcedSync:true,assignedDriver:'',...scheduleFields,
+                            items:items.map(i => ({itemName:i.itemName,originalQty:i.bqQty,actualQty:i.actualQty,auntNote:'',driverNote:''}))});
+                        return true;
+                    }).then(created => {
+                        if (!created) return;
+                        logRecords.push({id:standardId,date:data.date,hotelKeyword:data.hotelKeyword,deptName:data.deptName,
+                            hotel:data.hotelName,items,deletedBackupItems:[],assignedDriver:scheduleFields.assignedDriver || '',
+                            driverSource:scheduleFields.driverSource || '',driverRoute:scheduleFields.driverRoute || '',
+                            driverEffectiveDate:scheduleFields.driverEffectiveDate || '',driverSig:'',clientSig:'',signDate:'',status:'yellow'});
+                    }));
+                }
+                await Promise.all([...logisticsRepairPromises,...newReceiptPromises]);
                 const driverPlans = planDriverWritebacks(driverWriteRecords, driverScheduleContext());
                 const writebackPromise = (async () => {
                     if (!driverPlans.length) return;
