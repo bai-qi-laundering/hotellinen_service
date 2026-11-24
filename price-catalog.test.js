@@ -149,89 +149,15 @@ test('newest dated manual or sheet rule wins; Firebase wins same-day ties', () =
  assert.equal(get('2026-11-01'),9.5);
  assert.equal(get('2027-01-01'),10);
 });
+test('invalid dates and contradictory duplicate contract rows fail instead of using a wrong price',()=>{
+ assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-02-30']]),/生效日/);
+ assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-11-01']]),/不同價格/);
+});
 test('blank baseline plus dated zero preserves zero and does not activate future prices early',()=>{
  const sheetPrices=sheetPricesFromRows([contractRows[0],['A飯店','房務','浴巾',8,''],['A飯店','房務','浴巾',0,'2026-11-01']]);
  const get=date=>catalogPrice({sheetPrices,hotel:'A飯店 房務',item:'浴巾',date}).price;
  assert.equal(get('2026-10-31'),8);assert.equal(get('2026-11-01'),0);
 });
-test('column E remarks load as prices with no effective date, and real dates still switch that day', () => {
-    const warnings = [];
-    const warn = (message) => warnings.push(String(message));
-    const sheetPrices = sheetPricesFromRows([
-        ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
-        ['承億', '房務', '枕套', '$11.6', '(總套)(83.5*66)'],
-        ['A飯店', '房務', '浴巾', 8, '2026-01-01'],
-        ['承億', '制服', '毛毯', 40, '(215*155)'],
-        ['承億', '制服', '床包', 41, '(俱樂部)'],
-        ['承億', '制服', '枕套', 42, '(俱樂部)'],
-        ['A飯店', '房務', '浴巾', 9, '2026/11/1'],
-        ['承億', '制服', '毛毯', 43, '(俱樂部)'],
-        ['承億', '制服', '門簾', 44, '(兩鍋/黑)'],
-        ['壞掉', '房務', '枕套', '待補', '(不要載入)'],
-        ['A飯店', '房務', '浴巾', 10, '2027-01-01'],
-    ], { warn });
-    assert.equal(sheetPrices['承億 房務_枕套'], 11.6);
-    assert.equal(typeof sheetPrices['承億 房務_枕套'], 'number');
-    assert.equal(sheetPrices['承億 制服_毛毯'], 43);
-    assert.equal(sheetPrices['承億 制服_床包'], 41);
-    assert.equal(sheetPrices['承億 制服_枕套'], 42);
-    assert.equal(sheetPrices['承億 制服_門簾'], 44);
-    assert.equal(sheetPrices['壞掉 房務_枕套'], undefined);
-    const noted = date => catalogPrice({ sheetPrices, hotel: '承億 房務', item: '枕套', date });
-    assert.deepEqual(noted('2026-10-31'), { price: 11.6, source: 'sheet' });
-    assert.deepEqual(noted('2026-11-10'), { price: 11.6, source: 'sheet' });
-    assert.deepEqual(noted('2027-01-01'), { price: 11.6, source: 'sheet' });
-    const dated = date => catalogPrice({ sheetPrices, hotel: 'A飯店 房務', item: '浴巾', date }).price;
-    assert.equal(dated('2026-10-31'), 8);
-    assert.equal(dated('2026-11-01'), 9);
-    assert.equal(dated('2026-11-25'), 9);
-    assert.equal(dated('2027-01-01'), 10);
-    const text = warnings.join('\n');
-    for (const note of ['(總套)(83.5*66)', '(215*155)', '(俱樂部)', '(兩鍋/黑)']) assert.match(text, new RegExp(note.replace(/[()*.]/g, '\\$&')));
-    assert.equal(text.includes('不要載入'), false);
-});
-
-test('a damaged price cell is skipped and the other rows still load', () => {
-    const warnings = [];
-    const broken = ['承億', '房務', '破掉', 99, ''];
-    Object.defineProperty(broken, '1', { get() { throw new Error('儲存格毀損'); } });
-    const sheetPrices = sheetPricesFromRows([
-        ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
-        null,
-        '不是列',
-        broken,
-        ['承億', '房務', '枕套', 11.6, '(總套)(83.5*66)', '多餘欄'],
-        { hotel: '物件' },
-    ], { warn: (...args) => warnings.push(args.map(item => item instanceof Error ? item.message : String(item)).join(' ')) });
-    assert.equal(sheetPrices['承億 房務_枕套'], 11.6);
-    assert.equal(sheetPrices['承億 房務_破掉'], undefined);
-    const text = warnings.join('\n');
-    assert.match(text, /第 4 列略過/);
-    assert.match(text, /儲存格毀損/);
-    assert.match(text, /不是生效日/);
-});
-
-test('a non-array price payload is ignored instead of aborting the caller', () => {
-    const warnings = [];
-    assert.deepEqual(sheetPricesFromRows(null), {});
-    assert.deepEqual(sheetPricesFromRows(undefined), {});
-    assert.deepEqual(sheetPricesFromRows({ '承億 房務_枕套': 11.6 }, { warn: message => warnings.push(String(message)) }), {});
-    assert.match(warnings.join('\n'), /不是列陣列/);
-});
-
-test('invalid dates and contradictory duplicate contract rows fail instead of using a wrong price',()=>{
- const warnings=[];
- const warn=message=>warnings.push(String(message));
- assert.throws(()=>sheetPricesFromRows([
-    ...contractRows,
-    ['承億','房務','枕套',11.6,'(總套)(83.5*66)'],
-    ['A飯店','房務','浴巾',11,'2026-02-30'],
- ],{warn}),/生效日/);
- assert.match(warnings.join('\n'),/總套/);
- assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-11-01T00:00:00.000Z']],{warn}),/生效日/);
- assert.throws(()=>sheetPricesFromRows([...contractRows,['A飯店','房務','浴巾',11,'2026-11-01']],{warn}),/不同價格/);
-});
-
 test('25th closing statement splits October and November contract prices and keeps both summary rows',()=>{
  const rows=['2026-10-26','2026-10-31','2026-11-01','2026-11-25'].map((date,i)=>({docId:String(i),date,parentCompany:'A飯店',hotel:'A飯店 房務',item:'浴巾',qty:10,savedPrice:6}));
  const engine=createInvoiceEngine({logisticsMasterItems:[{hotel:'A飯店 房務',item:'浴巾'}],pricingRules:{holidays:[],rebates:[],managementFees:[]},effectivePriceRules:[],sheetPrices:sheetPricesFromRows(contractRows),customPrices:{},sheetClients:{'A飯店':{name:'A飯店'}},rawLogisticsData:rows});

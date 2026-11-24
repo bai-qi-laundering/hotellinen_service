@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { attemptWithBackoff, catalogPrice, sheetPricesFromRows } from './firebase-signature/functions/lib/price-catalog.js';
+import { billingReceiptItems } from './logistics-items.js';
+import { attemptWithBackoff, catalogPrice, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js';
 import {
     scheduleDate, parseRouteSheet, parseScheduleSheet, attributeDriver, hotelRouteText,
     isDriverPerformanceExcluded,
@@ -217,6 +218,8 @@ test('finance.html 司機業績以手動為最終，排班則重算並只回寫�
     assert.match(refreshFn, /applyDriverMasterRows/);
     const readPricesFn = html.slice(html.indexOf('async function readSheetPrices'), html.indexOf('async function readFirebaseCustomPrices'));
     assert.equal(readPricesFn.includes('sheetPricesFromRows'), false);
+    assert.match(html, /price-catalog\.js\?v=20261122-contract-dates/);
+    assert.equal(html.includes('20261124-price-notes'), false);
     const masterFn = html.slice(html.indexOf('async function fetchFinanceMasterData'), html.indexOf('function getPrice'));
     const applyAt = masterFn.indexOf('applyDriverMasterRows(json)');
     const parseAt = masterFn.indexOf('sheetPricesFromRows');
@@ -572,11 +575,18 @@ function financeMasterProgram() {
         return html.slice(from, to);
     };
     return [
+        cut('function financeMasterCacheFresh', 'async function refreshDriverRoutesFromSheet'),
         cut('async function refreshDriverRoutesFromSheet', 'function applyDriverMasterRows'),
         cut('function applyDriverMasterRows', 'function withTimeout'),
+        cut('async function syncMasterDataFromSheet', 'async function readSheetPrices'),
         cut('async function readSheetPrices', 'async function readFirebaseCustomPrices'),
         cut('async function fetchFinanceMasterData', 'function getPrice'),
         cut('function parseFinanceClientRows', 'let invoiceClientFetchPending'),
+        cut('function activeHolidayRule', 'function activeRebateRule'),
+        cut('function priceCatalog()', 'async function ensurePricingRules'),
+        cut('function standardizeDate', 'function getLocalDateString'),
+        cut('function resolveItemBillingQty', 'const today = new Date()'),
+        cut('async function calculateDriverPerformance()', 'function renderDriverCards()'),
     ].join('\n');
 }
 
@@ -591,14 +601,27 @@ function financeMasterPayload(prices, extra = {}) {
     };
 }
 
-async function loadFinancePage(payload, sheetPrices = { '舊_品項': 4 }) {
+async function loadFinancePage(payload, sheetPrices = { '舊_品項': 4 }, options = {}) {
     const warnings = [];
     const statuses = [];
     const alerts = [];
+    const uiAlerts = [];
+    const writes = [];
+    const firebasePrices = options.customPrices || { '頭等艙 房務_床單': 11.5 };
+    const logisticsDocs = options.logisticsDocs || [];
+    const driverButton = { innerHTML: '▶ 開始計算業績', disabled: false };
+    const periodLabel = { textContent: '' };
+    const dateFields = {
+        driverStartDate: { value: options.startDate || '2026-11-10' },
+        driverEndDate: { value: options.endDate || '2026-11-10' },
+        calcDriverBtn: driverButton,
+        driverPeriodLabel: periodLabel,
+    };
     const warn = (...args) => warnings.push(args.map(item => item instanceof Error ? item.message : String(item)).join(' '));
     const ctx = {
         GAS_API_URL: 'https://script.google.com/macros/s/test/exec',
         AbortSignal,
+        MASTER_CACHE_MS: 1800000,
         fetch: async (url) => {
             assert.match(String(url), /action=getFinanceMasterData/);
             return { ok: true, async json() { return payload; } };
@@ -610,26 +633,52 @@ async function loadFinancePage(payload, sheetPrices = { '舊_品項': 4 }) {
         sheetPrices,
         sheetClients: {},
         customPrices: {},
+        effectivePriceRules: [],
+        pricingRules: { holidays: [], rebates: [], managementFees: [] },
         financeMasterFetchedAt: 0,
+        financeMasterPending: null,
         priceCatalogDegraded: false,
+        currentDriverStats: {},
+        currentUnassignedStats: { totalAmt: 0, details: [] },
         parseRouteSheet,
         parseScheduleSheet,
-        sheetPricesFromRows: rows => sheetPricesFromRows(rows, { warn }),
+        attributeDriver,
+        isDriverPerformanceExcluded,
+        planDriverWritebacks,
+        commitDriverWritebacks,
+        billingReceiptItems,
+        unitPriceForRecord,
+        sheetPricesFromRows: rows => sheetPricesFromRows(rows),
         attemptWithBackoff,
         persistDriverSchedule() {},
-        async readFirebaseCustomPrices() { return { '頭等艙 房務_床單': 11.5 }; },
+        async readFirebaseCustomPrices() { return firebasePrices; },
+        async getLogisticsDocsForPeriod() { return logisticsDocs; },
+        async ensurePricingRules() {},
+        async ensureEffectivePrices() {},
         setFinanceSyncStatus(text) { statuses.push(text); },
         setPriceAlert(text) { alerts.push(text); },
         refreshInvoiceCompanyOptions() {},
         renderPricingRules() {},
         persistPriceCatalog() {},
+        renderDriverCards() { ctx.driverCardsRendered = (ctx.driverCardsRendered || 0) + 1; },
+        showToast() {},
+        alert(message) { uiAlerts.push(String(message)); },
+        document: { getElementById(id) { return dateFields[id] || null; } },
+        writeBatch() {
+            return {
+                set(ref, fields, writeOptions) { writes.push({ ref, fields, options: writeOptions }); },
+                async commit() {},
+            };
+        },
+        doc(_db, name, id) { return { name, id }; },
+        db: {},
         priceCatalogReady() {
             return Object.keys(ctx.customPrices || {}).length > 0 || Object.keys(ctx.sheetPrices || {}).length > 0;
         },
     };
     vm.createContext(ctx);
     vm.runInContext(financeMasterProgram(), ctx);
-    return { ctx, warnings, statuses, alerts };
+    return { ctx, warnings, statuses, alerts, uiAlerts, writes, driverButton };
 }
 
 function yinshiDriver(ctx) {
@@ -647,7 +696,14 @@ function yinshiDriver(ctx) {
 
 function assertYinshiSchedule(ctx) {
     assert.deepEqual(ctx.sheetRoutes.map(route => route.name), ['3109', '3109-2', '5939', '6759', '9739', '5739']);
-    assert.equal(ctx.sheetSchedules['2026-11-10']['3109-2'], '吳宏鴻');
+    assert.deepEqual(ctx.sheetSchedules['2026-11-10'], {
+        '3109': '劉硯茹',
+        '3109-2': '吳宏鴻',
+        '5939': '朱韋豪',
+        '6759': '鄭弘裕',
+        '9739': '羅金賢',
+        '5739': '柯柏丞',
+    });
     assert.equal(ctx.driverScheduleReady, true);
     const attributed = yinshiDriver(ctx);
     assert.equal(attributed.driver, '吳宏鴻');
@@ -656,38 +712,60 @@ function assertYinshiSchedule(ctx) {
     assert.equal(attributed.reason, null);
 }
 
-test('司機路線在價格備註或壞列時仍載入，2026-11-10 癮室房務歸屬吳宏鴻', async () => {
-    const broken = ['壞列', '房務', '枕頭', 3, ''];
-    Object.defineProperty(broken, '0', { get() { throw new Error('儲存格毀損'); } });
-    const { ctx, warnings, statuses } = await loadFinancePage(financeMasterPayload([
-        ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
-        ['承億', '房務', '枕套', 11.6, '(總套)(83.5*66)'],
-        ['承億', '制服', '毛毯', 40, '(215*155)'],
-        ['承億', '制服', '床包', 41, '(俱樂部)'],
-        ['承億', '制服', '枕套', 42, '(俱樂部)'],
-        ['承億', '制服', '毛毯', 43, '(俱樂部)'],
-        ['承億', '制服', '門簾', 44, '(兩鍋/黑)'],
-        ['A飯店', '房務', '浴巾', 8, '2026-01-01'],
-        ['A飯店', '房務', '浴巾', 9, '2026-11-01'],
-        broken,
-    ]));
+const chengyiNotePrices = [
+    ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
+    ['承億', '房務', '枕套', 11.6, '(總套)(83.5*66)'],
+    ['承億', '制服', '毛毯', 40, '(215*155)'],
+    ['承億', '制服', '床包', 41, '(俱樂部)'],
+    ['承億', '制服', '枕套', 42, '(俱樂部)'],
+    ['承億', '制服', '毛毯', 43, '(俱樂部)'],
+    ['承億', '制服', '門簾', 44, '(兩鍋/黑)'],
+];
+
+test('承億 E 欄備註會讓價目解析失敗，六條路線與排班仍載入且沿用上次價格', async () => {
+    assert.throws(() => sheetPricesFromRows(chengyiNotePrices), /第 2 列生效日無效/);
+    const { ctx, warnings, statuses, alerts } = await loadFinancePage(financeMasterPayload(chengyiNotePrices));
     await ctx.refreshDriverRoutesFromSheet();
     assertYinshiSchedule(ctx);
     assert.equal(ctx.sheetPrices['舊_品項'], 4);
     assert.equal(warnings.some(warning => warning.includes('路線與排班讀取失敗')), false);
     await ctx.fetchFinanceMasterData();
     assertYinshiSchedule(ctx);
-    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
-    assert.equal(ctx.sheetPrices['承億 制服_門簾'], 44);
-    assert.equal(ctx.sheetPrices['舊_品項'], undefined);
-    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: 'A飯店 房務', item: '浴巾', date: '2026-10-31' }).price, 8);
-    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: 'A飯店 房務', item: '浴巾', date: '2026-11-01' }).price, 9);
-    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: '承億 房務', item: '枕套', date: '2026-11-10' }).price, 11.6);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.sheetPrices['承億 制服_毛毯'], undefined);
+    assert.equal(ctx.sheetPrices['承億 制服_床包'], undefined);
+    assert.equal(ctx.sheetPrices['承億 制服_枕套'], undefined);
+    assert.equal(ctx.sheetPrices['承億 制服_門簾'], undefined);
+    assert.equal(ctx.customPrices['頭等艙 房務_床單'], 11.5);
+    assert.equal(catalogPrice({
+        sheetPrices: ctx.sheetPrices,
+        customPrices: ctx.customPrices,
+        hotel: '頭等艙 房務',
+        item: '床單',
+        date: '2026-11-10',
+    }).source, 'firebase');
     assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
     const text = warnings.join('\n');
-    assert.match(text, /總套/);
-    assert.match(text, /儲存格毀損/);
-    assert.match(statuses.at(-1), /價格已讀取/);
+    assert.match(text, /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
+    assert.match(text, /生效日無效/);
+    assert.match(statuses.at(-1), /使用上次成功的價格/);
+    assert.match(alerts.at(-1), /沿用上次成功的價格/);
+});
+
+test('損壞的價格儲存格會中止價目解析，路線與排班仍寫入', async () => {
+    const broken = ['承億', '房務', '枕套', 11.6, ''];
+    Object.defineProperty(broken, '0', { get() { throw new Error('儲存格毀損'); } });
+    const rows = [['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'], broken];
+    assert.throws(() => sheetPricesFromRows(rows), /儲存格毀損/);
+    const { ctx, warnings } = await loadFinancePage(financeMasterPayload(rows));
+    await ctx.fetchFinanceMasterData();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
+    assert.match(warnings.join('\n'), /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
+    assert.match(warnings.join('\n'), /儲存格毀損/);
 });
 
 test('無效生效日不會清掉六條司機路線，並沿用上次成功的價格', async () => {
@@ -724,4 +802,61 @@ test('客戶列解析失敗仍載入路線、排班與價目', async () => {
     assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
     assert.match(warnings.join('\n'), /客戶資料解析失敗，路線與排班已更新/);
     assert.match(warnings.join('\n'), /客戶列毀損/);
+});
+
+test('開始計算業績在價目 E 欄備註解析失敗時仍完成，癮室房務歸屬吳宏鴻並用 Firebase 價格', async () => {
+    const slip = {
+        id: 'slip-yinshi',
+        data() {
+            return {
+                date: '2026-11-10',
+                hotelKeyword: '癮室',
+                deptName: '房務',
+                driverSource: 'schedule',
+                driverSig: 'signed',
+                items: [{ itemName: '床單', actualQty: 2, price: '' }],
+            };
+        },
+    };
+    const { ctx, warnings, uiAlerts, writes, driverButton } = await loadFinancePage(
+        financeMasterPayload(chengyiNotePrices),
+        { '舊_品項': 4 },
+        { customPrices: { '癮室 房務_床單': 12.5 }, logisticsDocs: [slip] },
+    );
+    await ctx.calculateDriverPerformance();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.customPrices['癮室 房務_床單'], 12.5);
+    assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
+    assert.equal(uiAlerts.length, 0);
+    assert.equal(ctx.driverCardsRendered, 1);
+    assert.equal(driverButton.disabled, false);
+    assert.equal(driverButton.innerHTML, '▶ 開始計算業績');
+    const stats = ctx.currentDriverStats['吳宏鴻'];
+    assert.equal(stats.totalAmt, 25);
+    assert.equal(stats.details.length, 1);
+    assert.equal(stats.details[0].route, '3109-2');
+    assert.equal(stats.details[0].price, 12.5);
+    assert.equal(stats.details[0].qty, 2);
+    assert.equal(ctx.currentUnassignedStats.details.length, 0);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].fields.assignedDriver, '吳宏鴻');
+    assert.equal(writes[0].fields.driverRoute, '3109-2');
+    assert.equal(writes[0].fields.driverSource, 'schedule');
+    assert.match(warnings.join('\n'), /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
+
+    ctx.sheetRoutes = {};
+    ctx.sheetSchedules = {};
+    ctx.driverScheduleReady = false;
+    ctx.financeMasterFetchedAt = Date.now();
+    await ctx.calculateDriverPerformance();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.currentDriverStats['吳宏鴻'].details[0].price, 12.5);
+    assert.equal(ctx.currentDriverStats['吳宏鴻'].details[0].route, '3109-2');
+    assert.equal(uiAlerts.length, 0);
+    assert.equal(warnings.some(warning => warning.includes('路線與排班讀取失敗')), false);
+    assert.equal(ctx.driverCardsRendered, 2);
 });
