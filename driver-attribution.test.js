@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
+import { attemptWithBackoff, catalogPrice, sheetPricesFromRows } from './firebase-signature/functions/lib/price-catalog.js';
 import {
     scheduleDate, parseRouteSheet, parseScheduleSheet, attributeDriver, hotelRouteText,
     isDriverPerformanceExcluded,
@@ -213,6 +215,13 @@ test('finance.html 司機業績以手動為最終，排班則重算並只回寫�
     const refreshFn = html.slice(html.indexOf('async function refreshDriverRoutesFromSheet'), html.indexOf('function applyDriverMasterRows'));
     assert.match(refreshFn, /readSheetPrices\(\)/);
     assert.match(refreshFn, /applyDriverMasterRows/);
+    const readPricesFn = html.slice(html.indexOf('async function readSheetPrices'), html.indexOf('async function readFirebaseCustomPrices'));
+    assert.equal(readPricesFn.includes('sheetPricesFromRows'), false);
+    const masterFn = html.slice(html.indexOf('async function fetchFinanceMasterData'), html.indexOf('function getPrice'));
+    const applyAt = masterFn.indexOf('applyDriverMasterRows(json)');
+    const parseAt = masterFn.indexOf('sheetPricesFromRows');
+    assert.ok(applyAt !== -1 && parseAt !== -1 && applyAt < parseAt);
+    assert.match(masterFn, /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
     assert.equal(refreshFn.includes('getDoc'), false);
     assert.equal(refreshFn.includes('getDocs'), false);
     assert.equal(fn.includes('setDoc'), false);
@@ -231,6 +240,10 @@ test('finance.html 司機業績以手動為最終，排班則重算並只回寫�
     assert.match(html, /parseScheduleSheet\(json\.schedules\)/);
     assert.match(html, /baiqi_driver_schedule_v2/);
     const admin = fs.readFileSync(new URL('./boss_admin.html', import.meta.url), 'utf8');
+    const adminSchedule = admin.slice(admin.indexOf('async function loadDriverSchedule'), admin.indexOf('function driverOptionList'));
+    assert.equal(adminSchedule.includes('sheetPricesFromRows'), false);
+    assert.match(adminSchedule, /parseRouteSheet\(json\.routes\)/);
+    assert.match(adminSchedule, /parseScheduleSheet\(json\.schedules\)/);
     assert.match(admin, /柯柏丞/);
     assert.match(admin, /恢復排班/);
     assert.match(admin, /planDriverWritebacks\(/);
@@ -538,4 +551,177 @@ test('回寫用 batch，每批最多 500，而且不讀 Firestore', async () => 
     assert.equal(commits[0][0].ref.name, 'logistics_records');
     assert.deepEqual(commits[0][0].options, { merge: true });
     assert.equal(await commitDriverWritebacks([], { writeBatch, doc, db: {} }), 0);
+});
+
+const novemberDriverSchedules = [
+    ['日期', '司機', '路線'],
+    ['2026-11-10', '劉硯茹', '3109'],
+    ['2026-11-10', '吳宏鴻', '3109-2'],
+    ['2026-11-10', '朱韋豪', '5939'],
+    ['2026-11-10', '鄭弘裕', '6759'],
+    ['2026-11-10', '羅金賢', '9739'],
+    ['2026-11-10', '柯柏丞', '5739'],
+];
+
+function financeMasterProgram() {
+    const html = fs.readFileSync(new URL('./finance.html', import.meta.url), 'utf8');
+    const cut = (start, end) => {
+        const from = html.indexOf(start);
+        const to = html.indexOf(end, from + start.length);
+        assert.ok(from !== -1 && to > from, `${start} .. ${end}`);
+        return html.slice(from, to);
+    };
+    return [
+        cut('async function refreshDriverRoutesFromSheet', 'function applyDriverMasterRows'),
+        cut('function applyDriverMasterRows', 'function withTimeout'),
+        cut('async function readSheetPrices', 'async function readFirebaseCustomPrices'),
+        cut('async function fetchFinanceMasterData', 'function getPrice'),
+        cut('function parseFinanceClientRows', 'let invoiceClientFetchPending'),
+    ].join('\n');
+}
+
+function financeMasterPayload(prices, extra = {}) {
+    return {
+        success: true,
+        prices,
+        clients: [['簡稱', '發票抬頭', '統編'], ['承億', '承億旅館', '12345678']],
+        routes: ownerRoutes,
+        schedules: novemberDriverSchedules,
+        ...extra,
+    };
+}
+
+async function loadFinancePage(payload, sheetPrices = { '舊_品項': 4 }) {
+    const warnings = [];
+    const statuses = [];
+    const alerts = [];
+    const warn = (...args) => warnings.push(args.map(item => item instanceof Error ? item.message : String(item)).join(' '));
+    const ctx = {
+        GAS_API_URL: 'https://script.google.com/macros/s/test/exec',
+        AbortSignal,
+        fetch: async (url) => {
+            assert.match(String(url), /action=getFinanceMasterData/);
+            return { ok: true, async json() { return payload; } };
+        },
+        console: { warn, log() {}, error() {} },
+        sheetRoutes: {},
+        sheetSchedules: {},
+        driverScheduleReady: false,
+        sheetPrices,
+        sheetClients: {},
+        customPrices: {},
+        financeMasterFetchedAt: 0,
+        priceCatalogDegraded: false,
+        parseRouteSheet,
+        parseScheduleSheet,
+        sheetPricesFromRows: rows => sheetPricesFromRows(rows, { warn }),
+        attemptWithBackoff,
+        persistDriverSchedule() {},
+        async readFirebaseCustomPrices() { return { '頭等艙 房務_床單': 11.5 }; },
+        setFinanceSyncStatus(text) { statuses.push(text); },
+        setPriceAlert(text) { alerts.push(text); },
+        refreshInvoiceCompanyOptions() {},
+        renderPricingRules() {},
+        persistPriceCatalog() {},
+        priceCatalogReady() {
+            return Object.keys(ctx.customPrices || {}).length > 0 || Object.keys(ctx.sheetPrices || {}).length > 0;
+        },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(financeMasterProgram(), ctx);
+    return { ctx, warnings, statuses, alerts };
+}
+
+function yinshiDriver(ctx) {
+    return attributeDriver({
+        driverSource: 'schedule',
+        driverSig: 'signed',
+        hotelKeyword: '癮室',
+        deptName: '房務',
+        date: '2026-11-10',
+        routes: ctx.sheetRoutes,
+        schedules: ctx.sheetSchedules,
+        schedulesLoaded: ctx.driverScheduleReady,
+    });
+}
+
+function assertYinshiSchedule(ctx) {
+    assert.deepEqual(ctx.sheetRoutes.map(route => route.name), ['3109', '3109-2', '5939', '6759', '9739', '5739']);
+    assert.equal(ctx.sheetSchedules['2026-11-10']['3109-2'], '吳宏鴻');
+    assert.equal(ctx.driverScheduleReady, true);
+    const attributed = yinshiDriver(ctx);
+    assert.equal(attributed.driver, '吳宏鴻');
+    assert.equal(attributed.route, '3109-2');
+    assert.equal(attributed.source, DRIVER_SOURCE_SCHEDULE);
+    assert.equal(attributed.reason, null);
+}
+
+test('司機路線在價格備註或壞列時仍載入，2026-11-10 癮室房務歸屬吳宏鴻', async () => {
+    const broken = ['壞列', '房務', '枕頭', 3, ''];
+    Object.defineProperty(broken, '0', { get() { throw new Error('儲存格毀損'); } });
+    const { ctx, warnings, statuses } = await loadFinancePage(financeMasterPayload([
+        ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
+        ['承億', '房務', '枕套', 11.6, '(總套)(83.5*66)'],
+        ['承億', '制服', '毛毯', 40, '(215*155)'],
+        ['承億', '制服', '床包', 41, '(俱樂部)'],
+        ['承億', '制服', '枕套', 42, '(俱樂部)'],
+        ['承億', '制服', '毛毯', 43, '(俱樂部)'],
+        ['承億', '制服', '門簾', 44, '(兩鍋/黑)'],
+        ['A飯店', '房務', '浴巾', 8, '2026-01-01'],
+        ['A飯店', '房務', '浴巾', 9, '2026-11-01'],
+        broken,
+    ]));
+    await ctx.refreshDriverRoutesFromSheet();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(warnings.some(warning => warning.includes('路線與排班讀取失敗')), false);
+    await ctx.fetchFinanceMasterData();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
+    assert.equal(ctx.sheetPrices['承億 制服_門簾'], 44);
+    assert.equal(ctx.sheetPrices['舊_品項'], undefined);
+    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: 'A飯店 房務', item: '浴巾', date: '2026-10-31' }).price, 8);
+    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: 'A飯店 房務', item: '浴巾', date: '2026-11-01' }).price, 9);
+    assert.equal(catalogPrice({ sheetPrices: ctx.sheetPrices, hotel: '承億 房務', item: '枕套', date: '2026-11-10' }).price, 11.6);
+    assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
+    const text = warnings.join('\n');
+    assert.match(text, /總套/);
+    assert.match(text, /儲存格毀損/);
+    assert.match(statuses.at(-1), /價格已讀取/);
+});
+
+test('無效生效日不會清掉六條司機路線，並沿用上次成功的價格', async () => {
+    const { ctx, warnings, statuses, alerts } = await loadFinancePage(financeMasterPayload([
+        ['飯店名稱', '部門分類', '品項名稱', '單價', '生效日'],
+        ['H2O', '房務', '床單', 15, ''],
+        ['A飯店', '房務', '浴巾', 11, '2026-02-30'],
+    ]));
+    await ctx.refreshDriverRoutesFromSheet();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    await ctx.fetchFinanceMasterData();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['舊_品項'], 4);
+    assert.equal(ctx.sheetPrices['H2O 房務_床單'], undefined);
+    assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
+    assert.match(warnings.join('\n'), /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
+    assert.match(warnings.join('\n'), /生效日/);
+    assert.match(statuses.at(-1), /使用上次成功的價格/);
+    assert.match(alerts.at(-1), /沿用上次成功的價格/);
+});
+
+test('客戶列解析失敗仍載入路線、排班與價目', async () => {
+    const clients = [['簡稱', '發票抬頭', '統編'], ['承億', '承億旅館', '12345678']];
+    const badClient = ['承億', '壞抬頭', '1'];
+    Object.defineProperty(badClient, '0', { get() { throw new Error('客戶列毀損'); } });
+    clients.push(badClient);
+    const { ctx, warnings } = await loadFinancePage(financeMasterPayload(
+        [['飯店名稱', '部門分類', '品項名稱', '單價'], ['承億', '房務', '枕套', 11.6]],
+        { clients },
+    ), {});
+    await ctx.fetchFinanceMasterData();
+    assertYinshiSchedule(ctx);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
+    assert.match(warnings.join('\n'), /客戶資料解析失敗，路線與排班已更新/);
+    assert.match(warnings.join('\n'), /客戶列毀損/);
 });
