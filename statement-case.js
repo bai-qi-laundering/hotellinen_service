@@ -174,6 +174,13 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
     const current = clone(existing);
     current.versions = (current.versions || []).map(version => clone(version));
     const latest = latestVersion(current);
+    const sent = latestSentVersion(current);
+    const invoiceLocked = statementHasInvoice(current);
+    const paymentLocked = statementHasPayment(current);
+    // 已寄出、還沒開發票也還沒入帳：手動再產生直接改這一筆的金額，貨款登記跟著變，不另開一筆。
+    if (options.force && sent && !invoiceLocked && !paymentLocked) {
+        return { action: 'replaced', ledgerSynced: true, doc: replaceSentSnapshot(current, content, fingerprint, now) };
+    }
     if (latest && latest.fingerprint === fingerprint) {
         const lineRecipient = content.lineRecipient || current.lineRecipient || '';
         // 手動再按產生：內容一樣也覆蓋上一份，不另開版本、不把已寄出改成待重寄。
@@ -182,15 +189,16 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
             version.snapshot = canonicalStatement(content);
             version.fingerprint = fingerprint;
             version.createdAt = now;
-            return {
-                action: 'replaced',
-                doc: {
-                    ...current,
-                    customerName: content.profile.name || current.customerName,
-                    lineRecipient,
-                    updatedAt: now,
-                },
+            const doc = {
+                ...current,
+                customerName: content.profile.name || current.customerName,
+                lineRecipient,
+                updatedAt: now,
             };
+            if (sent && sent.fingerprint !== fingerprint) {
+                return { action: invoiceLocked ? 'needs_review' : 'payment_locked', ledgerSynced: false, doc };
+            }
+            return { action: 'replaced', doc };
         }
         if (lineRecipient !== (current.lineRecipient || '')) {
             return {
@@ -201,10 +209,11 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
         return { action: 'unchanged', doc: current };
     }
     const nextVersion = Number(current.latestVersion || current.versions.length || 0) + 1;
-    if (current.invoiceStatus === 'invoiced') {
+    if (invoiceLocked) {
         current.versions.push(blankVersion(nextVersion, fingerprint, content, now, 'invoiced_diff'));
         return {
             action: 'needs_review',
+            ledgerSynced: false,
             doc: {
                 ...current,
                 customerName: content.profile.name || current.customerName,
@@ -218,18 +227,19 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
     }
     const anySent = current.versions.some(version => version.sentAt);
     current.versions.push(blankVersion(nextVersion, fingerprint, content, now));
-    return {
-        action: 'published',
-        doc: {
-            ...current,
-            customerName: content.profile.name || current.customerName,
-            lineRecipient: content.lineRecipient || current.lineRecipient || '',
-            latestVersion: nextVersion,
-            state: anySent ? 'resend' : 'pending',
-            invoiceStatus: 'none',
-            updatedAt: now,
-        },
+    const published = {
+        ...current,
+        customerName: content.profile.name || current.customerName,
+        lineRecipient: content.lineRecipient || current.lineRecipient || '',
+        latestVersion: nextVersion,
+        state: anySent ? 'resend' : 'pending',
+        invoiceStatus: 'none',
+        updatedAt: now,
     };
+    if (options.force && paymentLocked && sent) {
+        return { action: 'payment_locked', ledgerSynced: false, doc: published };
+    }
+    return { action: 'published', doc: published };
 }
 
 export function applySentRegistration(doc, expectedVersion, format, sentAt) {
@@ -256,6 +266,70 @@ export function applyLineRecipient(doc, lineRecipient, now) {
     copy.lineRecipient = text(lineRecipient);
     copy.updatedAt = now;
     return copy;
+}
+
+function recordedText(value) {
+    return String(value ?? '').trim();
+}
+
+export function statementHasInvoice(doc) {
+    if (!doc) return false;
+    return !!(doc.invoiceStatus === 'invoiced'
+        || doc.invoiceRecord
+        || recordedText(doc.invoiceNumber)
+        || doc.invoicedVersion
+        || doc.invoiceDraft
+        || doc.invoiceLock);
+}
+
+export function statementHasPayment(doc) {
+    if (!doc) return false;
+    const collection = doc.collectionRecord || {};
+    const received = collection.receivedAmount;
+    return !!(doc.paymentConfirmation
+        || (received !== undefined && received !== null && recordedText(received) !== '')
+        || recordedText(collection.receivedDate)
+        || recordedText(collection.chequeNumber)
+        || recordedText(collection.dueDate));
+}
+
+function latestSentVersion(doc) {
+    return [...(doc?.versions || [])].filter(version => version.sentAt).sort((a, b) => b.version - a.version)[0] || null;
+}
+
+function replaceSentSnapshot(current, content, fingerprint, now) {
+    const sent = latestSentVersion(current);
+    const version = current.versions.find(item => item.version === sent.version);
+    version.snapshot = canonicalStatement(content);
+    version.fingerprint = fingerprint;
+    version.createdAt = now;
+    current.versions = current.versions.filter(item => item.version <= sent.version);
+    return {
+        ...current,
+        customerName: content.profile.name || current.customerName,
+        lineRecipient: content.lineRecipient || current.lineRecipient || '',
+        latestVersion: sent.version,
+        state: 'sent',
+        invoiceStatus: current.invoiceStatus === 'invoiced' ? 'invoiced' : 'ready',
+        updatedAt: now,
+    };
+}
+
+// 已開發票或已登記入帳的不能刪，避免貨款登記少掉真正的帳。
+// 只是產生錯、或已寄出但還沒開發票也還沒入帳的，可以整筆刪掉。
+export function statementDeleteBlockReason(doc) {
+    if (!doc) return '找不到這份帳單，請重新整理。';
+    if (statementHasInvoice(doc) || (Array.isArray(doc.invoiceHistory) && doc.invoiceHistory.length > 0)) {
+        return '這份已經有發票紀錄，不能刪除。請先處理發票。';
+    }
+    if (statementHasPayment(doc)) return '這份已經有入帳或收款紀錄，不能刪除。';
+    return '';
+}
+
+export function statementDeleteConfirmText(doc) {
+    const version = latestVersion(doc);
+    const amount = version ? formatCardAmount(payableAmount(version.snapshot)) : '';
+    return `確定刪除這份對帳單？\n飯店：${dispatchHotelName(doc)}\n區間：${formatPeriod(doc.startDate, doc.endDate)}\n金額：${amount}\n刪除後，送件中心和貨款登記都不會再看到這筆。`;
 }
 
 export function deriveState(doc) {

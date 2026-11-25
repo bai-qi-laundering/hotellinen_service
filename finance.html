@@ -513,10 +513,10 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, getDocFromServer, setDoc, query, where, runTransaction, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261125-delete-case';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261125-sheet-notes';
-import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped2';
+import { createFirestoreRepository } from './statement-store.js?v=20261125-delete-case';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
@@ -2611,10 +2611,13 @@ function collectStatementSnapshot(report = buildInvoiceReport()) {
         },
     }, logisticsMasterItems));
 }
-function notifyDispatchRefresh() {
+function notifyDispatchRefresh(result) {
     try {
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'baiqi-statement-published' }, location.origin);
+            if (result && (result.ledgerSynced || result.action === 'needs_review' || result.action === 'payment_locked')) {
+                window.parent.postMessage({ type: 'baiqi-ledger-updated' }, location.origin);
+            }
         }
     } catch (err) { console.warn('送件中心刷新通知失敗', err); }
 }
@@ -2702,12 +2705,18 @@ async function generateFreshStatement() {
     setDispatchStatus('正在送進對帳單送件中心…', false);
     try {
         const result = await statementRepo.publish(snapshot, new Date().toISOString(), { force: true });
-        const notice = result.action === 'replaced'
+        const notice = result.action === 'needs_review'
+            ? `已另外產生新版本，但這份已經開發票，貨款登記維持原金額。請先處理發票。${countLabel}`
+            : result.action === 'payment_locked'
+            ? `已另外產生新版本，但這份已經有入帳紀錄，貨款登記維持原金額。${countLabel}`
+            : result.ledgerSynced
+            ? `已重新產生對帳單，貨款登記已改成新的金額${countLabel}`
+            : result.action === 'replaced'
             ? `已重新產生對帳單，並覆蓋送件中心的上一份${countLabel}`
             : `已重新產生對帳單並送進送件中心${countLabel}`;
-        setDispatchStatus(notice, false);
-        alert(notice + '。請到「對帳單送件中心」取得 Excel 或 PDF，再用 LINE 寄出。系統不會自動傳給客戶。');
-        notifyDispatchRefresh();
+        setDispatchStatus(notice, result.action === 'needs_review' || result.action === 'payment_locked');
+        alert(notice + '。請到「對帳單送件中心」取得 Excel 或 PDF，再用 LINE 寄出。系統不會自動傳給客戶，也不會自動開發票。');
+        notifyDispatchRefresh(result);
     } catch (err) {
         console.error(err);
         setDispatchStatus(err.queued

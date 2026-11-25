@@ -10,9 +10,12 @@ import {
     latestVersion,
     publishSnapshot,
     sortCases,
-} from './statement-case.js?v=20261102-sent-invoice';
+    statementDeleteBlockReason,
+} from './statement-case.js?v=20261125-delete-case';
+import { matchingCombinedAccount, membersOfStatementTarget } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-delete-case';
 
 export const STATEMENT_COLLECTION = 'statement_cases';
+export const AUTO_RUN_COLLECTION = 'statement_auto_runs';
 export const CASE_CACHE_KEY = 'baiqi_statement_cases_v1';
 export const OUTBOX_KEY = 'baiqi_statement_outbox_v1';
 
@@ -91,6 +94,14 @@ export function createLocalRepository(storage) {
             all[id] = doc;
             write(all);
             return doc;
+        },
+        async remove(id) {
+            const all = read();
+            if (!all[id]) throw new Error('找不到這份帳單，請重新整理。');
+            const reason = statementDeleteBlockReason(all[id]);
+            if (reason) throw new Error(reason);
+            delete all[id];
+            write(all);
         },
     };
 }
@@ -216,6 +227,56 @@ export function createFirestoreRepository(db, fns, storage) {
             }
             saveOutbox(remain);
             return remain;
+        },
+        async remove(id) {
+            const ref = fns.doc(db, STATEMENT_COLLECTION, id);
+            const runRef = fns.doc(db, AUTO_RUN_COLLECTION, id);
+            try {
+                await fns.runTransaction(db, async tx => {
+                    const snap = await tx.get(ref);
+                    if (!snap.exists()) throw new Error('找不到這份帳單，請重新整理。');
+                    const current = { id, ...snap.data() };
+                    const reason = statementDeleteBlockReason(current);
+                    if (reason) throw new Error(reason);
+                    const account = matchingCombinedAccount(membersOfStatementTarget(current.customerKey));
+                    const memberRefs = [];
+                    if (account) {
+                        for (const member of account.members) {
+                            const memberId = await caseDocumentId(member, current.startDate, current.endDate);
+                            if (memberId !== id) memberRefs.push(fns.doc(db, AUTO_RUN_COLLECTION, memberId));
+                        }
+                    }
+                    const runSnap = await tx.get(runRef);
+                    const memberSnaps = [];
+                    for (const memberRef of memberRefs) memberSnaps.push(await tx.get(memberRef));
+                    tx.delete(ref);
+                    if (runSnap.exists()) tx.delete(runRef);
+                    memberSnaps.forEach((memberSnap, index) => {
+                        if (memberSnap.exists() && memberSnap.data()?.combinedCaseId === id) tx.delete(memberRefs[index]);
+                    });
+                });
+            } catch (error) {
+                if (!/找不到這份帳單/.test(String(error?.message || error))) throw error;
+            }
+            try {
+                const cache = readJson(storage, CASE_CACHE_KEY, {});
+                if (cache && typeof cache === 'object') {
+                    delete cache[id];
+                    writeJson(storage, CASE_CACHE_KEY, cache);
+                }
+                const box = outbox();
+                const publishes = [];
+                for (const item of box.publishes) {
+                    const itemId = await caseDocumentId(item.snapshot?.customerKey, item.snapshot?.startDate, item.snapshot?.endDate);
+                    if (itemId !== id) publishes.push(item);
+                }
+                box.publishes = publishes;
+                box.registers = box.registers.filter(item => item.id !== id);
+                box.recipients = box.recipients.filter(item => item.id !== id);
+                saveOutbox(box);
+            } catch (error) {
+                console.warn('帳單已從雲端刪除，但這台電腦的暫存沒清掉', error);
+            }
         },
         async list({ skipFlush = false, month = '', keyword = '', customerNames = [] } = {}) {
             let remain = emptyOutbox();

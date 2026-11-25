@@ -1,7 +1,7 @@
 import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
-import {formatCardAmount} from './statement-case.js?v=20261104-split-customers';
-import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261119-scoped2';
+import {formatCardAmount,statementDeleteBlockReason,statementDeleteConfirmText} from './statement-case.js?v=20261125-delete-case';
+import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261125-delete-case';
 import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
@@ -85,11 +85,24 @@ function render(){
  const history=(r.c.invoiceHistory||[]).length?'<details><summary>作廢紀錄</summary>'+r.c.invoiceHistory.map(h=>'<p>'+esc(h.number)+' · '+esc(h.voidDate||h.at?.slice(0,10)||'')+'<br>'+esc(h.reason)+'</p>').join('')+'</details>':'';
  const issueTitle=r.config.issuer==='百麒國際'?'確認後向汎宇開立 B2B 電子發票':'先在平台開票，再登記發票號碼';
  const invoiceCell=(invoice?'<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">'+esc(invoice)+'</span><button data-void-invoice="'+esc(r.c.id)+'" type="button">登記已作廢</button>':'<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="'+issueTitle+'">開立發票</button>')+history;
- return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><small class="ledger-row-status" role="status"></small></td></tr>';
+ return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><button data-delete="'+esc(r.c.id)+'" type="button">刪除</button><small class="ledger-row-status" role="status"></small></td></tr>';
  }).join('')+'</tbody>'+footer+'</table></div>':'<p>此條件沒有紀錄。</p>';
  $('list').querySelectorAll('[data-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.invoice,'invoice'));
  $('list').querySelectorAll('[data-void-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.voidInvoice,'voidInvoice'));
  $('list').querySelectorAll('[data-collection]').forEach(b=>b.onclick=()=>saveCollection(b));
+ $('list').querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteCase(b.dataset.delete));
+}
+async function deleteCase(id){
+ const c=cases.find(item=>item.id===id);
+ if(!c)return;
+ const reason=statementDeleteBlockReason(c);
+ if(reason){alert(reason);return;}
+ if(!confirm(statementDeleteConfirmText(c)))return;
+ try{
+  await (localOnly?localRepo:repo).remove(id);
+  window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);
+  await reload();
+ }catch(error){alert(error.message||'刪除失敗，請重試。');}
 }
 async function saveCollection(button){
  const row=button.closest('tr'),id=button.dataset.collection,c=cases.find(c=>c.id===id),l=ledger(c),status=row.querySelector('.ledger-row-status');
