@@ -515,7 +515,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261104-split-customers';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
-import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261125-guest-uniform';
+import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261125-sheet-notes';
 import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped2';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
@@ -562,7 +562,7 @@ const MERGE_ALL_KEY = "__MERGE_ALL_SELECTED__";
 
 // 🚀 穩定加速：遠端設定先讀本機快取，網路更新改成背景進行。
 const LOCAL_CACHE_KEYS = {
-    financeMaster: 'baiqi_finance_master_v3',
+    financeMaster: 'baiqi_finance_master_v4',
     pricingRules: 'baiqi_pricing_rules_v2',
     itemOrder: 'baiqi_item_order_v2',
     driverSchedule: 'baiqi_driver_schedule_v2'

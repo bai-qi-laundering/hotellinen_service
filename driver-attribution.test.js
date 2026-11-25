@@ -218,7 +218,7 @@ test('finance.html 司機業績以手動為最終，排班則重算並只回寫�
     assert.match(refreshFn, /applyDriverMasterRows/);
     const readPricesFn = html.slice(html.indexOf('async function readSheetPrices'), html.indexOf('async function readFirebaseCustomPrices'));
     assert.equal(readPricesFn.includes('sheetPricesFromRows'), false);
-    assert.match(html, /price-catalog\.js\?v=20261125-guest-uniform/);
+    assert.match(html, /price-catalog\.js\?v=20261125-sheet-notes/);
     assert.equal(html.includes('20261124-price-notes'), false);
     const masterFn = html.slice(html.indexOf('async function fetchFinanceMasterData'), html.indexOf('function getPrice'));
     const applyAt = masterFn.indexOf('applyDriverMasterRows(json)');
@@ -722,35 +722,25 @@ const chengyiNotePrices = [
     ['承億', '制服', '門簾', 44, '(兩鍋/黑)'],
 ];
 
-test('承億 E 欄備註會讓價目解析失敗，六條路線與排班仍載入且沿用上次價格', async () => {
-    assert.throws(() => sheetPricesFromRows(chengyiNotePrices), /第 2 列生效日無效/);
-    const { ctx, warnings, statuses, alerts } = await loadFinancePage(financeMasterPayload(chengyiNotePrices));
+test('承億 E 欄尺寸備註仍入價，後面的客衣統一折扣不會被整份丟掉', async () => {
+    const rows = [...chengyiNotePrices, ['然一', '客衣', '統一折扣', 0.8, '']];
+    const parsed = sheetPricesFromRows(rows);
+    assert.equal(parsed['承億 房務_枕套'], 11.6);
+    assert.equal(parsed['承億 制服_毛毯'], 43);
+    assert.equal(parsed['然一 客衣_統一折扣'], 0.8);
+    const { ctx, warnings, statuses, alerts } = await loadFinancePage(financeMasterPayload(rows));
     await ctx.refreshDriverRoutesFromSheet();
     assertYinshiSchedule(ctx);
-    assert.equal(ctx.sheetPrices['舊_品項'], 4);
     assert.equal(warnings.some(warning => warning.includes('路線與排班讀取失敗')), false);
     await ctx.fetchFinanceMasterData();
     assertYinshiSchedule(ctx);
-    assert.equal(ctx.sheetPrices['舊_品項'], 4);
-    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
-    assert.equal(ctx.sheetPrices['承億 制服_毛毯'], undefined);
-    assert.equal(ctx.sheetPrices['承億 制服_床包'], undefined);
-    assert.equal(ctx.sheetPrices['承億 制服_枕套'], undefined);
-    assert.equal(ctx.sheetPrices['承億 制服_門簾'], undefined);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
+    assert.equal(ctx.sheetPrices['然一 客衣_統一折扣'], 0.8);
     assert.equal(ctx.customPrices['頭等艙 房務_床單'], 11.5);
-    assert.equal(catalogPrice({
-        sheetPrices: ctx.sheetPrices,
-        customPrices: ctx.customPrices,
-        hotel: '頭等艙 房務',
-        item: '床單',
-        date: '2026-11-10',
-    }).source, 'firebase');
     assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
-    const text = warnings.join('\n');
-    assert.match(text, /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
-    assert.match(text, /生效日無效/);
-    assert.match(statuses.at(-1), /使用上次成功的價格/);
-    assert.match(alerts.at(-1), /沿用上次成功的價格/);
+    assert.equal(warnings.some(warning => String(warning).includes('生效日無效')), false);
+    assert.match(statuses.at(-1), /價格已讀取/);
+    assert.equal(alerts.some(alert => String(alert).includes('生效日無效')), false);
 });
 
 test('損壞的價格儲存格會中止價目解析，路線與排班仍寫入', async () => {
@@ -804,7 +794,7 @@ test('客戶列解析失敗仍載入路線、排班與價目', async () => {
     assert.match(warnings.join('\n'), /客戶列毀損/);
 });
 
-test('開始計算業績在價目 E 欄備註解析失敗時仍完成，癮室房務歸屬吳宏鴻並用 Firebase 價格', async () => {
+test('開始計算業績在價目 E 欄是尺寸備註時仍完成，癮室房務歸屬吳宏鴻並用 Firebase 價格', async () => {
     const slip = {
         id: 'slip-yinshi',
         data() {
@@ -825,8 +815,8 @@ test('開始計算業績在價目 E 欄備註解析失敗時仍完成，癮室�
     );
     await ctx.calculateDriverPerformance();
     assertYinshiSchedule(ctx);
-    assert.equal(ctx.sheetPrices['舊_品項'], 4);
-    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
+    assert.equal(ctx.sheetPrices['舊_品項'], undefined);
     assert.equal(ctx.customPrices['癮室 房務_床單'], 12.5);
     assert.equal(ctx.sheetClients['承億'].name, '承億旅館');
     assert.equal(uiAlerts.length, 0);
@@ -844,7 +834,7 @@ test('開始計算業績在價目 E 欄備註解析失敗時仍完成，癮室�
     assert.equal(writes[0].fields.assignedDriver, '吳宏鴻');
     assert.equal(writes[0].fields.driverRoute, '3109-2');
     assert.equal(writes[0].fields.driverSource, 'schedule');
-    assert.match(warnings.join('\n'), /價目表價格解析失敗，沿用上次成功的價格；路線與排班已更新/);
+    assert.equal(warnings.some(warning => String(warning).includes('價目表價格解析失敗')), false);
 
     ctx.sheetRoutes = {};
     ctx.sheetSchedules = {};
@@ -852,8 +842,8 @@ test('開始計算業績在價目 E 欄備註解析失敗時仍完成，癮室�
     ctx.financeMasterFetchedAt = Date.now();
     await ctx.calculateDriverPerformance();
     assertYinshiSchedule(ctx);
-    assert.equal(ctx.sheetPrices['舊_品項'], 4);
-    assert.equal(ctx.sheetPrices['承億 房務_枕套'], undefined);
+    assert.equal(ctx.sheetPrices['承億 房務_枕套'], 11.6);
+    assert.equal(ctx.sheetPrices['舊_品項'], undefined);
     assert.equal(ctx.currentDriverStats['吳宏鴻'].details[0].price, 12.5);
     assert.equal(ctx.currentDriverStats['吳宏鴻'].details[0].route, '3109-2');
     assert.equal(uiAlerts.length, 0);

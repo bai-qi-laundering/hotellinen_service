@@ -38,9 +38,12 @@ export function sheetPricesFromRows(rows) {
         const combined = dept && dept !== hotel ? `${hotel} ${dept}` : hotel;
         const key = `${combined}_${item}`;
         const rawStart = String(row[4] ?? '').trim();
-        if (!rawStart) {
-            if (prices[key] && typeof prices[key] === 'object') prices[key].baseline = price;
-            else prices[key] = price;
+        if (!rawStart || !/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawStart)) {
+            // 空白或尺寸備註（例如「(總套)(83.5*66)」）不是生效日。價錢仍入表，
+            // 避免一列備註讓後面的客衣「統一折扣」整份被丟掉。
+            if (prices[key] && typeof prices[key] === 'object') {
+                if (parsePriceCell(prices[key].baseline) === null) prices[key].baseline = price;
+            } else prices[key] = price;
             return;
         }
         const start = normalizePriceDate(rawStart);
