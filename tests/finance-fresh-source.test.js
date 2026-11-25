@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { publishSnapshot, applySentRegistration, buildStatementTables, renderStatementHtml } from '../statement-case.js';
 const html = fs.readFileSync(new URL('../finance.html', import.meta.url), 'utf8');
 const fresh = html.slice(html.indexOf('async function generateFreshStatement()'), html.indexOf('function exportToExcel()'));
-const querySource = html.slice(html.indexOf('async function getLogisticsDocsForPeriod('), html.indexOf('async function fetchInitialHotels()'));
+const querySource = html.slice(html.indexOf('async function getLogisticsDocsForPeriod('), html.indexOf('const financeHotelSelections'));
 function snapshot(item='舊名稱',qty=1) {
  const row={date:'2026-10-02', item,qty,price:10,amt:qty*10,docId:'source'};
  return {customerKey:'測試飯店',startDate:'2026-10-01',endDate:'2026-10-31',profile:{name:'測試抬頭'},departments:[{name:'房務',total:qty*10,summary:[row],records:[row]}],totals:{grandTotal:qty*10,rounded:qty*10,afterRebate:qty*10,tax:Math.round(qty*.5)}};
@@ -22,7 +22,7 @@ function setup(overrides={}) {
   async fetchRecordsForSelectedHotels(options){assert.equal(options.requireServer,true);events.push(['fetch']);return [{item:'新名稱',qty:12}];},
   buildInvoiceReport(){events.push(['build',ctx.rawLogisticsData[0]]);return {comp:'測試飯店',depts:{房務:{}},hotelCount:1};},
   collectStatementSnapshot(){const r=ctx.rawLogisticsData[0];return snapshot(r.item,r.qty);},
-  statementRepo:{async publish(s){events.push(['publish',s]);return {action:'updated'};}},
+  statementRepo:{async publish(s, now, options){events.push(['publish',s,options]);return {action:'updated'};}},
   notifyDispatchRefresh(){},...overrides
  };
  vm.createContext(ctx);vm.runInContext(fresh,ctx);
@@ -32,7 +32,9 @@ test('產單先儲存再抓最新名稱與數量，檔案取新版且保留原�
  const {ctx,events}=setup({pendingUpdatesArray:[{}]});
  await ctx.generateFreshStatement();
  assert.deepEqual(events.filter(e=>['save','fetch','build','publish'].includes(e[0])).map(e=>e[0]),['save','fetch','build','publish']);
- const s=events.find(e=>e[0]==='publish')[1];
+ const published=events.find(e=>e[0]==='publish');
+ const s=published[1];
+ assert.equal(published[2].force, true);
  assert.equal(s.departments[0].records[0].item,'新名稱');assert.equal(s.departments[0].records[0].qty,12);
  const v1=await publishSnapshot(null,snapshot());
  const sent=applySentRegistration(v1.doc,1,'xlsx','2026-11-01T00:00:00Z');
@@ -62,14 +64,19 @@ test('讀取期間改變出帳區間，不能把舊資料寫成新區間',async(
 });
 test('產單專用讀取跳過進行中的舊查詢，斷線時禁止退回本機快取',async()=>{
  let server=0,cache=0;
- const ctx={Date,Map,db:{},LOGISTICS_CACHE_MS:600000,logisticsPeriodCache:new Map([['2026-10-01|2026-10-31',{promise:Promise.resolve('stale'),docs:'stale'}]]),
- legacyDatePrefixes:()=>['2026-10-'],query:()=>({}),collection:()=>({}),where:()=>({}),
+ const key='2026-10-01|2026-10-31|null';
+ const ctx={Date,Map,JSON,db:{},LOGISTICS_CACHE_MS:600000,logisticsPeriodCache:new Map([[key,{promise:Promise.resolve('stale'),docs:'stale'}]]),
+ async ensureLogisticsItemOrder(){},splitDepartmentLabel:()=>({hotelKeyword:''}),
+ ScopedReads:{queries:()=>[{}],names:()=>[]},FlowerReceipts:{collapse:docs=>docs},standardizeDate:value=>value,
+ query:()=>({}),collection:()=>({}),where:()=>({}),
  getDocsFromServer:async()=>{server++;throw Error('offline');},
  getDocsFromCache:async()=>{cache++;return {empty:false};},
  withTimeout:promise=>promise,showToast(){},console};
  vm.createContext(ctx);vm.runInContext(querySource,ctx);
+ assert.equal(await ctx.getLogisticsDocsForPeriod('2026-10-01','2026-10-31',true,false), 'stale');
+ assert.equal(server,0);
  await assert.rejects(ctx.getLogisticsDocsForPeriod('2026-10-01','2026-10-31',true,true),/offline/);
- assert.equal(server,2);assert.equal(cache,0);
+ assert.equal(server,1);assert.equal(cache,0);
 });
 test('有修改或正在產單時不能匯出上一份快照',()=>{
  const source=html.slice(html.indexOf('function exportToExcel()'),html.indexOf('// ==========================================',html.indexOf('function exportToExcel()')));

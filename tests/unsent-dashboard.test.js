@@ -203,6 +203,26 @@ test('board counts the current period only and keeps hotels with no billing day'
     assert.equal(formatBoardPeriod(group('25th').period), '2026/09/26－2026/10/25');
 });
 
+test('良一 and 良西 share one unsent row under 良西+良一', () => {
+    const board = buildUnsentBoard({
+        today: '2026-10-31',
+        baseNames: ['良一', '良西', '良站前'],
+        items: [],
+        groups: { 良一: '25th', 良西: '25th', 良站前: '25th' },
+        cases: [{
+            customerKey: '良一',
+            startDate: '2026-09-26',
+            endDate: '2026-10-25',
+            latestVersion: 1,
+            versions: [{ version: 1, sentAt: '2026-10-26T00:00:00.000Z' }],
+        }],
+    });
+    const names = board.groups.find(item => item.id === '25th').unsent.map(row => row.name);
+    assert.deepEqual(names, ['良西+良一', '良站前']);
+    assert.equal(names.includes('良一'), false);
+    assert.equal(names.includes('良西'), false);
+});
+
 test('歐遊 and 捷中正 show on the 1st card under the logistics name', () => {
     assert.equal(settlementGroupOf('歐遊', { 歐遊: 'month' }), '1st');
     assert.equal(settlementGroupOf('捷中正', { 捷中正: '25th' }), '1st');

@@ -452,7 +452,7 @@ body { background: white; padding: 0; margin: 0; }
 </div>
 <div id="invoiceModalBody" class="p-6">
 <div class="mb-4">
-<label class="block text-gray-700 font-bold mb-2">1. 選擇出帳範圍 (可單選飯店，或將勾選的多間飯店合併在同一份檔案結算)</label>
+<label class="block text-gray-700 font-bold mb-2">1. 選擇出帳範圍（同一發票抬頭與統編、且已勾選的組合會合成一份；然一與客衣、驛館與餐廳仍分開）</label>
 <select id="invoiceTargetCompany" onchange="onInvoiceTargetChange()" class="w-full border-2 border-gray-300 rounded-lg p-3 font-bold text-gray-800 focus:border-amber-500 outline-none">
 <option value="">-- 請先載入預覽帳目 --</option>
 </select>
@@ -518,6 +518,7 @@ import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/fu
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261122-contract-dates';
 import { createFirestoreRepository } from './statement-store.js?v=20261119-scoped2';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
+import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
 
@@ -2384,7 +2385,9 @@ function refreshInvoiceCompanyOptions(preferred = '') {
 
     const oldValue = invoiceCustomerKeyFromHotelName(preferred || compSelect.value);
 
+    const groups = statementSelectionGroups(names, exactClientProfile);
     let html = `<option value="">-- 請選擇出帳對象 --</option>`;
+    html += groups.map(group => `<option value="${escapeReportHTML(group.key)}">🧾 合併結算：${escapeReportHTML(group.members.join('、'))}（同一份對帳單）</option>`).join('');
     html += names.map(c => `<option value="${escapeReportHTML(c)}">🏨 單獨結算：${escapeReportHTML(c)}</option>`).join('');
     compSelect.innerHTML = html;
 
@@ -2395,7 +2398,11 @@ function refreshInvoiceCompanyOptions(preferred = '') {
         else if (names.length) profileSelect.value = names[0];
     }
 
-    if (oldValue && names.includes(oldValue)) {
+    const exactGroup = groups.find(group => group.members.length === names.length && group.members.every(member => names.includes(member)));
+    const selectable = new Set([...names, ...groups.map(group => group.key)]);
+    if (exactGroup) {
+        compSelect.value = exactGroup.key;
+    } else if (oldValue && selectable.has(oldValue)) {
         compSelect.value = oldValue;
     } else if (names.length >= 1) {
         compSelect.value = names[0];
@@ -2410,6 +2417,7 @@ function refreshInvoiceCompanyOptions(preferred = '') {
 
 async function openInvoiceModal() {
     if (!rawLogisticsData.length) { alert('請先於「財務對帳單」畫面點擊載入明細！'); return; }
+    if (!Object.keys(sheetClients).length) await refreshInvoiceClientsFromSheet(true);
     const names = refreshInvoiceCompanyOptions();
     if (!names.length) { alert('目前明細沒有可產生對帳單的飯店資料。'); return; }
     document.getElementById('invoiceModal').classList.replace('hidden','flex');
@@ -2425,8 +2433,33 @@ async function openInvoiceModal() {
 function normalizeClientLookupKey(v) {
     return String(v ?? '').normalize('NFKC').replace(/[\s ]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
 }
+function exactClientProfile(comp) {
+    const members = membersOfStatementTarget(comp);
+    if (members.length > 1) {
+        for (const member of members) {
+            const profile = exactClientProfile(member);
+            if (profile) return profile;
+        }
+        return null;
+    }
+    const name = members[0] || String(comp || '').trim();
+    if (!name) return null;
+    if (sheetClients[name]) return sheetClients[name];
+    const key = normalizeClientLookupKey(name);
+    const exact = Object.entries(sheetClients || {}).find(([label]) => normalizeClientLookupKey(label) === key);
+    return exact ? exact[1] : null;
+}
 function resolveClientProfile(comp) {
     if (!comp) return null;
+    const members = membersOfStatementTarget(comp);
+    if (members.length > 1) {
+        for (const member of members) {
+            const profile = resolveClientProfile(member);
+            if (profile?.name || profile?.taxId) return profile;
+        }
+        return null;
+    }
+    comp = members[0] || comp;
     if (comp === '然一-客衣') comp = '然一';
     if (comp === '驛館-餐廳') comp = '驛館';
     if (sheetClients[comp]) return sheetClients[comp];
@@ -2459,7 +2492,7 @@ function loadClientProfile(tryRemote=true) {
     document.getElementById('ciMethod').value = p?.method || '銀行匯款 / 支票';
     document.getElementById('ciLineRecipient').value = p?.contact || '';
     if (p?.name && p?.taxId) {
-        const mergeHint = targetVal === MERGE_ALL_KEY ? '【合併出帳模式】' : '';
+        const mergeHint = membersOfStatementTarget(targetVal).length > 1 || targetVal === MERGE_ALL_KEY ? '【合併出帳模式】' : '';
         setInvoiceClientInfo(`✅ ${mergeHint}已帶入「${comp}」試算表抬頭：${p.name}（統編：${p.taxId}）`);
     } else {
         setInvoiceClientInfo(`⚠️ 尚未取得「${comp}」完整試算表統編，可點右上重新讀取，或直接在下方輸入抬頭與統編後產出。`, true);
@@ -2473,10 +2506,11 @@ function buildInvoiceReport() {
     if (!targetVal) return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 };
 
     const isMergeAll = targetVal === MERGE_ALL_KEY;
+    const members = membersOfStatementTarget(targetVal);
     const matches = distinctShipmentRows(
         isMergeAll
             ? rawLogisticsData
-            : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
+            : rawLogisticsData.filter(r => members.includes(invoiceCustomerKeyForRecord(r)))
     );
 
     const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
@@ -2667,10 +2701,10 @@ async function generateFreshStatement() {
     const countLabel = hotelCount > 1 ? `（${hotelCount} 間）` : '';
     setDispatchStatus('正在送進對帳單送件中心…', false);
     try {
-        const result = await statementRepo.publish(snapshot);
-        const notice = result.action === 'unchanged'
-            ? `送件中心已有同一份帳單，沒有重複新增${countLabel}。`
-            : `已傳送對帳單到送件中心${countLabel}`;
+        const result = await statementRepo.publish(snapshot, new Date().toISOString(), { force: true });
+        const notice = result.action === 'replaced'
+            ? `已重新產生對帳單，並覆蓋送件中心的上一份${countLabel}`
+            : `已重新產生對帳單並送進送件中心${countLabel}`;
         setDispatchStatus(notice, false);
         alert(notice + '。請到「對帳單送件中心」取得 Excel 或 PDF，再用 LINE 寄出。系統不會自動傳給客戶。');
         notifyDispatchRefresh();

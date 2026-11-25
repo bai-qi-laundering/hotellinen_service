@@ -126,6 +126,26 @@ test('產生對帳單會進送件案件，同一內容不新增版本也不清�
     assert.equal(again.doc.versions[0].sentAt, '2026-10-30T02:00:00.000Z');
 });
 
+test('手動再產生同一份內容會覆蓋上一份，不新增版本也不清掉已寄出', async () => {
+    const storage = memoryStorage();
+    const backend = memoryFirestore();
+    const repo = createFirestoreRepository(backend.db, backend.fns, storage);
+    const first = await repo.publish(sample(), '2026-10-30T01:00:00.000Z', { force: true });
+    assert.equal(first.action, 'created');
+    await repo.register(first.doc.id, 1, 'xlsx', '2026-10-30T02:00:00.000Z');
+    const again = await repo.publish(sample(), '2026-10-30T03:00:00.000Z', { force: true });
+    assert.equal(again.action, 'replaced');
+    assert.equal(again.doc.latestVersion, 1);
+    assert.equal(again.doc.state, 'sent');
+    assert.equal(again.doc.invoiceStatus, 'ready');
+    assert.equal(again.doc.versions[0].sentAt, '2026-10-30T02:00:00.000Z');
+    assert.equal(again.doc.versions[0].createdAt, '2026-10-30T03:00:00.000Z');
+    assert.equal(again.doc.updatedAt, '2026-10-30T03:00:00.000Z');
+    const skipped = await publishSnapshot(again.doc, sample(), '2026-10-30T04:00:00.000Z');
+    assert.equal(skipped.action, 'unchanged');
+    assert.equal(skipped.doc.updatedAt, '2026-10-30T03:00:00.000Z');
+});
+
 test('內容變更且舊版已寄出時變成新版待重寄，並保留舊版寄送紀錄', async () => {
     const first = await publishSnapshot(null, sample(), '2026-10-30T01:00:00.000Z');
     const sent = applySentRegistration(first.doc, 1, 'pdf', '2026-10-30T02:00:00.000Z');
@@ -260,7 +280,7 @@ test('財務搜尋修正仍在，送件頁不再使用示範飯店', () => {
     assert.match(finance, /oncompositionend="setHotelKeywordComposing\(false\)"/);
     assert.match(finance, /id="settlementHotelSearch"/);
     assert.match(finance, /filterSettlementHotelRows/);
-    assert.match(finance, /statementRepo\.publish\(snapshot\)/);
+    assert.match(finance, /statementRepo\.publish\(snapshot, new Date\(\)\.toISOString\(\), \{ force: true \}\)/);
     assert.match(finance, /renderStatementHtml/);
     assert.match(finance, /createFirestoreRepository/);
     assert.doesNotMatch(dispatch, /示範飯店/);

@@ -64,10 +64,10 @@ export function createLocalRepository(storage) {
     }
     return {
         cloud: false,
-        async publish(snapshot, now = new Date().toISOString()) {
+        async publish(snapshot, now = new Date().toISOString(), options = {}) {
             const id = await caseDocumentId(snapshot.customerKey, snapshot.startDate, snapshot.endDate);
             const all = read();
-            const result = await publishSnapshot(all[id] || null, snapshot, now);
+            const result = await publishSnapshot(all[id] || null, snapshot, now, options);
             const doc = plain({ ...result.doc, id, cloudPending: false });
             all[id] = doc;
             write(all);
@@ -95,13 +95,13 @@ export function createLocalRepository(storage) {
     };
 }
 
-async function commitPublish(db, fns, snapshot, now) {
+async function commitPublish(db, fns, snapshot, now, options) {
     const id = await caseDocumentId(snapshot.customerKey, snapshot.startDate, snapshot.endDate);
     const ref = fns.doc(db, STATEMENT_COLLECTION, id);
     return fns.runTransaction(db, async tx => {
         const snap = await tx.get(ref);
         const existing = snap.exists() ? { id, ...snap.data() } : null;
-        const result = await publishSnapshot(existing, snapshot, now);
+        const result = await publishSnapshot(existing, snapshot, now, options);
         if (result.action === 'unchanged' && existing && (result.doc.lineRecipient || '') === (existing.lineRecipient || '') && result.doc.updatedAt === existing.updatedAt) {
             return { action: result.action, doc: plain({ ...existing, id }) };
         }
@@ -123,8 +123,8 @@ export function createFirestoreRepository(db, fns, storage) {
     function saveOutbox(box) {
         writeJson(storage, OUTBOX_KEY, box);
     }
-    async function publishNow(snapshot, now) {
-        const result = await commitPublish(db, fns, snapshot, now);
+    async function publishNow(snapshot, now, options) {
+        const result = await commitPublish(db, fns, snapshot, now, options);
         const cache = readJson(storage, CASE_CACHE_KEY, {});
         cache[result.doc.id] = result.doc;
         writeJson(storage, CASE_CACHE_KEY, cache);
@@ -132,14 +132,14 @@ export function createFirestoreRepository(db, fns, storage) {
     }
     return {
         cloud: true,
-        async publish(snapshot, now = new Date().toISOString()) {
+        async publish(snapshot, now = new Date().toISOString(), options = {}) {
             try {
-                return await publishNow(snapshot, now);
+                return await publishNow(snapshot, now, options);
             } catch (error) {
                 if (isLogicError(error)) throw error;
                 const box = outbox();
                 const key = `${snapshot.customerKey}|${snapshot.startDate}|${snapshot.endDate}`;
-                const next = { key, snapshot, now };
+                const next = { key, snapshot, now, options };
                 const index = box.publishes.findIndex(item => item.key === key);
                 if (index >= 0) box.publishes[index] = next;
                 else box.publishes.push(next);
@@ -201,7 +201,7 @@ export function createFirestoreRepository(db, fns, storage) {
             const box = outbox();
             const remain = emptyOutbox();
             for (const item of box.publishes) {
-                try { await publishNow(item.snapshot, item.now); }
+                try { await publishNow(item.snapshot, item.now, item.options || {}); }
                 catch (error) { if (!isLogicError(error)) remain.publishes.push(item); }
             }
             for (const item of box.recipients) {
@@ -230,9 +230,10 @@ export function createFirestoreRepository(db, fns, storage) {
                 for (const item of remain.publishes) {
                     const id = await caseDocumentId(item.snapshot.customerKey, item.snapshot.startDate, item.snapshot.endDate);
                     const existing = next.find(row => row.id === id) || null;
-                    const result = await publishSnapshot(existing, item.snapshot, item.now);
+                    const result = await publishSnapshot(existing, item.snapshot, item.now, item.options || {});
                     const top = latestVersion(result.doc);
-                    const serverHas = !!(existing && top && (existing.versions || []).some(version => version.version === top.version && version.fingerprint === top.fingerprint));
+                    const serverVersion = existing && top && (existing.versions || []).find(version => version.version === top.version && version.fingerprint === top.fingerprint);
+                    const serverHas = !!(serverVersion && (!item.options?.force || serverVersion.createdAt === top.createdAt));
                     next = next.filter(row => row.id !== id);
                     next.push(plain({ ...result.doc, id, cloudPending: !serverHas }));
                 }

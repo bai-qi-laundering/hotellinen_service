@@ -150,7 +150,7 @@ function blankVersion(version, fingerprint, snapshot, createdAt, review = null) 
     };
 }
 
-export async function publishSnapshot(existing, snapshot, now = new Date().toISOString()) {
+export async function publishSnapshot(existing, snapshot, now = new Date().toISOString(), options = {}) {
     const content = snapshotFromParts(snapshot);
     const fingerprint = await fingerprintOf(content);
     if (!existing) {
@@ -176,6 +176,22 @@ export async function publishSnapshot(existing, snapshot, now = new Date().toISO
     const latest = latestVersion(current);
     if (latest && latest.fingerprint === fingerprint) {
         const lineRecipient = content.lineRecipient || current.lineRecipient || '';
+        // 手動再按產生：內容一樣也覆蓋上一份，不另開版本、不把已寄出改成待重寄。
+        if (options.force) {
+            const version = current.versions.find(item => item.version === latest.version) || latest;
+            version.snapshot = canonicalStatement(content);
+            version.fingerprint = fingerprint;
+            version.createdAt = now;
+            return {
+                action: 'replaced',
+                doc: {
+                    ...current,
+                    customerName: content.profile.name || current.customerName,
+                    lineRecipient,
+                    updatedAt: now,
+                },
+            };
+        }
         if (lineRecipient !== (current.lineRecipient || '')) {
             return {
                 action: 'unchanged',
