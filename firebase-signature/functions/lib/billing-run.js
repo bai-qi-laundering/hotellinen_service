@@ -18,6 +18,7 @@ import {
     recordDate,
     rowsForPeriod,
 } from './auto-close.js';
+import { regroupBillingJobs } from './statement-groups.js';
 
 // 鼎王按部門出帳；然一將客衣獨立出帳，其餘部門仍歸然一。
 const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王', '然一', '驛館']);
@@ -154,9 +155,40 @@ async function rememberManual(db, id, date) {
     });
 }
 
-async function publishCustomer(db, { id, customer, period, documents, context, date, group }) {
-    const rows = rowsForPeriod(documents, customer, period.startDate, period.endDate);
-    const coverage = signatureCoverage(documents, customer, period.startDate, period.endDate);
+// 組合單只用合併後的案件編號出帳。各成員再記一筆完成標記，下次結帳日直接跳過，不再讀出貨、不再打試算表。
+async function markMembersCombined(db, job, combinedId, date, group, logger) {
+    for (const part of job.jobs) {
+        if (!part.id || part.id === combinedId) continue;
+        try {
+            await writeMarker(db, part.id, {
+                status: 'completed',
+                customerKey: part.customer,
+                startDate: job.period.startDate,
+                endDate: job.period.endDate,
+                billingGroup: group,
+                combinedCaseId: combinedId,
+                combinedCustomerKey: job.customer,
+                eventId: `billing-day:${date}`,
+            });
+        } catch (error) {
+            logger?.warn?.('combined_member_marker_failed', {
+                customer: part.customer,
+                error: error?.message || String(error),
+            });
+        }
+    }
+}
+
+async function publishCustomer(db, { id, customer, customers, period, documents, context, date, group }) {
+    const names = customers?.length ? customers : [customer];
+    const rows = names.flatMap(name => rowsForPeriod(documents, name, period.startDate, period.endDate));
+    const coverage = names.reduce((sum, name) => {
+        const part = signatureCoverage(documents, name, period.startDate, period.endDate);
+        return {
+            signedReceiptCount: sum.signedReceiptCount + part.signedReceiptCount,
+            unsignedReceiptCount: sum.unsignedReceiptCount + part.unsignedReceiptCount,
+        };
+    }, { signedReceiptCount: 0, unsignedReceiptCount: 0 });
     if (!rows.length) {
         await writeMarker(db, id, {
             status: 'skipped_empty',
@@ -260,24 +292,50 @@ export async function runBillingDay({
 
     if (pending.length) {
         const context = await pricingContext(db, masterUrl, fetchFn, backoffMs, template);
+        const jobs = regroupBillingJobs(pending, name => context.sheetClients?.[name]);
         const documentsByHotel = new Map();
-        for (const job of pending) {
-            if (job.documents) documentsByHotel.set(job.hotel, job.documents);
+        for (const job of jobs) {
+            for (const part of job.jobs) if (part.documents) documentsByHotel.set(part.hotel, part.documents);
         }
-        for (const job of pending) {
+        for (const job of jobs) {
             try {
-                if (!documentsByHotel.has(job.hotel)) {
-                    documentsByHotel.set(job.hotel, await readHotelPeriod(db, job.hotel, job.period.startDate, job.period.endDate));
+                let caseId = job.jobs[0].id;
+                if (job.members.length > 1) {
+                    const prior = await outcome(db, job.customer, job.period);
+                    caseId = prior.id;
+                    if (prior.action !== 'create') {
+                        await markMembersCombined(db, job, prior.id, date, group, logger);
+                        results.push({
+                            customer: job.customer,
+                            id: prior.id,
+                            status: prior.action === 'manual' ? 'skipped_existing' : (prior.status || 'already_completed'),
+                        });
+                        continue;
+                    }
                 }
-                results.push(await publishCustomer(db, {
-                    ...job,
-                    documents: documentsByHotel.get(job.hotel),
+                const documents = [];
+                for (const part of job.jobs) {
+                    if (!documentsByHotel.has(part.hotel)) {
+                        documentsByHotel.set(part.hotel, await readHotelPeriod(db, part.hotel, job.period.startDate, job.period.endDate));
+                    }
+                    documents.push(...documentsByHotel.get(part.hotel));
+                }
+                const published = await publishCustomer(db, {
+                    id: caseId,
+                    customer: job.customer,
+                    customers: job.members,
+                    period: job.period,
+                    documents,
                     context,
                     date,
                     group,
-                }));
+                });
+                results.push(published);
+                if (job.members.length > 1 && published.status !== 'failed') {
+                    await markMembersCombined(db, job, published.id, date, group, logger);
+                }
             } catch (error) {
-                results.push({ customer: job.customer, id: job.id, status: 'failed', error: error?.message || String(error) });
+                results.push({ customer: job.customer, id: job.jobs[0].id, status: 'failed', error: error?.message || String(error) });
             }
         }
     }

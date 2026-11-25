@@ -5,6 +5,7 @@
 
 import { settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
 import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
+import { accountKeyForCustomer, isCombinedAccountKey } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 
 // Display aliases must resolve to the same immutable statement customer key.
 const BOARD_ALIASES = Object.freeze({
@@ -147,6 +148,8 @@ function rosterParents(baseNames, groups) {
 }
 
 function customersFor(parent, items, cases, period) {
+    const account = accountKeyForCustomer(parent);
+    if (account) return [account];
     if(parent==='然一')return ['然一','然一-客衣'];
     if(parent==='驛館')return ['驛館','驛館-餐廳'];
     if (!DEPARTMENT_PARENTS.has(parent)) return [parent];
@@ -215,7 +218,8 @@ export function buildUnsentBoard({ today, baseNames = [], items = [], groups = {
     for (const row of cases || []) {
         const rawName = String(row?.customerKey || '').trim();
         const name = boardHotelKey(rawName);
-        if (!name || name.includes('回洗') || (name.includes('+') && name!=='良西+良一')) continue;
+        if (!name || name.includes('回洗') || ((name.includes('+') || name.includes('＋')) && !isCombinedAccountKey(name))) continue;
+        if (accountKeyForCustomer(name) && accountKeyForCustomer(name) !== name) continue;
         const parent = parentOf(name, parents);
         const group = parent ? settlementGroupOf(parent, groups) : settlementGroupOf(name, groups);
         const period = periods[group];

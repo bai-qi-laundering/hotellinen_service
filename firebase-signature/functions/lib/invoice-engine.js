@@ -2,6 +2,7 @@
 import { snapshotFromParts } from './statement-case.js';
 import { orderStatementSnapshot, statementCustomerKey } from './logistics-items.js';
 import { catalogPrice, datedPrice, unitPriceForRecord } from './price-catalog.js';
+import { membersOfStatementTarget } from './statement-groups.js';
 export function createInvoiceEngine(options) {
 const { logisticsMasterItems, pricingRules, effectivePriceRules, sheetPrices, customPrices, sheetClients, rawLogisticsData } = options;
 const MERGE_ALL_KEY = '__MERGE_ALL_SELECTED__';
@@ -64,10 +65,11 @@ function buildInvoiceReport(targetVal) {
     if (!targetVal) return { comp: '', depts: {}, grandTotal: 0, rounded: 0, tax: 0 };
 
     const isMergeAll = targetVal === MERGE_ALL_KEY;
+    const members = membersOfStatementTarget(targetVal);
     const matches = distinctShipmentRows(
         isMergeAll
             ? rawLogisticsData
-            : rawLogisticsData.filter(r => invoiceCustomerKeyForRecord(r) === targetVal)
+            : rawLogisticsData.filter(r => members.includes(invoiceCustomerKeyForRecord(r)))
     );
 
     const mergedCompanyNames = [...new Set(matches.map(invoiceCustomerKeyForRecord).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
@@ -166,6 +168,15 @@ function normalizeClientLookupKey(v) {
 
 function resolveClientProfile(comp) {
     if (!comp) return null;
+    const members = membersOfStatementTarget(comp);
+    if (members.length > 1) {
+        for (const member of members) {
+            const profile = resolveClientProfile(member);
+            if (profile?.name || profile?.taxId) return profile;
+        }
+        return null;
+    }
+    comp = members[0] || comp;
     if (comp === '然一-客衣') comp = '然一';
     if (comp === '驛館-餐廳') comp = '驛館';
     if (sheetClients[comp]) return sheetClients[comp];

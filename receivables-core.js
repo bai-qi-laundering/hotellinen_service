@@ -1,11 +1,12 @@
 import { payableAmount } from './statement-case.js';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js';
+import { isCombinedAccountKey } from './firebase-signature/functions/lib/statement-groups.js';
 
 
 export function sentVersion(c) { return [...(c.versions||[])].filter(v=>v.sentAt).sort((a,b)=>b.version-a.version)[0]||null; }
 export function isFixedHotelCase(c) {
  const name=String(c?.customerKey||'').normalize('NFKC').replace(/\s/g,'');
- return !name.includes('+') || name==='良西+良一';
+ return (!name.includes('+') && !name.includes('＋')) || isCombinedAccountKey(name);
 }
 export function ledger(c) {
  if(!isFixedHotelCase(c))return null;

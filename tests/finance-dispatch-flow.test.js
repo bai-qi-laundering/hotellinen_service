@@ -18,14 +18,26 @@ function fixture(error) {
         document: {
             getElementById: element,
             querySelector: selector => selector === '.excel-bottom-bar' ? null : element(selector),
+            querySelectorAll: () => [{ value: '測試飯店' }],
             body: { style: {} },
         },
         window: { closeInvoiceModal() { events.push('close-modal'); } },
-        buildInvoiceReport: () => ({ comp: '測試飯店', depts: { '測試部門': {} } }),
+        MERGE_ALL_KEY: '__MERGE_ALL_SELECTED__',
+        statementGenerationPending: false,
+        pendingUpdatesArray: [],
+        financeSavePromise: null,
+        rawLogisticsData: [],
+        currentStatementSnapshot: null,
+        invalidateStatementSnapshot() { context.currentStatementSnapshot = null; },
+        async fetchRecordsForSelectedHotels(options) {
+            events.push(['fetch', options && options.requireServer]);
+            return [{ item: '毛巾', qty: 1 }];
+        },
+        buildInvoiceReport: () => ({ comp: '測試飯店', depts: { '測試部門': {} }, hotelCount: 1 }),
         collectStatementSnapshot: () => ({ customerKey: '測試飯店', totals: { afterRebate: 1234, tax: 62 } }),
         renderStatementHtml: () => '<div>測試帳單</div>',
-        statementRepo: { async publish(snapshot) {
-            events.push(['publish', snapshot.totals.afterRebate, snapshot.totals.tax]);
+        statementRepo: { async publish(snapshot, now, options) {
+            events.push(['publish', snapshot.totals.afterRebate, snapshot.totals.tax, options]);
             if (error) throw error;
             return { action: 'created' };
         } },
@@ -40,9 +52,13 @@ function fixture(error) {
 test('manual generation reaches publish when standalone finance has no old navigation bar', async () => {
     const { context, events } = fixture();
     await vm.runInContext('generateOfficialInvoice()', context);
-    assert.deepEqual(events.find(e => Array.isArray(e) && e[0] === 'publish'), ['publish', 1234, 62]);
-    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[1] === '已傳送對帳單到送件中心'));
-    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'alert' && String(e[1]).includes('已傳送對帳單到送件中心')));
+    const published = events.find(e => Array.isArray(e) && e[0] === 'publish');
+    assert.equal(published[1], 1234);
+    assert.equal(published[2], 62);
+    assert.equal(published[3].force, true);
+    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'fetch' && e[1] === true));
+    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[1] === '已重新產生對帳單並送進送件中心'));
+    assert.ok(events.some(e => Array.isArray(e) && e[0] === 'alert' && String(e[1]).includes('已重新產生對帳單並送進送件中心') && String(e[1]).includes('不會自動傳給客戶')));
     assert.equal(context.document.getElementById('printArea').innerHTML, '');
     assert.equal(context.document.body.style.background || '', '');
     assert.equal(events.filter(e => e === 'refresh').length, 1);
@@ -56,7 +72,7 @@ test('failed publish displays failure and never reports successful delivery', as
     const { context, events } = fixture(new Error('permission-denied'));
     await vm.runInContext('generateOfficialInvoice()', context);
     assert.ok(events.some(e => Array.isArray(e) && e[0] === 'status' && e[2] === true));
-    assert.equal(events.some(e => Array.isArray(e) && e[0] === 'status' && String(e[1]).startsWith('已傳送對帳單到送件中心')), false);
+    assert.equal(events.some(e => Array.isArray(e) && e[0] === 'status' && String(e[1]).startsWith('已重新產生對帳單')), false);
 });
 
 test('傳送成功的綠字在按鈕列下面，不跟三個按鈕搶同一列', () => {
