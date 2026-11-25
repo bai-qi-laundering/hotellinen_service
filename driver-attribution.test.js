@@ -218,7 +218,7 @@ test('finance.html 司機業績以手動為最終，排班則重算並只回寫�
     assert.match(refreshFn, /applyDriverMasterRows/);
     const readPricesFn = html.slice(html.indexOf('async function readSheetPrices'), html.indexOf('async function readFirebaseCustomPrices'));
     assert.equal(readPricesFn.includes('sheetPricesFromRows'), false);
-    assert.match(html, /price-catalog\.js\?v=20261122-contract-dates/);
+    assert.match(html, /price-catalog\.js\?v=20261125-guest-uniform/);
     assert.equal(html.includes('20261124-price-notes'), false);
     const masterFn = html.slice(html.indexOf('async function fetchFinanceMasterData'), html.indexOf('function getPrice'));
     const applyAt = masterFn.indexOf('applyDriverMasterRows(json)');

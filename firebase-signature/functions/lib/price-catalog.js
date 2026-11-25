@@ -74,6 +74,49 @@ function lookup(map, key) {
     return parsePriceCell(value && typeof value === 'object' ? value.baseline : value);
 }
 
+// 客衣部門的「統一折扣」是這一列的價錢，不是「統一價格」，也不看品名裡有沒有客衣。
+function guestLaundryLabels(hotel, deptName = '') {
+    const name = String(hotel || '').trim();
+    const dept = String(deptName || '').trim();
+    const labels = [];
+    const add = label => {
+        const text = String(label || '').trim();
+        if (text && !labels.includes(text)) labels.push(text);
+    };
+    if (dept.includes('客衣')) add(name.endsWith('客衣') ? name : `${name} ${dept}`.trim());
+    if (/(?:^|\s)客衣$/.test(name)) add(name);
+    return labels;
+}
+
+function sheetPriceForDate(value, date) {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'object') return parsePriceCell(value);
+    const dated = normalizePriceDate(date);
+    const history = Array.isArray(value.history) ? value.history : [];
+    if (dated) {
+        const match = history
+            .filter(rule => normalizePriceDate(rule?.start) && rule.start <= dated && parsePriceCell(rule.price) !== null)
+            .sort((a, b) => String(b.start).localeCompare(String(a.start)))[0];
+        if (match) return parsePriceCell(match.price);
+    }
+    return parsePriceCell(value.baseline);
+}
+
+// 試算表該飯店客衣部門有「統一折扣」時，回傳那個價錢。沒有這一列就回 null，沿用原本的單價順序。
+export function guestLaundryUniformPrice(record, sheetPrices) {
+    const hotel = record && typeof record === 'object' ? record.hotel : record;
+    const dept = record && typeof record === 'object' ? record.deptName : '';
+    const date = record && typeof record === 'object' ? record.date : null;
+    if (!sheetPrices) return null;
+    for (const label of guestLaundryLabels(hotel, dept)) {
+        const key = `${label}_統一折扣`;
+        if (!Object.prototype.hasOwnProperty.call(sheetPrices, key)) continue;
+        const price = sheetPriceForDate(sheetPrices[key], date);
+        if (price !== null) return price;
+    }
+    return null;
+}
+
 // Compare dated sheet contracts and dated manual changes by their start date.
 // Firebase wins a same-day tie; an older manual change cannot mask a new contract.
 function effectiveRule(catalog, hotel, item, date) {
@@ -90,6 +133,8 @@ function effectiveRule(catalog, hotel, item, date) {
 
 // Effective-date history, then the Firebase catalog, then a parsed sheet cell.
 export function catalogPrice({ hotel, item, date = null, rules = [], customPrices = {}, sheetPrices = {} } = {}) {
+    const uniform = guestLaundryUniformPrice({ hotel, date }, sheetPrices);
+    if (uniform !== null) return { price: uniform, source: 'sheet-unified' };
     const effective = effectiveRule({ rules, sheetPrices }, hotel, item, date);
     if (effective) return { price: parsePriceCell(effective.price), source: effective.source };
     const exact = `${hotel}_${item}`;
@@ -113,6 +158,8 @@ function applyHoliday(price, percent) {
 
 // null means the price was not found. Callers must not turn that into $0.
 export function unitPriceForRecord(record, catalog, holidayPercent = 0) {
+    const uniform = guestLaundryUniformPrice(record, catalog?.sheetPrices);
+    if (uniform !== null) return applyHoliday(uniform, holidayPercent);
     const effective = effectiveRule(catalog, record?.hotel, record?.item, record?.date);
     if (effective) return applyHoliday(parsePriceCell(effective.price), holidayPercent);
     if (record?.manualPriceOverride) {

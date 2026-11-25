@@ -158,6 +158,82 @@ test('blank baseline plus dated zero preserves zero and does not activate future
  const get=date=>catalogPrice({sheetPrices,hotel:'A飯店 房務',item:'浴巾',date}).price;
  assert.equal(get('2026-10-31'),8);assert.equal(get('2026-11-01'),0);
 });
+test('客衣統一折扣 covers every guest-laundry line and leaves other departments on the old chain', () => {
+    const sheetPrices = sheetPricesFromRows([
+        ['飯店名稱', '部門分類', '品項名稱', '價格'],
+        ['然一', '客衣', '統一折扣', 0.8],
+        ['然一', '客衣', '統一價格', 0.8],
+        ['然一', '客衣', '襯衫', 5],
+        ['頭等艙', '房務', '統一折扣', 1],
+        ['頭等艙', '房務', '床單', 9],
+    ]);
+    const catalog = {
+        sheetPrices,
+        customPrices: { '然一 客衣_襯衫': 3, '然一 客衣_000444': 4 },
+        rules: [{ key: '然一 客衣_襯衫', start: '2026-01-01', price: 6 }],
+    };
+    const guest = { hotel: '然一 客衣', deptName: '客衣', item: '襯衫', date: '2026-11-12', savedPrice: 9, manualPriceOverride: true, currentPrice: 9 };
+    assert.equal(unitPriceForRecord(guest, catalog, 0), 0.8);
+    assert.equal(unitPriceForRecord(guest, catalog, 25), 1);
+    assert.deepEqual(catalogPrice({ hotel: '然一 客衣', item: '襯衫', date: '2026-11-12', ...catalog }), { price: 0.8, source: 'sheet-unified' });
+    assert.equal(unitPriceForRecord(
+        { hotel: '然一', deptName: '客衣', item: '000444', date: '2026-11-12', savedPrice: 9 }, catalog, 0,
+    ), 0.8);
+    assert.equal(unitPriceForRecord(
+        { hotel: '頭等艙 房務', deptName: '房務', item: '床單', date: '2026-11-12', savedPrice: 9 }, catalog, 0,
+    ), 9);
+    assert.equal(catalogPrice({ hotel: '頭等艙 房務', item: '沒有品項', date: '2026-11-12', sheetPrices }).price, 1);
+    const namedOnly = sheetPricesFromRows([
+        ['飯店名稱', '部門分類', '品項名稱', '價格'],
+        ['然一', '客衣', '統一價格', 0.8],
+    ]);
+    assert.equal(unitPriceForRecord(
+        { hotel: '然一 客衣', deptName: '客衣', item: '襯衫', date: '2026-11-12', savedPrice: 5 },
+        { sheetPrices: namedOnly, customPrices: {}, rules: [] }, 0,
+    ), 5);
+});
+
+test('a dated 客衣統一折扣 uses the parsed effective date and does not change column E parsing', () => {
+    const sheetPrices = sheetPricesFromRows([
+        ['飯店名稱', '部門分類', '品項名稱', '價格', '生效日'],
+        ['驛館', '客衣', '統一折扣', 0.9, ''],
+        ['驛館', '客衣', '統一折扣', 1.2, '2026-11-01'],
+    ]);
+    const line = date => unitPriceForRecord(
+        { hotel: '驛館 客衣', item: '外套', date, savedPrice: 4 },
+        { sheetPrices, customPrices: { '驛館 客衣_外套': 3 }, rules: [] }, 0,
+    );
+    assert.equal(line('2026-10-31'), 0.9);
+    assert.equal(line('2026-11-01'), 1.2);
+});
+
+test('客衣 statement lines all use 統一折扣 while 房務 on the same hotel does not', () => {
+    const sheetPrices = sheetPricesFromRows([
+        ['飯店名稱', '部門分類', '品項名稱', '價格'],
+        ['然一', '客衣', '統一折扣', 0.8],
+        ['然一', '客衣', '襯衫', 5],
+        ['然一', '房務', '床單', 10],
+    ]);
+    const engine = createInvoiceEngine({
+        logisticsMasterItems: [{ hotel: '然一 客衣', item: '襯衫' }, { hotel: '然一 房務', item: '床單' }],
+        pricingRules: { holidays: [{ hotel: '然一', start: '2026-01-01', end: '2026-12-31', percent: 25 }], rebates: [], managementFees: [] },
+        effectivePriceRules: [{ key: '然一 客衣_襯衫', start: '2026-01-01', price: 6 }],
+        sheetPrices,
+        customPrices: { '然一 客衣_襯衫': 3 },
+        sheetClients: { 然一: { name: '御盟', taxId: '59269713' } },
+        rawLogisticsData: [
+            { docId: 'g', receiptOrder: 0, date: '2026-11-02', parentCompany: '然一', hotel: '然一 客衣', deptName: '客衣', item: '襯衫', qty: 10, savedPrice: 9, manualPriceOverride: true },
+            { docId: 'l', receiptOrder: 0, date: '2026-11-02', parentCompany: '然一', hotel: '然一 房務', deptName: '房務', item: '床單', qty: 2, savedPrice: 10 },
+        ],
+    });
+    const guest = engine.build('然一-客衣', '2026-11-01', '2026-11-30');
+    assert.equal(guest.departments[0].records[0].price, 1);
+    assert.equal(guest.totals.grandTotal, 10);
+    const linen = engine.build('然一', '2026-11-01', '2026-11-30');
+    assert.equal(linen.departments[0].records[0].price, 12.5);
+    assert.equal(linen.totals.grandTotal, 25);
+});
+
 test('25th closing statement splits October and November contract prices and keeps both summary rows',()=>{
  const rows=['2026-10-26','2026-10-31','2026-11-01','2026-11-25'].map((date,i)=>({docId:String(i),date,parentCompany:'A飯店',hotel:'A飯店 房務',item:'浴巾',qty:10,savedPrice:6}));
  const engine=createInvoiceEngine({logisticsMasterItems:[{hotel:'A飯店 房務',item:'浴巾'}],pricingRules:{holidays:[],rebates:[],managementFees:[]},effectivePriceRules:[],sheetPrices:sheetPricesFromRows(contractRows),customPrices:{},sheetClients:{'A飯店':{name:'A飯店'}},rawLogisticsData:rows});
