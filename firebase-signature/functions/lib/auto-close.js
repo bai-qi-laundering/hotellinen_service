@@ -115,7 +115,7 @@ export function rowsForPeriod(documents,customer,start,end) {
    const raw=item.actualQty!==undefined && item.actualQty!==null && String(item.actualQty).trim()!=='' ? item.actualQty : item.originalQty ?? item.bqQty ?? 0;
    const qty=Number(raw)||0;
    if(qty<=0 || String(item.itemName||'').includes('回洗')) return;
-   rows.push({docId:id,receiptOrder:idx,rowId:JSON.stringify([id,idx]),parentCompany:parent,hotel,date,item:item.itemName,qty,savedPrice:item.price,manualPriceOverride:!!item.manualFinancePrice});
+   rows.push({docId:id,receiptOrder:idx,rowId:JSON.stringify([id,idx]),parentCompany:parent,hotel,deptName:dept,date,item:item.itemName,qty,savedPrice:item.price,manualPriceOverride:!!item.manualFinancePrice});
   });
  }
  return rows;
