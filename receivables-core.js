@@ -42,7 +42,7 @@ export function applyLedger(c,expected,action,payload,now) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.date||''))throw Error('請填寫作廢日期。');
   const old=out.invoiceRecord||{};
   out.invoiceHistory=[...(out.invoiceHistory||[]),{...old,number,date:old.date||out.invoiceDate||'',version:old.version||out.invoicedVersion||l.version,amount:old.amount??l.amount,reason,voidDate:payload.date,at:now,source:'external-void-confirmed'}];
-  for(const key of ['invoiceRecord','invoiceNumber','invoiceDate','invoicedVersion','provider','invoiceKind','invoiceBuyerId','invoiceBuyerName','invoiceRaw','invoiceDraft','invoiceLock'])out[key]=null;
+  for(const key of ['invoiceRecord','invoiceNumber','invoiceDate','invoicedVersion','provider','invoiceKind','invoiceBuyerId','invoiceBuyerName','invoiceRaw','invoiceDraft','invoiceLock','invoiceFailure'])out[key]=null;
   for(const version of out.versions||[]){
    if(version.review==='invoiced_diff'&&Number(version.version)===Number(out.latestVersion))version.review=null;
    if(version.invoiceNumber===number){version.invoiceNumber=null;version.invoiceDate=null;version.voidedAt=now;}
@@ -76,7 +76,7 @@ export function applyLedger(c,expected,action,payload,now) {
   if((out.invoiceHistory||[]).some(h=>String(h.number||'').toUpperCase()===number))throw Error('此發票號碼已有作廢紀錄，請使用重新開立的號碼。');
   if(out.invoiceRecord||out.invoiceStatus==='invoiced')throw Error('已有發票紀錄，請先核對原發票，不能重複登記或覆蓋。');
   if(!['manual','electronic'].includes(payload.method)||!/^\d{4}-\d{2}-\d{2}$/.test(payload.date))throw Error('請填寫發票類型與日期。');
-  out.invoiceRecord={number,method:payload.method,date:payload.date,amount:l.amount,version:l.version,at:now};out.invoiceStatus='invoiced';out.invoicedVersion=l.version;
+  out.invoiceRecord={number,method:payload.method,date:payload.date,amount:l.amount,version:l.version,at:now};out.invoiceNumber=number;out.invoiceDate=payload.date;out.invoiceFailure=null;out.invoiceStatus='invoiced';out.invoicedVersion=l.version;
  } else throw Error('不支援的操作');
  out.updatedAt=now;return out;
 }

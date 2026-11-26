@@ -1,4 +1,6 @@
 import { cleanDescription, quoteInvoice } from './einvoice-amount.js';
+import { invoiceDateError } from './einvoice-date.js';
+import { invoiceFailureMessage, publicInvoiceTarget } from './einvoice-failure.js';
 import {
     buildEnvelope,
     cancelInvoicePayload,
@@ -75,6 +77,7 @@ export function markInvoiced(doc, patch) {
     };
     next.invoiceDraft = null;
     next.invoiceLock = null;
+    next.invoiceFailure = null;
     next.updatedAt = patch.at;
     const version = (next.versions || []).find(item => Number(item.version) === Number(patch.version));
     if (version) {
@@ -113,6 +116,7 @@ export function markVoided(doc, patch) {
     next.invoiceRecord = null;
     next.invoiceDraft = null;
     next.invoiceLock = null;
+    next.invoiceFailure = null;
     next.updatedAt = patch.at;
     for (const version of next.versions || []) {
         if (version.invoiceNumber === history[history.length - 1].number) {
@@ -138,6 +142,7 @@ function alreadyResult(doc) {
         already: true,
         invoiceNumber: invoiceNumberOf(doc),
         invoiceDate: doc.invoiceDate || doc.invoiceRecord?.date || '',
+        notifyEmail: doc.invoiceRecord?.notifyEmail || '',
     };
 }
 
@@ -148,7 +153,25 @@ async function post(creds, send, clock, path, reqData) {
     return { json, stamp, body };
 }
 
-async function queryState(creds, send, clock, orderID, fallbackDate) {
+function providerError(parsed, context, fallback) {
+    const statusDesc = String(parsed?.statusDesc || '').trim();
+    const target = publicInvoiceTarget(context?.host);
+    const failure = {
+        statusCode: parsed?.statusCode == null ? '' : String(parsed.statusCode).trim(),
+        statusDesc,
+        buyerId: String(context?.buyerId || '').replace(/\D/g, ''),
+        environment: target.environment,
+        host: target.host,
+        version: Number(context?.version) || null,
+    };
+    const error = new Error(context
+        ? invoiceFailureMessage({ ...failure, statusDesc: statusDesc || fallback || '' })
+        : (statusDesc || fallback || '查詢已開立發票失敗。'));
+    if (context) error.invoiceFailure = failure;
+    return error;
+}
+
+async function queryState(creds, send, clock, orderID, fallbackDate, failureContext) {
     const { json } = await post(creds, send, clock, '/queryInvoice', queryInvoicePayload({
         orderID,
         sellerId: creds.companyID,
@@ -156,7 +179,7 @@ async function queryState(creds, send, clock, orderID, fallbackDate) {
     const parsed = parseResponse(json);
     const raw = publicResponse(json);
     if (isNotYetIssued(parsed)) return { state: 'missing', raw };
-    if (!parsed.ok) throw new Error(parsed.statusDesc || '查詢已開立發票失敗。');
+    if (!parsed.ok) throw providerError(parsed, failureContext, '查詢已開立發票失敗。');
     const data = parsed.respData && typeof parsed.respData === 'object' ? parsed.respData : {};
     const status = data.status == null || data.status === '' ? '0' : String(data.status);
     if (status === '1') return { state: 'void', raw };
@@ -176,9 +199,54 @@ async function releaseLock(db, ref) {
     }).catch(() => {});
 }
 
-export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, buyerEmail, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function latestUniversalInvoiceDate(db) {
+    try {
+        const col = db.collection('statement_cases');
+        if (!col || typeof col.get !== 'function') return '';
+        const snap = await col.get();
+        let last = '';
+        const visit = data => {
+            if (!data || data.provider !== 'universalec') return;
+            const date = String(data.invoiceDate || data.invoiceRecord?.date || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date > last) last = date;
+        };
+        if (typeof snap?.forEach === 'function') snap.forEach(doc => visit(typeof doc.data === 'function' ? doc.data() : doc));
+        else for (const doc of snap?.docs || []) visit(typeof doc.data === 'function' ? doc.data() : doc);
+        return last;
+    } catch {
+        return '';
+    }
+}
+
+async function recordInvoiceFailure(db, ref, failure, at) {
+    const target = publicInvoiceTarget(failure?.environment === 'prod' ? 'https://web.einvoice.com.tw/einv' : failure?.host);
+    await db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return;
+        const data = snap.data();
+        if (invoiceNumberOf(data) || data.invoiceStatus === 'invoiced') return;
+        tx.set(ref, {
+            ...data,
+            invoiceLock: null,
+            invoiceFailure: {
+                statusCode: String(failure.statusCode || ''),
+                statusDesc: String(failure.statusDesc || ''),
+                at,
+                environment: target.environment,
+                host: target.host,
+                buyerId: String(failure.buyerId || '').replace(/\D/g, ''),
+                version: Number(failure.version) || null,
+            },
+        });
+    }).catch(() => {});
+}
+
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, buyerEmail, host, invoiceDate, lastIssuedDate, now = new Date().toISOString(), clock = () => new Date() }) {
     const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
+    const today = taipeiDateTime(clock()).isoDate;
+    const requestedDate = String(invoiceDate || today).trim();
+    const knownLast = lastIssuedDate === undefined ? await latestUniversalInvoiceDate(db) : lastIssuedDate;
     const prepared = await db.runTransaction(async tx => {
         const snap = await tx.get(ref);
         const data = snap.exists ? snap.data() : null;
@@ -192,6 +260,8 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         if (quote.buyer?.kind !== 'b2b' || !/^\d{8}$/.test(String(quote.buyer?.taxId || ''))) {
             throw new Error('這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。');
         }
+        const dateError = invoiceDateError(requestedDate, { today, lastIssuedDate: knownLast });
+        if (dateError) throw new Error(dateError);
         const text = cleanDescription(description, latest.snapshot);
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         const orderID = orderIdFor(caseId, version, reissue);
@@ -205,13 +275,14 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             sales: quote.sales,
             tax: quote.tax,
             total: quote.total,
+            invoiceDate: requestedDate,
         });
         tx.set(ref, {
             ...data,
             invoiceLock: { version: Number(version), at: now, uid: actor },
             invoiceDraft: { version: Number(version), orderID, at: now },
         });
-        return { quote, text, orderID, hadDraft, payload, notifyEmail: payload.notifyEmail || '' };
+        return { quote, text, orderID, hadDraft, payload, notifyEmail: payload.notifyEmail || '', invoiceDate: requestedDate };
     });
     if (prepared.done) return prepared.done;
 
@@ -222,7 +293,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         const next = markInvoiced(data, {
             version: Number(version),
             invoiceNumber: issued.number,
-            invoiceDate: issued.date || taipeiDateTime(clock()).isoDate,
+            invoiceDate: issued.date || prepared.invoiceDate,
             kind: 'b2b',
             buyerId: prepared.quote.buyer.taxId,
             buyerName: prepared.quote.buyer.name,
@@ -239,14 +310,21 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             already: false,
             invoiceNumber: issued.number,
             invoiceDate: next.invoiceDate,
+            requestedInvoiceDate: prepared.invoiceDate,
+            notifyEmail: prepared.notifyEmail || '',
             kind: 'b2b',
         };
     });
 
     try {
-        const fallbackDate = taipeiDateTime(clock()).isoDate;
+        const fallbackDate = prepared.invoiceDate;
+        const failureContext = {
+            buyerId: prepared.quote.buyer.taxId,
+            host,
+            version: Number(version),
+        };
         if (prepared.hadDraft) {
-            const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
+            const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate, failureContext);
             if (found.state === 'issued') return finish(found.issued, found.raw);
         }
         let response;
@@ -255,7 +333,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         } catch (error) {
             if (!isUncertain(error)) throw error;
             try {
-                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
+                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate, failureContext);
                 if (found.state === 'issued') return finish(found.issued, found.raw);
             } catch (queryError) {
                 if (!isUncertain(queryError)) throw queryError;
@@ -265,16 +343,17 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         const parsed = parseResponse(response.json);
         if (!parsed.ok) {
             if (isDuplicate(parsed)) {
-                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate);
+                const found = await queryState(creds, send, clock, prepared.orderID, fallbackDate, failureContext);
                 if (found.state === 'issued') return finish(found.issued, found.raw);
             }
-            throw new Error(parsed.statusDesc || '汎宇沒有接受這張發票。');
+            throw providerError(parsed, failureContext, '汎宇沒有接受這張發票。');
         }
-        const issued = issuedFrom(parsed.respData, response.stamp.isoDate);
-        if (!issued) throw new Error(parsed.statusDesc || '汎宇沒有回傳發票號碼。');
+        const issued = issuedFrom(parsed.respData, fallbackDate);
+        if (!issued) throw providerError(parsed, failureContext, '汎宇沒有回傳發票號碼。');
         return finish(issued, publicResponse(response.json));
     } catch (error) {
-        await releaseLock(db, ref);
+        if (error?.invoiceFailure) await recordInvoiceFailure(db, ref, error.invoiceFailure, now);
+        else await releaseLock(db, ref);
         throw error;
     }
 }
