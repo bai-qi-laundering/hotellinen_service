@@ -58,7 +58,15 @@ export function buyerFromProfile(profile) {
     if (/^0+$/.test(name)) throw new Error('買方名稱不可為 0。請先到結帳系統改抬頭。');
     if (name.length > 60) throw new Error('發票抬頭請在 60 字以內。請先到結帳系統改。');
     if (!/^\d{8}$/.test(digits)) throw new Error(MISSING_TAX_ID_MESSAGE);
-    return { kind: 'b2b', taxId: digits, name };
+    const email = String(profile?.email || '').trim();
+    return { kind: 'b2b', taxId: digits, name, ...(email ? { email } : {}) };
+}
+
+export function clientNotifyEmail(rows, customerKey) {
+    const want = String(customerKey || '').trim();
+    if (!want || !Array.isArray(rows)) return '';
+    const row = rows.find(item => Array.isArray(item) && String(item[0] ?? '').trim() === want);
+    return row ? String(row[5] ?? '').trim() : '';
 }
 
 export function quoteInvoice(snapshot) {

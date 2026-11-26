@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { quoteInvoice, splitTaxInclusive } from '../lib/einvoice-amount.js';
+import { clientNotifyEmail, quoteInvoice, splitTaxInclusive } from '../lib/einvoice-amount.js';
 import { payableAmount } from '../lib/statement-case.js';
 import {
     buildEnvelope,
@@ -12,6 +12,7 @@ import {
     isDuplicate,
     isNotYetIssued,
     issuedFrom,
+    notifyEmailAddress,
     openInvoicePayload,
     orderIdFor,
     parseResponse,
@@ -197,6 +198,29 @@ test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
     assert.equal(b2b.Details[0].sequenceNumber, '0001');
     assert.equal(b2b.Details[0].taxType, '1');
     assert.equal(b2b.notifyEmail, undefined);
+    const mailed = openInvoicePayload({
+        orderID: 'case_1-v1', sellerId: '96842769', buyer: { ...buyerB2B, email: 'accounts@hotel.example' },
+        description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
+    });
+    assert.equal(mailed.notifyEmail, 'accounts@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example, b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example； b@hotel.example  c@hotel.example'), 'a@hotel.example;b@hotel.example;c@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;不是信箱;b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;b@hotel.example;c@hotel.example;d@hotel.example'), 'a@hotel.example;b@hotel.example;c@hotel.example');
+    const skipped = openInvoicePayload({
+        orderID: 'case_1-v1', sellerId: '96842769', buyer: { ...buyerB2B, email: '不是信箱' },
+        description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
+    });
+    assert.equal(skipped.notifyEmail, undefined);
+    assert.equal(clientNotifyEmail([
+        ['飯店名稱', '請款抬頭名稱', '統一編號', '聯絡人', '聯絡電話', '電子信箱'],
+        ['英迪格', '頭等艙飯店有限公司英迪格分公司', '83603127', '', '', ''],
+        ['示範', '示範公司', '87654321', '', '', 'accounts@hotel.example'],
+    ], '示範'), 'accounts@hotel.example');
+    assert.equal(clientNotifyEmail([
+        ['英迪格', '頭等艙飯店有限公司英迪格分公司', '83603127', '', '', ''],
+    ], '英迪格'), '');
     assert.throws(() => openInvoicePayload({
         orderID: 'x', sellerId: '96842769', buyer: { taxId: '87654321', name: '0' },
         description: '品項', sales: 100, tax: 5, total: 105,
@@ -391,6 +415,19 @@ test('草稿已在時，查詢回尚未開立就改送開立，而且只開一�
     });
     assert.equal(recovered.invoiceNumber, 'AB12345678');
     assert.equal(found.calls.filter(call => call.path === '/openInvoice').length, 0);
+});
+
+test('有電子信箱才放進 notifyEmail，沒有信箱仍可開立', async () => {
+    const db = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
+    const { calls, send } = gateway(path => (path === '/openInvoice' ? issuedBody() : null));
+    const issued = await issueStatement({
+        db, send, creds, caseId: 'case_1', version: 1, description: '布品洗滌費',
+        actor: 'staff@baiqi.test', clock, buyerEmail: 'accounts@hotel.example',
+    });
+    assert.equal(issued.invoiceNumber, 'AB12345678');
+    assert.equal(calls[0].body.reqData.notifyEmail, 'accounts@hotel.example');
+    assert.equal(db.read('statement_cases/case_1').invoiceRecord.notifyEmail, 'accounts@hotel.example');
+    assert.equal(calls[0].body.reqData.notifyEmail.includes('apiKey'), false);
 });
 
 test('汎宇拒絕時把 statusDesc 原樣丟回，沒有寫入發票號碼', async () => {

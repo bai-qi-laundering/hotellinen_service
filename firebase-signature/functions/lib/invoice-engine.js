@@ -139,6 +139,7 @@ function parseFinanceClientRows(rows) {
                 taxId: tax(row[2]),
                 contact: val(row[3]),
                 phone: val(row[4]),
+                email: val(row[5]),
                 address: val(row[8]),
                 terms: val(row[6]) || '月結 30 天',
                 method: val(row[7]) || '銀行匯款 / 支票'
@@ -152,6 +153,7 @@ function parseFinanceClientRows(rows) {
                 taxId: tax(row.taxId ?? row.taxID ?? row['統編'] ?? row['統一編號']),
                 contact: val(row.contact ?? row['聯絡人']),
                 phone: val(row.phone ?? row['電話']),
+                email: val(row.email ?? row['電子信箱'] ?? row['信箱']),
                 address: val(row.address ?? row['地址']),
                 terms: val(row.terms ?? row['付款條件']) || '月結 30 天',
                 method: val(row.method ?? row['付款方式']) || '銀行匯款 / 支票'

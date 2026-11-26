@@ -8,6 +8,7 @@ import {
     isUncertain,
     issuedFrom,
     normalizeCreds,
+    notifyEmailAddress,
     openInvoicePayload,
     orderIdFor,
     parseResponse,
@@ -70,6 +71,7 @@ export function markInvoiced(doc, patch) {
         provider: 'universalec',
         randomNumber: patch.randomNumber || '',
         orderID: patch.orderID || '',
+        ...(patch.notifyEmail ? { notifyEmail: patch.notifyEmail } : {}),
     };
     next.invoiceDraft = null;
     next.invoiceLock = null;
@@ -174,7 +176,7 @@ async function releaseLock(db, ref) {
     }).catch(() => {});
 }
 
-export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, buyerEmail, now = new Date().toISOString(), clock = () => new Date() }) {
     const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
     const prepared = await db.runTransaction(async tx => {
@@ -194,10 +196,11 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         const orderID = orderIdFor(caseId, version, reissue);
         const hadDraft = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.orderID === orderID;
+        const notifyEmail = notifyEmailAddress(buyerEmail) || notifyEmailAddress(quote.buyer.email);
         const payload = openInvoicePayload({
             orderID,
             sellerId: creds.companyID,
-            buyer: quote.buyer,
+            buyer: { ...quote.buyer, email: notifyEmail },
             description: text,
             sales: quote.sales,
             tax: quote.tax,
@@ -208,7 +211,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             invoiceLock: { version: Number(version), at: now, uid: actor },
             invoiceDraft: { version: Number(version), orderID, at: now },
         });
-        return { quote, text, orderID, hadDraft, payload };
+        return { quote, text, orderID, hadDraft, payload, notifyEmail: payload.notifyEmail || '' };
     });
     if (prepared.done) return prepared.done;
 
@@ -227,6 +230,7 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             description: prepared.text,
             orderID: prepared.orderID,
             randomNumber: issued.randomNumber,
+            notifyEmail: prepared.notifyEmail,
             at: now,
             raw,
         });

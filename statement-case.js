@@ -70,6 +70,7 @@ export function canonicalStatement(input) {
             taxId: text(profile.taxId),
             contact: text(profile.contact),
             phone: text(profile.phone),
+            ...(text(profile.email) ? { email: text(profile.email) } : {}),
             address: text(profile.address),
             terms: text(profile.terms),
             method: text(profile.method),
