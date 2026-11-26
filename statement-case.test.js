@@ -14,9 +14,12 @@ import {
     publishSnapshot,
     renderStatementHtml,
     snapshotFromParts,
+    statementDeleteBlockReason,
+    statementDeleteConfirmText,
     statementFileBase,
 } from './statement-case.js';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js';
+import { ledger } from './receivables-core.js';
 
 function sample(overrides = {}) {
     return snapshotFromParts({
@@ -80,17 +83,19 @@ function memoryStorage() {
 }
 
 function memoryFirestore(options = {}) {
-    const docs = new Map();
+    const paths = new Map();
     let failures = options.failures || 0;
     const api = {
         fail(count) { failures = count; },
     };
     const fns = {
-        doc(_db, _col, id) { return { id }; },
+        doc(_db, collection, id) { return { id, path: `${collection}/${id}` }; },
         collection() { return {}; },
         async getDocsFromServer() {
             return {
-                docs: [...docs.entries()].map(([id, data]) => ({ id, data: () => structuredClone(data) })),
+                docs: [...paths.entries()]
+                    .filter(([path]) => path.startsWith('statement_cases/'))
+                    .map(([path, data]) => ({ id: path.slice('statement_cases/'.length), data: () => structuredClone(data) })),
             };
         },
         async runTransaction(_db, fn) {
@@ -100,15 +105,28 @@ function memoryFirestore(options = {}) {
             }
             const tx = {
                 async get(ref) {
-                    const data = docs.get(ref.id);
+                    const data = paths.get(ref.path);
                     return { exists: () => data != null, data: () => structuredClone(data) };
                 },
-                set(ref, data) { docs.set(ref.id, structuredClone(data)); },
+                set(ref, data) { paths.set(ref.path, structuredClone(data)); },
+                delete(ref) { paths.delete(ref.path); },
             };
             return fn(tx);
         },
     };
-    return { db: {}, fns, docs, ...api };
+    return {
+        db: {},
+        fns,
+        paths,
+        get docs() {
+            const cases = new Map();
+            for (const [path, data] of paths) {
+                if (path.startsWith('statement_cases/')) cases.set(path.slice('statement_cases/'.length), data);
+            }
+            return cases;
+        },
+        ...api,
+    };
 }
 
 test('產生對帳單會進送件案件，同一內容不新增版本也不清掉已寄送', async () => {
@@ -281,6 +299,9 @@ test('財務搜尋修正仍在，送件頁不再使用示範飯店', () => {
     assert.match(finance, /id="settlementHotelSearch"/);
     assert.match(finance, /filterSettlementHotelRows/);
     assert.match(finance, /statementRepo\.publish\(snapshot, new Date\(\)\.toISOString\(\), \{ force: true \}\)/);
+    assert.match(finance, /貨款登記已改成新的金額/);
+    assert.match(finance, /已經開發票，貨款登記維持原金額/);
+    assert.match(finance, /已經有入帳紀錄，貨款登記維持原金額/);
     assert.match(finance, /renderStatementHtml/);
     assert.match(finance, /createFirestoreRepository/);
     assert.doesNotMatch(dispatch, /示範飯店/);
@@ -288,4 +309,97 @@ test('財務搜尋修正仍在，送件頁不再使用示範飯店', () => {
     assert.match(dispatch, /statement-case\.js/);
     assert.match(dashboard, /statement-dispatch\.html/);
     assert.doesNotMatch(dashboard, /尚不能實際寄送/);
+    assert.match(dispatch, /textContent = '刪除'/);
+    assert.match(dispatch, /statementDeleteConfirmText\(item\)/);
+    const receivables = fs.readFileSync(new URL('./receivables-ui.js', import.meta.url), 'utf8');
+    assert.match(receivables, /data-delete=/);
+    assert.match(receivables, /statementDeleteConfirmText\(c\)/);
+});
+
+test('還沒開發票也還沒入帳時，重新產生會把同一筆貨款改成新金額', async () => {
+    const first = await publishSnapshot(null, sample(), '2026-11-01T00:00:00.000Z');
+    const sent = applySentRegistration(first.doc, 1, 'xlsx', '2026-11-02T00:00:00.000Z');
+    assert.equal(ledger(sent).amount, 2100);
+    const next = await publishSnapshot(sent, changed(), '2026-11-03T00:00:00.000Z', { force: true });
+    assert.equal(next.action, 'replaced');
+    assert.equal(next.ledgerSynced, true);
+    assert.equal(next.doc.latestVersion, 1);
+    assert.equal(next.doc.versions.length, 1);
+    assert.equal(next.doc.versions[0].sentAt, '2026-11-02T00:00:00.000Z');
+    assert.equal(ledger(next.doc).amount, payableAmount(changed()));
+    assert.equal(ledger(next.doc).pending, false);
+    const id = await caseDocumentId('驗證飯店', '2026-10-01', '2026-10-25');
+    assert.equal(await caseDocumentId(next.doc.customerKey, next.doc.startDate, next.doc.endDate), id);
+    const withoutForce = await publishSnapshot(sent, changed(), '2026-11-03T00:00:00.000Z');
+    assert.equal(withoutForce.doc.latestVersion, 2);
+    assert.equal(ledger(withoutForce.doc).amount, 2100);
+});
+
+test('已開發票或已入帳時，重新產生不改貨款金額', async () => {
+    const first = await publishSnapshot(null, sample(), '2026-11-01T00:00:00.000Z');
+    const sent = applySentRegistration(first.doc, 1, 'xlsx', '2026-11-02T00:00:00.000Z');
+    const invoiced = { ...sent, invoiceStatus: 'invoiced', invoiceRecord: { number: 'AB12345678' }, invoicedVersion: 1 };
+    const reviewed = await publishSnapshot(invoiced, changed(), '2026-11-03T00:00:00.000Z', { force: true });
+    assert.equal(reviewed.action, 'needs_review');
+    assert.equal(reviewed.ledgerSynced, false);
+    assert.equal(ledger(reviewed.doc).amount, 2100);
+    assert.equal(reviewed.doc.versions[0].snapshot.totals.afterRebate, 2000);
+    const paid = { ...sent, paymentConfirmation: { version: 1, at: '2026-11-02T00:00:00.000Z' } };
+    const locked = await publishSnapshot(paid, changed(), '2026-11-03T00:00:00.000Z', { force: true });
+    assert.equal(locked.action, 'payment_locked');
+    assert.equal(locked.ledgerSynced, false);
+    assert.equal(ledger(locked.doc).amount, 2100);
+    assert.equal(ledger(locked.doc).pending, true);
+    assert.equal(locked.doc.versions[0].snapshot.totals.afterRebate, 2000);
+    assert.equal(locked.doc.versions[1].snapshot.totals.afterRebate, 2020);
+});
+
+test('未開票的帳單可以刪，已開發票或已入帳的不能刪', async () => {
+    const created = await publishSnapshot(null, sample(), '2026-11-25T01:00:00.000Z');
+    assert.equal(statementDeleteBlockReason(created.doc), '');
+    const sent = applySentRegistration(created.doc, 1, 'xlsx', '2026-11-25T02:00:00.000Z');
+    assert.equal(statementDeleteBlockReason(sent), '');
+    assert.match(statementDeleteConfirmText(sent), /確定刪除這份對帳單/);
+    assert.match(statementDeleteConfirmText(sent), /飯店：驗證飯店/);
+    assert.match(statementDeleteConfirmText(sent), /區間：2026\/10\/01－2026\/10\/25/);
+    assert.match(statementDeleteConfirmText(sent), /金額：NT\$ 2,100/);
+    assert.match(statementDeleteBlockReason({ ...sent, invoiceStatus: 'invoiced', invoiceRecord: { number: 'AB12345678' }, invoicedVersion: 1 }), /發票/);
+    assert.match(statementDeleteBlockReason({ ...sent, paymentConfirmation: { version: 1 } }), /入帳/);
+    assert.match(statementDeleteBlockReason({ ...sent, collectionRecord: { receivedAmount: 2100, receivedDate: '2026-11-20' } }), /入帳/);
+    assert.equal(statementDeleteBlockReason({ ...sent, collectionRecord: { issuer: '百麒國際', receivedAmount: '', receivedDate: '' } }), '');
+});
+
+test('刪除會拿掉送件案件、自動產生標記和良西+良一成員標記，刪完可以再產生', async () => {
+    const storage = memoryStorage();
+    const backend = memoryFirestore();
+    const repo = createFirestoreRepository(backend.db, backend.fns, storage);
+    const snapshot = sample({ customerKey: '良西+良一', startDate: '2026-10-26', endDate: '2026-11-25' });
+    const created = await repo.publish(snapshot, '2026-11-25T01:00:00.000Z');
+    const id = created.doc.id;
+    const sent = applySentRegistration({ ...created.doc, id }, 1, 'xlsx', '2026-11-25T02:00:00.000Z');
+    backend.paths.set(`statement_cases/${id}`, sent);
+    backend.paths.set(`statement_auto_runs/${id}`, { status: 'completed', caseId: id });
+    const liangxi = await caseDocumentId('良西', snapshot.startDate, snapshot.endDate);
+    const liangyi = await caseDocumentId('良一', snapshot.startDate, snapshot.endDate);
+    backend.paths.set(`statement_auto_runs/${liangxi}`, { status: 'completed', combinedCaseId: id, customerKey: '良西' });
+    backend.paths.set(`statement_auto_runs/${liangyi}`, { status: 'completed', combinedCaseId: id, customerKey: '良一' });
+    backend.paths.set('statement_auto_runs/other-hotel', { status: 'completed', combinedCaseId: id });
+    backend.paths.set(`statement_cases/${id}`, { ...sent, invoiceStatus: 'invoiced', invoiceNumber: 'AB12345678', invoicedVersion: 1 });
+    await assert.rejects(() => repo.remove(id), /發票/);
+    assert.equal(backend.paths.has(`statement_cases/${id}`), true);
+    assert.equal(backend.paths.has(`statement_auto_runs/${liangxi}`), true);
+    backend.paths.set(`statement_cases/${id}`, sent);
+    await repo.remove(id);
+    assert.equal(backend.paths.has(`statement_cases/${id}`), false);
+    assert.equal(backend.paths.has(`statement_auto_runs/${id}`), false);
+    assert.equal(backend.paths.has(`statement_auto_runs/${liangxi}`), false);
+    assert.equal(backend.paths.has(`statement_auto_runs/${liangyi}`), false);
+    assert.equal(backend.paths.has('statement_auto_runs/other-hotel'), true);
+    const again = await repo.publish(snapshot, '2026-11-25T03:00:00.000Z', { force: true });
+    assert.equal(again.action, 'created');
+    assert.equal(again.doc.latestVersion, 1);
+    assert.equal(again.doc.state, 'pending');
+    const listed = await repo.list();
+    assert.equal(listed.cases.length, 1);
+    assert.equal(listed.cases[0].customerKey, '良西+良一');
 });

@@ -43,6 +43,7 @@ p{line-height:1.6}
 .btn.wide{grid-column:1 / -1}
 .btn{border:1px solid var(--line);background:#fff;border-radius:11px;padding:13px 8px;font-weight:700;color:var(--green)}
 .btn.primary{background:var(--green);border-color:var(--green);color:white}
+.btn.danger{color:#8d2f2f}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .note{font-size:12px;color:var(--muted);margin-top:13px}
 .banner{background:#fff7e8;color:#8b632d;border:1px solid #f1e3c9;border-radius:12px;padding:12px 14px;margin-top:16px;font-size:14px;font-weight:700}
@@ -147,7 +148,7 @@ p{line-height:1.6}
  <div class="intro">
   <div>
    <h2 style="font-size:19px;margin-bottom:5px">待處理帳單</h2>
-   <p class="muted" style="font-size:13px;margin-top:0">這裡是財務系統按「產生對帳單」後送過來的帳單。系統不會自動傳 LINE。下載或打開分享，都不算寄出，要等您傳完再按「我已寄出」。</p>
+   <p class="muted" style="font-size:13px;margin-top:0">這裡是財務系統按「產生對帳單」後送過來的帳單。系統不會自動傳 LINE。下載或打開分享，都不算寄出，要等您傳完再按「我已寄出」。產生錯的可以按刪除，送件中心和貨款登記會一起拿掉；已經開發票或已經入帳的不能刪。</p>
   </div>
   <button class="btn" id="refresh" type="button">重新整理</button>
  </div>
@@ -199,8 +200,10 @@ import {
     renderStatementHtml,
     statementFileBase,
     dispatchHotelName,
-} from './statement-case.js?v=20261104-split-customers';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261119-scoped2';
+    statementDeleteBlockReason,
+    statementDeleteConfirmText,
+} from './statement-case.js?v=20261125-delete-case';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261125-delete-case';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261104-split-customers';
 
@@ -369,7 +372,12 @@ function render() {
         send.textContent = item.state === 'sent' ? '再次取得檔案' : '確認送出';
         send.disabled = !version;
         send.onclick = () => showSend(item);
-        actions.append(preview, send);
+        const remove = document.createElement('button');
+        remove.className = 'btn wide danger';
+        remove.type = 'button';
+        remove.textContent = '刪除';
+        remove.onclick = () => deleteCase(item);
+        actions.append(preview, send, remove);
         const note = document.createElement('div');
         note.className = 'note';
         const notes = [];
@@ -520,6 +528,26 @@ function beginPrepareFile(item, format) {
         share: typeof navigator.share === 'function' ? data => navigator.share(data) : undefined,
         canShare: typeof navigator.canShare === 'function' ? data => navigator.canShare(data) : undefined,
     });
+}
+async function deleteCase(item) {
+    if (!item || busy) return;
+    const reason = statementDeleteBlockReason(item);
+    if (reason) {
+        alert(reason);
+        return;
+    }
+    if (!confirm(statementDeleteConfirmText(item))) return;
+    busy = true;
+    try {
+        await repo.remove(item.id);
+        window.parent.postMessage({ type: 'baiqi-ledger-updated' }, location.origin);
+        await reload();
+        unsentDashboard?.reload();
+    } catch (error) {
+        alert(error.message || '刪除失敗，請重試。');
+    } finally {
+        busy = false;
+    }
 }
 async function markSent(expectedVersion) {
     if (!selected || busy) return;
