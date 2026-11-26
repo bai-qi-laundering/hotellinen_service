@@ -970,4 +970,12 @@ export function officeSheets(docs, order = {}) {
         || a.hotel.localeCompare(b.hotel, 'zh-Hant'));
 }
 
+// Keep a matching sheet intact: the office confirmation must still cover every item.
+export function searchableOfficeSheets(sheets, query = '') {
+    const norm = value => String(value || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+    const needle = norm(query);
+    return sheets.map((sheet, index) => ({sheet, index})).filter(({sheet}) =>
+        !needle || norm([sheet.hotel, ...(sheet.items || []).flatMap(item => [item.item, item.officeName])].join(' ')).includes(needle));
+}
+
 

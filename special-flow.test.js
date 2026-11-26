@@ -5,9 +5,26 @@ import { computeShipDate } from './special-shipdate.js';
 import {
     addParsedEntry, signItem, reworkItem, sendSheet, updateOfficeName,
     editItem, deleteItem, deleteEntry, entryMates,
-    foldCards, washSlips, officeSheets, reworkBadge, signedMark,
+    foldCards, washSlips, officeSheets, searchableOfficeSheets, reworkBadge, signedMark,
     signWashBatch, signSpreadItem, washGroupKey,
 } from './special-flow.js';
+
+test('office search finds hotels and items while retaining the full sheet and original send index', () => {
+    const sheets = officeSheets([
+        {id:'first',hotel:'驛館',item:'特處床單',receivedDate:'2026-11-24',status:'已簽名'},
+        {id:'second',hotel:'鉑麗',item:'特處枕套',officeName:'枕套（烘）',receivedDate:'2026-11-24',status:'已簽名'},
+        {id:'third',hotel:'鉑麗',item:'特處被套',receivedDate:'2026-11-24',status:'已簽名'},
+    ]);
+    const byHotel=searchableOfficeSheets(sheets,'鉑 麗');
+    assert.equal(byHotel.length,1);
+    assert.equal(byHotel[0].sheet.items.length,2);
+    assert.equal(byHotel[0].index,sheets.indexOf(byHotel[0].sheet));
+    const byItem=searchableOfficeSheets(sheets,'枕套(烘)');
+    assert.equal(byItem.length,1);
+    assert.equal(byItem[0].sheet.hotel,'鉑麗');
+    assert.equal(byItem[0].sheet.items.length,2);
+    assert.equal(searchableOfficeSheets(sheets,'不存在').length,0);
+});
 
 function ready(docs, time = '2026-10-27T03:00:00.000Z') {
     let current = docs;
