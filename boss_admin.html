@@ -1152,12 +1152,25 @@
                         // was created earlier while only part of the batch was entered.
                         const invGroup = invRawDataMap[matchKey];
                         const missingToPersist = [];
-                        if (!restaurantTotals && !d.clientSig && !d.driverSig && !d.manualItemDeleted && invGroup) {
+                        const pendingInventoryItems = [];
+                        if (invGroup && !d.manualItemDeleted) {
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim(), qty = String(invItem.qty ?? '0');
-                                if (!itemName || Number(qty) === 0 || existingLogItems.some(i => itemMatchesName(i, itemName))) return;
-                                validItems.push({ itemName, bqQty: qty, actualQty: qty });
-                                missingToPersist.push({ itemName, originalQty: qty, actualQty: qty, auntNote: '', driverNote: '' });
+                                if (!itemName || Number(qty) === 0) return;
+                                const signedItem = existingLogItems.find(i => itemMatchesName(i, itemName));
+                                if (signedItem) {
+                                    if ((d.clientSig || d.driverSig) && Number(signedItem.originalQty ?? signedItem.bqQty ?? 0) !== Number(qty))
+                                        pendingInventoryItems.push({ itemName, qty });
+                                    return;
+                                }
+                                if (d.clientSig || d.driverSig) {
+                                    // A signature can be copied to another department before its
+                                    // inventory is saved. Show the gap, never alter a signed snapshot.
+                                    pendingInventoryItems.push({ itemName, qty });
+                                } else {
+                                    validItems.push({ itemName, bqQty: qty, actualQty: qty });
+                                    missingToPersist.push({ itemName, originalQty: qty, actualQty: qty, auntNote: '', driverNote: '' });
+                                }
                             });
                         }
                         if (missingToPersist.length) logisticsRepairPromises.push(runTransaction(db, async tx => {
@@ -1183,7 +1196,7 @@
                             return (a.itemName < b.itemName) ? -1 : 1;
                         });
 
-                        if (validItems.length > 0) {
+                        if (validItems.length > 0 || pendingInventoryItems.length > 0) {
                              logRecords.push({
                                 id: docSnap.id,
                                 date: dDate,
@@ -1191,6 +1204,7 @@
                                 deptName: d.deptName,
                                 hotel: hotelName,
                                 items: validItems,
+                                pendingInventoryItems,
                                 deletedBackupItems: Array.isArray(d.deletedBackupItems) ? d.deletedBackupItems : [],
                                 assignedDriver: d.assignedDriver || "",
                                 driverSource: d.driverSource || "",
@@ -1199,7 +1213,7 @@
                                 driverSig: d.driverSig || "",
                                 clientSig: d.clientSig || "",
                                 signDate: d.timestamp || "",
-                                status: status,
+                                status: pendingInventoryItems.length ? 'yellow' : status,
                                 signatureReviewNeeded
                             });
                         }
@@ -1381,7 +1395,7 @@
             const dates = [...new Set(logRecords.map(r => r.date))].sort();
             const hotels = [...new Set(logRecords.map(r => r.hotel))].sort();
             let allItems = [];
-            logRecords.forEach(r => r.items.forEach(i => allItems.push(i.itemName)));
+            logRecords.forEach(r => [...r.items, ...(r.pendingInventoryItems || [])].forEach(i => allItems.push(i.itemName)));
             let items = [...new Set(allItems)];
             items.sort((a, b) => getItemSortIndex("", a) - getItemSortIndex("", b));
 
@@ -1407,7 +1421,7 @@
             logFiltered = logRecords.filter(r => {
                 const matchDate = (fDate === "") || (r.date === fDate);
                 const matchHotel = (fHotel === "") || (r.hotel === fHotel);
-                const matchItem = (fItem === "") || r.items.some(i => i.itemName === fItem); 
+                const matchItem = (fItem === "") || [...r.items, ...(r.pendingInventoryItems || [])].some(i => i.itemName === fItem);
                 return matchDate && matchHotel && matchItem;
             });
 
@@ -1487,6 +1501,9 @@
                         </td>
                     </tr>
                 `}).join('');
+                const pendingItemsHtml = (r.pendingInventoryItems || []).map(i =>
+                    `<tr class="border-b border-amber-100"><td class="px-4 py-2 font-bold">${escapeAttr(i.itemName)}</td><td class="px-4 py-2 text-right font-bold">${escapeAttr(i.qty)}</td></tr>`
+                ).join('');
 
                 const driverNameNow = String(r.assignedDriver || '').trim();
                 const manualLockedBlank = storedDriverSource(r) === 'manual' && !driverNameNow;
@@ -1519,7 +1536,7 @@
                                 <span class="font-bold text-gray-800">${r.date}</span>
                             </div>
                         </td>
-                        <td class="font-black text-gray-800 text-lg">${r.hotel}</td>
+                        <td class="font-black text-gray-800 text-lg">${r.hotel}${pendingItemsHtml ? '<div class="text-xs text-amber-700">⚠️ 有盤點數量尚未納入簽收，請核對</div>' : ''}</td>
                         <td class="text-center" onclick="event.stopPropagation()">
                             ${driverSelectHtml}
                         </td>
@@ -1557,6 +1574,7 @@
                                                 <tbody>${itemsHtml}</tbody>
                                             </table>
                                         </div>
+                                        ${pendingItemsHtml ? `<div class="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-amber-900"><div class="mb-2 font-bold">⚠️ 待核對盤點（未納入已簽收數量）</div><table class="w-full text-sm"><tbody>${pendingItemsHtml}</tbody></table></div>` : ''}
                                     </div>
                                     <div class="flex flex-col">
                                         <h4 class="font-bold text-emerald-800 mb-3 border-b-2 border-emerald-200 pb-2">✍️ 雙方簽收確認</h4>

@@ -1034,9 +1034,12 @@
                             if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
                             if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
                         } else {
-                            // 將司機簽名帶到尚無司機簽名的部門，不動飯店簽名及數量。
-                            if (!prior.driverSig && driverUrl) update.driverSig=driverUrl;
-                            else return;
+                            // 同車其他部門已有盤點時，簽名當下保留它們的數量快照。
+                            // 若飯店已簽名，不能由司機的畫面覆寫飯店確認的品項。
+                            if (prior.driverSig || !driverUrl) return;
+                            update.driverSig=driverUrl;
+                            if (!prior.clientSig && items.length)
+                                update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
                         }
                         const patch=needsBatch?InventoryBatchState.signedPatch(batchSnapshot.exists()?batchSnapshot.data():{},
                             {date:signingDate,id:refDoc.id},Date.now()):null;
