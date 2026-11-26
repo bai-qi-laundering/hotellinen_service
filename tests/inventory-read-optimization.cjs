@@ -65,7 +65,7 @@ test('production page scopes detail and sendwash to selected hotel/date, without
  assert.match(sendwash,/where\('inventoryHotel','==',inventoryHotel\)/);
  assert(!html.includes("query(collection(db,'logistics_records'),where('hotelKeyword','==','喜達絲'))"));
 });
-test('logistics lookup keeps signed quantities intact while reading inventory groups',async()=>{
+test('logistics lookup displays latest inventory but keeps manually corrected actual quantity',async()=>{
  const source=fs.readFileSync('boss_admin.html','utf8');
  const body=source.slice(source.indexOf('window.loadLogData = async function()'),source.indexOf('let outletCorrectionDialog')).replace(/;\s*$/,'');
  const raw=[{id:'signed',date:'2026-11-22',hotelKeyword:'喜達絲',deptName:'房務',clientSig:'client-image',driverSig:'driver-image',items:[{itemName:'床單',originalQty:'100',actualQty:'97'}]}, {id:'unsigned',date:'2026-11-22',hotelKeyword:'鉑麗',deptName:'房務',items:[{itemName:'浴巾',originalQty:'0',actualQty:'2'}]}];
@@ -76,7 +76,7 @@ test('logistics lookup keeps signed quantities intact while reading inventory gr
  vm.createContext(context);vm.runInContext(body,context);await context.window.loadLogData();
  assert.equal(JSON.stringify(raw),before);assert.deepEqual(queries,['logistics_records']);
  assert.equal(context.logRecords[0].clientSig,'client-image');assert.equal(context.logRecords[0].driverSig,'driver-image');
- assert.equal(context.logRecords[0].items[0].bqQty,'100');assert.equal(context.logRecords[0].items[0].actualQty,'97');
+ assert.equal(context.logRecords[0].items[0].bqQty,'200');assert.equal(context.logRecords[0].items[0].actualQty,'97');
  assert.equal(context.logRecords[1].items[0].actualQty,'2');assert(!elements.logTableBody.innerHTML.includes('讀取失敗'));
 });
 test('H2O first inventory item creates a visible unsigned logistics receipt immediately',async()=>{
@@ -99,12 +99,12 @@ test('H2O first inventory item creates a visible unsigned logistics receipt imme
  assert.equal(saved['2026-11-24_H2O_房務'].driverSig,'');
  assert(!elements.logTableBody.innerHTML.includes('讀取失敗'));
 });
-test('a driver-signed empty department shows its later inventory without changing the signed receipt',async()=>{
+test('a driver-signed empty department writes its later inventory into the formal receipt',async()=>{
  const source=fs.readFileSync('boss_admin.html','utf8');
  const body=source.slice(source.indexOf('window.loadLogData = async function()'),source.indexOf('let outletCorrectionDialog')).replace(/;\s*$/,'');
  const receipt={date:'2026-11-24',hotelKeyword:'H2O',deptName:'中餐',driverSig:'driver-image',items:[]};
  const elements={logStartDate:{value:'2026-11-24'},logEndDate:{value:'2026-11-24'},logFetchHotel:{value:''},logTableBody:{},logLoadBtn:{}};
- let writes=0;
+ let writes=0,saved;
  const context={window:{},document:{getElementById:id=>elements[id]},ensureMasterData:async()=>{},loadDriverSchedule:async()=>{},
   readAdminPeriod:async()=>[{forEach:cb=>cb({id:'2026-11-24_H2O_中餐',data:()=>receipt})}],
   buildInventoryMapsForRange:async()=>({invMap:{},invRawDataMap:{'2026-11-24_H2O中餐':{date:'2026-11-24',hotelKeyword:'H2O',deptName:'中餐',hotelName:'H2O 中餐',items:[{itemName:'檯布',qty:'5'}]}}}),
@@ -112,15 +112,15 @@ test('a driver-signed empty department shows its later inventory without changin
   standardizeDate:d=>d,isRestaurantDept:()=>false,uniqueLogItems:x=>x,itemMatchesName:(x,n)=>x.itemName===n,
   getItemSortIndex:()=>0,ScopedReads:{norm:x=>String(x).replace(/\s/g,'')},driverScheduleContext:()=>({}),
   planDriverWritebacks:()=>[],populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console,
-  db:{},doc:(_,collection,id)=>({collection,id}),runTransaction:async()=>{writes++;throw Error('signed receipt must not be written');}};
+  receiptPatch:(record,name,qty)=>({items:[...(record.items||[]),{itemName:name,originalQty:qty,actualQty:qty}]}),
+  db:{},doc:(_,collection,id)=>({collection,id}),runTransaction:async(_,callback)=>callback({get:async()=>({exists:()=>true,data:()=>receipt}),update:(_,patch)=>{saved=patch;writes++;}})};
  vm.createContext(context);vm.runInContext(body,context);await context.window.loadLogData();
  assert.equal(context.logRecords.length,1);
- assert.equal(context.logRecords[0].items.length,0);
- assert.equal(context.logRecords[0].pendingInventoryItems[0].itemName,'檯布');
- assert.equal(context.logRecords[0].pendingInventoryItems[0].qty,'5');
- assert.equal(writes,0);assert.deepEqual(receipt.items,[]);
+ assert.equal(context.logRecords[0].items[0].actualQty,'5');
+ assert.equal(saved.items[0].actualQty,'5');
+ assert.equal(writes,1);assert.deepEqual(receipt.items,[]);
 });
-test('a signed receipt keeps its confirmed quantity and exposes a later inventory change for review',async()=>{
+test('a signed receipt updates its formal quantity from later inventory',async()=>{
  const source=fs.readFileSync('boss_admin.html','utf8');
  const body=source.slice(source.indexOf('window.loadLogData = async function()'),source.indexOf('let outletCorrectionDialog')).replace(/;\s*$/,'');
  const receipt={date:'2026-11-24',hotelKeyword:'H2O',deptName:'房務',driverSig:'driver-image',clientSig:'hotel-image',items:[{itemName:'床單',originalQty:'10',actualQty:'10'}]};
@@ -131,9 +131,11 @@ test('a signed receipt keeps its confirmed quantity and exposes a later inventor
   latestInvRawDataMap:{},deletedReceiptTombstones:new Map(),FlowerReceipts:{collapse:m=>m},logRecords:[],
   standardizeDate:d=>d,isRestaurantDept:()=>false,uniqueLogItems:x=>x,itemMatchesName:(x,n)=>x.itemName===n,
   getItemSortIndex:()=>0,ScopedReads:{norm:x=>String(x).replace(/\s/g,'')},driverScheduleContext:()=>({}),
-  planDriverWritebacks:()=>[],populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console};
+  planDriverWritebacks:()=>[],populateLogDropdowns(){},applyLogFilters(){},showToast(){},lastLogFetchKey:'',console,
+  receiptPatch:(record,name,qty)=>({items:[{...record.items[0],originalQty:qty,actualQty:qty}]}),
+  db:{},doc:(_,collection,id)=>({collection,id}),runTransaction:async(_,callback)=>callback({get:async()=>({exists:()=>true,data:()=>receipt}),update:(_,patch)=>{context.saved=patch;}})};
  vm.createContext(context);vm.runInContext(body,context);await context.window.loadLogData();
  assert.equal(context.logRecords[0].items[0].actualQty,'10');
- assert.equal(context.logRecords[0].pendingInventoryItems[0].qty,'12');
+ assert.equal(context.saved.items[0].actualQty,'12');
  assert.equal(receipt.items[0].originalQty,'10');
 });
