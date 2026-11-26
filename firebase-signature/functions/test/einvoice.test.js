@@ -9,6 +9,8 @@ import {
     cancelInvoicePayload,
     encodeAuth,
     hostForEnv,
+    isDuplicate,
+    isNotYetIssued,
     issuedFrom,
     openInvoicePayload,
     orderIdFor,
@@ -245,6 +247,10 @@ test('回應看 statusCode，失敗時留下 statusDesc', () => {
     assert.equal(failed.ok, false);
     assert.equal(failed.statusDesc, '買方統編錯誤');
     assert.equal(parseResponse({ statusCode: '3', statusDesc: '無資料' }).statusCode, '3');
+    assert.equal(isNotYetIssued({ statusCode: '2', statusDesc: '尚未用此銷貨單號碼開立發票(case_1-v1)' }), true);
+    assert.equal(isNotYetIssued({ statusCode: '2', statusDesc: '買方統編錯誤' }), false);
+    assert.equal(isDuplicate({ statusDesc: '尚未用此銷貨單號碼開立發票(case_1-v1)' }), false);
+    assert.equal(isDuplicate({ statusDesc: '此銷貨單號碼已開立' }), true);
     assert.equal(issuedFrom({ invNo: 'AB12345678', status: '1' }), null);
 });
 
@@ -350,6 +356,41 @@ test('已有發票號碼就拒絕，逾時後用 orderID 查到已開立的那�
     assert.equal(calls.filter(call => call.path === '/queryInvoice').at(-1).body.reqData.orderID, 'case_1-v1');
     assert.equal(calls.filter(call => call.path === '/queryInvoice').at(-1).body.reqData.process_type, 'B');
     assert.equal(db.read('statement_cases/case_1').invoiceStatus, 'invoiced');
+});
+
+test('草稿已在時，查詢回尚未開立就改送開立，而且只開一次', async () => {
+    const doc = statementDoc();
+    doc.invoiceDraft = { version: 1, orderID: 'case_1-v1', at: '2026-11-26T05:49:13.748Z' };
+    const db = memoryFirestore({ 'statement_cases/case_1': doc });
+    const { calls, send } = gateway(path => {
+        if (path === '/queryInvoice') {
+            return { statusCode: '2', statusDesc: '尚未用此銷貨單號碼開立發票(case_1-v1)', respData: null };
+        }
+        if (path === '/openInvoice') return issuedBody();
+        throw new Error(path);
+    });
+    const issued = await issueStatement({
+        db, send, creds, caseId: 'case_1', version: 1, description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
+    });
+    assert.equal(issued.invoiceNumber, 'AB12345678');
+    assert.equal(calls.filter(call => call.path === '/queryInvoice').length, 1);
+    assert.equal(calls.filter(call => call.path === '/openInvoice').length, 1);
+    assert.equal(calls.find(call => call.path === '/openInvoice').body.reqData.orderID, 'case_1-v1');
+    assert.equal(db.read('statement_cases/case_1').invoiceNumber, 'AB12345678');
+
+    const again = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
+    again.read('statement_cases/case_1').invoiceDraft = { version: 1, orderID: 'case_1-v1', at: '2026-11-26T05:49:13.748Z' };
+    const found = gateway(path => {
+        if (path === '/queryInvoice') {
+            return { statusCode: '0', statusDesc: '', respData: { invNo: 'AB12345678', invDate: '20261031', randomNumber: '4321', status: '0' } };
+        }
+        throw new Error('已查到發票，不該再送出 ' + path);
+    });
+    const recovered = await issueStatement({
+        db: again, send: found.send, creds, caseId: 'case_1', version: 1, description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
+    });
+    assert.equal(recovered.invoiceNumber, 'AB12345678');
+    assert.equal(found.calls.filter(call => call.path === '/openInvoice').length, 0);
 });
 
 test('汎宇拒絕時把 statusDesc 原樣丟回，沒有寫入發票號碼', async () => {

@@ -179,8 +179,16 @@ export function parseResponse(json) {
     };
 }
 
+export function isNotYetIssued(parsed) {
+    if (String(parsed?.statusCode ?? '') === '3') return true;
+    const desc = String(parsed?.statusDesc || '');
+    return /尚未用此銷貨單號碼開立發票|尚未開立發票/.test(desc);
+}
+
 export function isDuplicate(parsed) {
-    return /重複|已存在|已開立|already|duplicate/i.test(String(parsed?.statusDesc || ''));
+    const desc = String(parsed?.statusDesc || '');
+    if (/尚未/.test(desc)) return false;
+    return /重複|已存在|已開立|already|duplicate/i.test(desc);
 }
 
 export function isUncertain(error) {

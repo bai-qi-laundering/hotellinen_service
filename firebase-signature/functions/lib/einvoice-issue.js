@@ -4,6 +4,7 @@ import {
     cancelInvoicePayload,
     hostForEnv,
     isDuplicate,
+    isNotYetIssued,
     isUncertain,
     issuedFrom,
     normalizeCreds,
@@ -152,7 +153,7 @@ async function queryState(creds, send, clock, orderID, fallbackDate) {
     }));
     const parsed = parseResponse(json);
     const raw = publicResponse(json);
-    if (parsed.statusCode === '3') return { state: 'missing', raw };
+    if (isNotYetIssued(parsed)) return { state: 'missing', raw };
     if (!parsed.ok) throw new Error(parsed.statusDesc || '查詢已開立發票失敗。');
     const data = parsed.respData && typeof parsed.respData === 'object' ? parsed.respData : {};
     const status = data.status == null || data.status === '' ? '0' : String(data.status);
