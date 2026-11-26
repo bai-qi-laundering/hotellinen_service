@@ -554,6 +554,8 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(index, /UEC_API_KEY/);
     assert.match(index, /UEC_COMPANY_ID/);
     assert.match(index, /UEC_ENV/);
+    assert.match(index, /host: PROD_HOST/);
+    assert.doesNotMatch(index, /hostForEnv/);
     assert.match(index, /defineString\('SIGNATURE_FUNCTION_REGION', \{ default: 'asia-east1' \}\)/);
     assert.equal(index.includes("defineString('FUNCTION_REGION'"), false);
     assert.match(readme, /SIGNATURE_FUNCTION_REGION=asia-east1/);
