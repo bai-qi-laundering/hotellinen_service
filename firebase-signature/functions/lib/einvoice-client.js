@@ -96,6 +96,12 @@ export function orderIdFor(caseId, version, reissue = 0) {
     return id.slice(0, 50);
 }
 
+export function notifyEmailAddress(value) {
+    const email = String(value || '').trim();
+    if (!email || email.length > 80) return '';
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+}
+
 function intAmount(value, label) {
     const n = Number(value);
     if (!Number.isInteger(n) || n < 0) throw new Error(`${label}需為 0 以上的整數。`);
@@ -116,6 +122,7 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
     const totalAmount = intAmount(total, '含稅金額');
     if (totalAmount < 1) throw new Error('含稅金額需為 1 元以上的整數，這張沒有開立。');
     if (salesAmount + taxAmount !== totalAmount) throw new Error('未稅加稅額必須等於含稅金額，這張沒有開立。');
+    const notifyEmail = notifyEmailAddress(buyer?.email);
     return {
         orderID,
         process_type: 'B',
@@ -132,6 +139,7 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
         taxrate: 0.05,
         taxAmount,
         totalAmount,
+        ...(notifyEmail ? { notifyEmail } : {}),
         Details: [{
             description: text,
             quantity: 1,

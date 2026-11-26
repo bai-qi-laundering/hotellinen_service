@@ -8,6 +8,7 @@ import { taipeiDate } from './lib/auto-close.js';
 import { BILLING_CRON, BILLING_TIME_ZONE } from './lib/billing-schedule.js';
 import { handleBillingSchedule } from './lib/billing-run.js';
 import { PROD_HOST } from './lib/einvoice-client.js';
+import { clientNotifyEmail } from './lib/einvoice-amount.js';
 import { issueStatement, testConnection, voidStatement } from './lib/einvoice-issue.js';
 
 if (BILLING_CRON !== '30 9 1,25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
@@ -125,6 +126,23 @@ async function postEinvoice(url, body) {
     return json || {};
 }
 
+async function buyerEmailForIssue(customerKey) {
+    const base = String(masterUrl.value() || '').trim();
+    const name = String(customerKey || '').trim();
+    if (!base || !name) return '';
+    try {
+        const url = new URL(base);
+        if (url.protocol !== 'https:' || url.hostname !== 'script.google.com') return '';
+        url.searchParams.set('action', 'getFinanceMasterData');
+        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) return '';
+        const body = await response.json();
+        return clientNotifyEmail(body?.clients, name);
+    } catch {
+        return '';
+    }
+}
+
 function callableError(error) {
     if (error instanceof HttpsError) return error;
     const message = error?.message || '電子發票沒有完成。';
@@ -148,6 +166,8 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
         const version = Number(request.data?.version);
         if (!caseId || !Number.isInteger(version)) throw new HttpsError('invalid-argument', '缺少帳單或版本。');
         const config = einvoiceConfig();
+        const snap = await db.collection('statement_cases').doc(caseId).get();
+        const buyerEmail = await buyerEmailForIssue(snap.exists ? snap.data()?.customerKey : '');
         return await issueStatement({
             db,
             send: (path, body) => postEinvoice(`${config.host}${path}`, body),
@@ -156,6 +176,7 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
             version,
             description: request.data?.description,
             actor,
+            buyerEmail,
         });
     } catch (error) {
         throw callableError(error);

@@ -182,7 +182,7 @@ function open(id,type){
   const description=defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate);
   $('title').textContent='確認開立發票';
   $('error').textContent=taxError;
-  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p>${taxError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編與金額，確認開立</label>`}`;
+  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。有填，汎宇才會寄信；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p>${taxError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編與金額，確認開立</label>`}`;
   setSave('確認開立',!!taxError);
   $('dialog').showModal();
   return;
