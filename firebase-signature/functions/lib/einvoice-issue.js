@@ -73,6 +73,7 @@ export function markInvoiced(doc, patch) {
         provider: 'universalec',
         randomNumber: patch.randomNumber || '',
         orderID: patch.orderID || '',
+        description: patch.description || '',
         ...(patch.notifyEmail ? { notifyEmail: patch.notifyEmail } : {}),
     };
     next.invoiceDraft = null;
