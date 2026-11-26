@@ -7,7 +7,7 @@ import * as logger from 'firebase-functions/logger';
 import { taipeiDate } from './lib/auto-close.js';
 import { BILLING_CRON, BILLING_TIME_ZONE } from './lib/billing-schedule.js';
 import { handleBillingSchedule } from './lib/billing-run.js';
-import { hostForEnv } from './lib/einvoice-client.js';
+import { PROD_HOST } from './lib/einvoice-client.js';
 import { issueStatement, testConnection, voidStatement } from './lib/einvoice-issue.js';
 
 if (BILLING_CRON !== '30 9 1,25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
@@ -84,8 +84,9 @@ function einvoiceConfig() {
     if (!/^\d{8}$/.test(creds.companyID)) {
         throw new HttpsError('failed-precondition', '賣方統編需為 8 碼。');
     }
-    const env = String(uecEnv.value() || '').trim().toLowerCase();
-    return { creds, host: hostForEnv(env) };
+    // 汎宇網站在正式機。測試機沒有這個賣方／買方統編，會回「查無此統編」。
+    // 開立、作廢、連線測試都打正式機，不再跟 UEC_ENV 走測試機。
+    return { creds, host: PROD_HOST };
 }
 
 // 開立與作廢都不自動重送。逾時改由 /queryInvoice 確認，避免同一張 orderID 送兩次。

@@ -8,16 +8,9 @@
 
 ## 網址
 
-程式依 `UEC_ENV` 自己選，不用手打網址。
+開立、作廢、連線測試一律打正式機，和汎宇網站同一個地方：`https://web.einvoice.com.tw/einv`。
 
-| 環境 | `UEC_ENV` 怎麼填 | 網址 |
-| --- | --- | --- |
-| 測試 | `test` | `https://webtest.einvoice.com.tw/einv` |
-| 正式 | `prod` | `https://web.einvoice.com.tw/einv` |
-
-先用測試。只有整段是 `prod`（大小寫都可以）才會打正式機。填 `test`、空白或其他字，都打測試機。不要填 `production`。
-
-測試機開過的發票不會自動出現在正式機。
+測試機 `https://webtest.einvoice.com.tw/einv` 沒有正式客戶的統編。打到測試機會回「查無此統編」，網站上卻開得成。`UEC_ENV` 不再決定網址。
 
 ## 要設定的秘密
 
@@ -29,7 +22,7 @@
 | `UEC_AUTH` | 汎宇給的密碼明碼。不要自己做 base64 |
 | `UEC_API_KEY` | 汎宇給的 API Key。簽名用這一把，不是 AES Key |
 | `UEC_COMPANY_ID` | 賣方統編。百麒填 `96842769` |
-| `UEC_ENV` | 先填 `test`。改正式機才填 `prod` |
+| `UEC_ENV` | 不再使用。填了也不會改打測試機 |
 | `EINVOICE_STAFF_EMAILS` | 可以按「確認開立」的 Google 信箱，多個用逗號隔開 |
 
 少了員工信箱，沒有人能按開立。
@@ -67,14 +60,9 @@ npx --yes firebase-tools@latest deploy --only functions:signature-statements:iss
 
 這一行只更新程式。它不會開立發票，也不會呼叫汎宇。
 
-## 改成正式機
+## 正式機
 
-確認測試沒問題後，再做下面兩行。第一行出現提示時輸入 `prod`，然後按 Enter。
-
-```bash
-npx --yes firebase-tools@latest functions:secrets:set UEC_ENV --project hotel-inventory-3a1ad
-npx --yes firebase-tools@latest deploy --only functions:signature-statements:issueStatementInvoice,functions:signature-statements:voidStatementInvoice,functions:signature-statements:testEInvoiceConnection --project hotel-inventory-3a1ad
-```
+上面那一行部署之後就是正式機，和汎宇網站同一個網址。不必再把 `UEC_ENV` 改成 `prod`。測試機開過的發票不會出現在正式機。
 
 ## 簽名長什麼樣
 

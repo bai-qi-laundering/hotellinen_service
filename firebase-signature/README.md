@@ -133,7 +133,7 @@ npx --yes firebase-tools@latest functions:secrets:set EINVOICE_STAFF_EMAILS --pr
 - `UEC_AUTH`：汎宇給的密碼明碼。不要自己做 base64，程式送出前才編碼。
 - `UEC_API_KEY`：用來簽 `createDateTime` 的 APIKey。不是 AESKEY。
 - `UEC_COMPANY_ID`：賣方統編。百麒填 `96842769`。空白時程式也用這個統編。
-- `UEC_ENV`：先填 `test`。只有完整小寫或大寫的 `prod` 會改打正式機，`test`、空白或其他字都打測試機 `https://webtest.einvoice.com.tw/einv`。
+- `UEC_ENV`：不再決定網址。開立、作廢、連線測試一律打正式機 `https://web.einvoice.com.tw/einv`。測試機 `https://webtest.einvoice.com.tw/einv` 沒有正式統編，會回「查無此統編」。
 - `EINVOICE_STAFF_EMAILS`：可以開票的 Google 信箱，多個用逗號隔開。
 
 Firebase 主控台要啟用 Google 登入，並把網站網域加進授權網域。
@@ -144,14 +144,7 @@ Firebase 主控台要啟用 Google 登入，並把網站網域加進授權網域
 npx --yes firebase-tools@latest deploy --only functions:signature-statements:issueStatementInvoice,functions:signature-statements:voidStatementInvoice,functions:signature-statements:testEInvoiceConnection --project hotel-inventory-3a1ad
 ```
 
-改正式機時，把 `UEC_ENV` 改成 `prod`，再部署上面同一行。正式機網址是 `https://web.einvoice.com.tw/einv`。測試機開過的發票不會自動帶到正式機。
-
-```bash
-npx --yes firebase-tools@latest functions:secrets:set UEC_ENV --project hotel-inventory-3a1ad
-npx --yes firebase-tools@latest deploy --only functions:signature-statements:issueStatementInvoice,functions:signature-statements:voidStatementInvoice,functions:signature-statements:testEInvoiceConnection --project hotel-inventory-3a1ad
-```
-
-`functions:secrets:set UEC_ENV` 那一行出現提示時，輸入 `prod` 再按 Enter。
+上面那一行部署之後就是正式機 `https://web.einvoice.com.tw/einv`。不必再改 `UEC_ENV`。測試機開過的發票不會自動帶到正式機。
 
 網頁上的送件中心假設函式在 `asia-east1`。若 `SIGNATURE_FUNCTION_REGION` 改了，送件中心裡的 `asia-east1` 也要一起改。
 
