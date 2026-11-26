@@ -392,6 +392,7 @@
     <script src="inventory-batch-state.js?v=20261124-next-date"></script>
     <script src="flower-receipts.js?v=20261119-signed2"></script>
 <script type="module">
+        import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
@@ -2568,7 +2569,16 @@
                     openLogDetailDocIds.delete(docId);
                     populateLogDropdowns();
                     applyLogFilters();
-                    showToast("🗑️ 物流單據已刪除！（可隨時點「🔄 撈回誤刪單據」完整恢復）");
+                    try {
+                        const result = await reconcileRemovedSignature({db, hotel:hKey, date:dDate,
+                            templateRows:masterData, batchState:InventoryBatchState, scopedReads:ScopedReads,
+                            api:{doc,collection,query,where,getDocsFromServer,getDocFromServer,runTransaction}});
+                        showToast(result.changed ? '✅ 已刪除誤簽單據，盤點日期已退回' :
+                            result.reason === 'same-day-signature' ? '⚠️ 同批其他部門仍有簽名，盤點日期未退回' :
+                            '🗑️ 物流單據已刪除（可從誤刪救援撈回）');
+                    } catch(error) {
+                        showToast('⚠️ 單據已刪除，但盤點日期未退回：'+error.message);
+                    }
                 } else {
                     await deleteDoc(doc(db, collectionName, docId));
                     showToast("🗑️ 紀錄已成功刪除！");

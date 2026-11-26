@@ -111,6 +111,7 @@
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script src="inventory-batch-state.js?v=20261124-next-date"></script>
     <script type="module">
+        import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
         import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
@@ -213,7 +214,16 @@
                     deletePromises.push(deleteDoc(doc(db, 'logistics_records', docId)));
                 }
                 await Promise.all(deletePromises);
-                showToastMsg("✅ 資料已成功還原！重新載入中...");
+                try {
+                    const result = await reconcileRemovedSignature({db, hotel:currentHotel, date:currentDate,
+                        templateRows:masterTemplate, batchState:InventoryBatchState, scopedReads:ScopedReads,
+                        api:{doc,collection,query,where,getDocsFromServer,getDocFromServer,runTransaction}});
+                    showToastMsg(result.changed ? '✅ 已撤銷簽名並退回盤點日期，重新載入中…' :
+                        result.reason === 'same-day-signature' ? '⚠️ 同批其他部門仍有簽名，盤點日期未退回' : '✅ 資料已還原，重新載入中…',
+                        result.reason === 'same-day-signature');
+                } catch(error) {
+                    showToastMsg('⚠️ 簽名已刪除，但盤點日期未退回：'+error.message,true);
+                }
                 fetchData(false, true); 
             } catch(e) {
                 console.error(e);
