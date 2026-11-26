@@ -68,9 +68,8 @@ function invoiceCellHtml(r,l,history,issueTitle){
  const lines=ledgerInvoiceLines(r.c,{number:l.invoice?.number,date:l.invoice?.date,amount:l.invoice?.amount,version:l.version});
  if(lines.kind==='issued'){
   const bits=[];
-  if(lines.date)bits.push('發票日期 '+lines.date);
-  if(lines.amount!=null)bits.push('發票金額 '+amountText(lines.amount));
-  if(lines.notifyEmail)bits.push('通知信箱 '+lines.notifyEmail);
+  if(lines.date)bits.push(lines.date);
+  bits.push(lines.notifyEmail?'已寄送通知':'未寄送通知');
   return '<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">發票號碼 '+esc(lines.number)+'</span>'+(bits.length?'<small class="ledger-invoice-meta">'+esc(bits.join(' · '))+'</small>':'')+'<button data-void-invoice="'+esc(r.c.id)+'" type="button">登記已作廢</button>'+history;
  }
  const reason=lines.failure?'<small class="ledger-invoice-failure">'+esc(lines.failure)+'</small>':'';
