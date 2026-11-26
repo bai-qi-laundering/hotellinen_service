@@ -92,7 +92,7 @@
     <script type="module">
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, spreadCards, washSlips, officeSheets, officeOutstanding, officeQtyFlags, foldedHandedQty, reworkBadge, reworkNote, signedMark, signPoolQty, signWashBatch, signSpreadItem, returnToWash, itemTrail, normalizeInFlight, departmentReadPlan, demoDepartmentDocs, newSpecialId } from './special-flow.js?v=20261123-depts';
+        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, spreadCards, washSlips, officeSheets, searchableOfficeSheets, officeOutstanding, officeQtyFlags, foldedHandedQty, reworkBadge, reworkNote, signedMark, signPoolQty, signWashBatch, signSpreadItem, returnToWash, itemTrail, normalizeInFlight, departmentReadPlan, demoDepartmentDocs, newSpecialId } from './special-flow.js?v=20261126-office-search';
         import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261113-received-date';
         import { taipeiParts, taipeiToday, formatTaipeiStamp, formatMd } from './special-time.js?v=20261027-inventory';
 
@@ -453,16 +453,17 @@
         function renderSheets() {
             if (document.activeElement?.dataset?.officeFor) return;
             const sheets = officeSheets(docs, { hotels, catalog });
+            const matches = searchableOfficeSheets(sheets, document.getElementById('foldSearch').value);
             const host = document.getElementById('sheetList');
-            if (!sheets.length) {
-                host.innerHTML = '<p class="text-center text-slate-500 font-bold py-16">還沒有簽好的特處</p>';
+            if (!matches.length) {
+                host.innerHTML = `<p class="text-center text-slate-500 font-bold py-16">${sheets.length ? '沒有符合搜尋的特處單據' : '還沒有簽好的特處'}</p>`;
                 return;
             }
             const today = taipeiToday();
             const shippingToday = [];
             const sentToday = [];
             const otherSheets = [];
-            sheets.forEach((sheet, index) => {
+            matches.forEach(({sheet, index}) => {
                 const stamp = sheet.sentAt ? new Date(sheet.sentAt) : null;
                 const isToday = sheet.sent && stamp && Number.isFinite(stamp.getTime()) && taipeiToday(stamp) === today;
                 const entry = {sheet, index};

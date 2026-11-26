@@ -340,7 +340,7 @@
                     <thead>
                         <tr>
                             <th>收件日</th>
-                            <th><select id="fltSpHotel" class="header-select w-full" onchange="loadSpecialData()"><option value="">飯店 ▾</option></select></th>
+                            <th><select id="fltSpHotel" class="header-select w-full" onchange="applySpecialFilters()"><option value="">飯店 ▾</option></select></th>
                             <th><select id="fltSpItem" class="header-select w-full" onchange="applySpecialFilters()"><option value="">品項 ▾</option></select></th>
                             <th class="text-center">數量</th>
                             <th>寫入時間</th>
@@ -3031,8 +3031,9 @@
                     specialRows = JSON.parse(localStorage.getItem('baiqi_special_items_mock_v1') || '[]');
                 } else {
                     await ensureMasterData();
-                    const specialHotel = document.getElementById('fltSpHotel').value;
-                    const snapshots = await readAdminPeriod('special_items', document.getElementById('spStartDate').value, document.getElementById('spEndDate').value, specialHotel, 'receivedDate');
+                    // Read the selected date range once; both dropdowns filter these rows locally.
+                    // A hotel-specific Firestore query can miss legacy names and reset the item list.
+                    const snapshots = await readAdminPeriod('special_items', document.getElementById('spStartDate').value, document.getElementById('spEndDate').value, '', 'receivedDate');
                     const snap = {docs: [...new Map(snapshots.flatMap(s => s.docs).map(d => [d.id,d])).values()]};
                     if(request!==specialReadSequence)return;
                     specialRows = snap.docs.map(row => ({ id: row.id, history: [], ...row.data() }));
