@@ -677,9 +677,12 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(payments, /客戶資料表沒有電子信箱，沒有寄通知/);
     assert.doesNotMatch(payments, /系統沒有自動寄給客戶/);
     assert.match(payments, /通知信箱/);
-    assert.match(dispatch, /發票日期/);
-    assert.match(dispatch, /發票金額/);
-    assert.match(dispatch, /通知信箱/);
+    assert.match(payments, /已寄送通知/);
+    assert.match(payments, /未寄送通知/);
+    assert.doesNotMatch(payments, /發票日期 \+|發票金額 \+|通知信箱 \+/);
+    assert.match(dispatch, /已寄送通知/);
+    assert.match(dispatch, /未寄送通知/);
+    assert.doesNotMatch(dispatch, /發票金額|通知信箱/);
     assert.match(payments, /issueStatementInvoice/);
     assert.match(payments, /missingTaxIdMessage/);
     assert.match(payments, /手開發票/);

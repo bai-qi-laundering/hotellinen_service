@@ -360,9 +360,8 @@ function render() {
         const invoicedThisVersion = activeInvoice && Number(item.invoicedVersion) === Number(item.latestVersion);
         if (activeInvoice) {
             meta.append(metaRow('發票號碼', invoicedThisVersion ? stored.number : `${stored.number}（上一版）`));
-            if (stored.date) meta.append(metaRow('發票日期', stored.date));
-            if (stored.amount != null) meta.append(metaRow('發票金額', formatCardAmount(stored.amount)));
-            if (stored.notifyEmail) meta.append(metaRow('通知信箱', stored.notifyEmail));
+            const notice = stored.notifyEmail ? '已寄送通知' : '未寄送通知';
+            meta.append(metaRow('發票日期', stored.date ? `${stored.date} · ${notice}` : notice));
         }
         if (invoiceReviewPending(item)) meta.append(metaRow('發票狀態', '開票後有變，待處理'));
         const older = (item.versions || []).filter(row => row.version < item.latestVersion && row.sentAt);
