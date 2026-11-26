@@ -126,21 +126,34 @@ async function postEinvoice(url, body) {
     return json || {};
 }
 
-async function buyerEmailForIssue(customerKey) {
+async function financeClientRows() {
     const base = String(masterUrl.value() || '').trim();
-    const name = String(customerKey || '').trim();
-    if (!base || !name) return '';
+    if (!base) throw new Error('客戶資料表沒有讀到，這張沒有開立。');
+    let url;
     try {
-        const url = new URL(base);
-        if (url.protocol !== 'https:' || url.hostname !== 'script.google.com') return '';
-        url.searchParams.set('action', 'getFinanceMasterData');
-        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-        if (!response.ok) return '';
-        const body = await response.json();
-        return clientNotifyEmail(body?.clients, name);
+        url = new URL(base);
     } catch {
-        return '';
+        throw new Error('客戶資料表網址不正確，這張沒有開立。');
     }
+    if (url.protocol !== 'https:' || url.hostname !== 'script.google.com') {
+        throw new Error('客戶資料表網址不正確，這張沒有開立。');
+    }
+    url.searchParams.set('action', 'getFinanceMasterData');
+    let response;
+    try {
+        response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    } catch {
+        throw new Error('客戶資料表沒有讀到，這張沒有開立。');
+    }
+    if (!response.ok) throw new Error('客戶資料表沒有讀到，這張沒有開立。');
+    let body;
+    try {
+        body = await response.json();
+    } catch {
+        throw new Error('客戶資料表沒有讀到，這張沒有開立。');
+    }
+    if (!Array.isArray(body?.clients)) throw new Error('客戶資料表沒有讀到，這張沒有開立。');
+    return body.clients;
 }
 
 function callableError(error) {
@@ -167,7 +180,8 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
         if (!caseId || !Number.isInteger(version)) throw new HttpsError('invalid-argument', '缺少帳單或版本。');
         const config = einvoiceConfig();
         const snap = await db.collection('statement_cases').doc(caseId).get();
-        const buyerEmail = await buyerEmailForIssue(snap.exists ? snap.data()?.customerKey : '');
+        const clients = await financeClientRows();
+        const buyerEmail = clientNotifyEmail(clients, snap.exists ? snap.data()?.customerKey : '');
         const lastIssuedDate = await latestUniversalInvoiceDate(db);
         return await issueStatement({
             db,
@@ -175,7 +189,7 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
             creds: config.creds,
             caseId,
             version,
-            description: request.data?.description,
+            clients,
             actor,
             buyerEmail,
             host: config.host,

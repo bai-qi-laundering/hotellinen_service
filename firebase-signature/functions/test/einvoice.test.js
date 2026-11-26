@@ -303,11 +303,11 @@ test('自訂品項說明送到汎宇並記在發票紀錄，金額與列數不�
     const db = memoryFirestore({ 'statement_cases/case_item': statementDoc() });
     const { calls, send } = gateway(path => path === '/openInvoice' ? issuedBody() : null);
     await issueStatement({
-        db, send, creds, caseId: 'case_item', version: 1, description: '餐飲布巾洗滌費', actor: 'staff@baiqi.test', clock,
+        db, send, creds, caseId: 'case_item', version: 1, clients: rows, description: '客戶亂填的品名', actor: 'staff@baiqi.test', clock,
     });
     const opened = calls.find(call => call.path === '/openInvoice');
     assert.equal(opened.body.reqData.Details.length, 1);
-    assert.equal(opened.body.reqData.Details[0].description, '餐飲布巾洗滌費');
+    assert.equal(opened.body.reqData.Details[0].description, '客房布品洗滌費');
     assert.equal(opened.body.reqData.Details[0].quantity, 1);
     assert.equal(opened.body.reqData.Details[0].unitprice, 1752);
     assert.equal(opened.body.reqData.Details[0].amount, 1752);
@@ -315,18 +315,26 @@ test('自訂品項說明送到汎宇並記在發票紀錄，金額與列數不�
     assert.equal(opened.body.reqData.taxAmount, 88);
     assert.equal(opened.body.reqData.totalAmount, 1840);
     const saved = db.read('statement_cases/case_item');
-    assert.equal(saved.invoiceRecord.description, '餐飲布巾洗滌費');
+    assert.equal(saved.invoiceRecord.description, '客房布品洗滌費');
     assert.equal(saved.invoiceRecord.amount, 1840);
-    assert.equal(saved.invoiceDescription, '餐飲布巾洗滌費');
+    assert.equal(saved.invoiceDescription, '客房布品洗滌費');
 
     const rejected = memoryFirestore({ 'statement_cases/case_long': statementDoc() });
     const blocked = gateway(() => { throw new Error('不該送出'); });
+    const longRows = [['飯店名稱', '發票品項'], ['驗證飯店', '品'.repeat(501)]];
     await assert.rejects(
         () => issueStatement({
             db: rejected, send: blocked.send, creds, caseId: 'case_long', version: 1,
-            description: '品'.repeat(501), actor: 'staff@baiqi.test', clock,
+            clients: longRows, description: '短名', actor: 'staff@baiqi.test', clock,
         }),
         /500 字/,
+    );
+    await assert.rejects(
+        () => issueStatement({
+            db: rejected, send: blocked.send, creds, caseId: 'case_long', version: 1,
+            clients: [['飯店名稱', '發票品項'], ['驗證飯店', '餐\n飲']], description: '短名', actor: 'staff@baiqi.test', clock,
+        }),
+        /換行/,
     );
     assert.equal(blocked.calls.length, 0);
     assert.equal(rejected.read('statement_cases/case_long').invoiceRecord ?? null, null);
@@ -736,9 +744,14 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(dispatch, /已寄送通知/);
     assert.match(dispatch, /未寄送通知/);
     assert.doesNotMatch(dispatch, /發票金額|通知信箱/);
-    assert.match(payments, /name="description"/);
+    assert.match(payments, /品項說明：/);
     assert.match(payments, /發票品項/);
-    assert.match(payments, /itemDescriptionError/);
+    assert.match(payments, /這裡不能改/);
+    assert.doesNotMatch(payments, /name="description"/);
+    assert.doesNotMatch(payments, /description:/);
+    const issueFn = index.slice(index.indexOf('export const issueStatementInvoice'), index.indexOf('export const voidStatementInvoice'));
+    assert.match(issueFn, /financeClientRows/);
+    assert.doesNotMatch(issueFn, /request\.data\?\.description|request\.data\.description/);
     assert.match(payments, /issueStatementInvoice/);
     assert.match(payments, /missingTaxIdMessage/);
     assert.match(payments, /手開發票/);

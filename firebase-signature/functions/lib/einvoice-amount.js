@@ -85,6 +85,13 @@ export function invoiceItemFromClients(rows, customerKey, aliases = []) {
     return '';
 }
 
+// 有「發票品項」就用那一格；沒有這欄或空白才用自動說明。不合規格時留下錯誤，不改回自動說明。
+export function resolveItemDescription(snapshot, rows, aliases = []) {
+    const custom = invoiceItemFromClients(rows, snapshot?.customerKey, aliases);
+    const text = custom || defaultItemDescription(snapshot?.startDate, snapshot?.endDate);
+    return { text, error: itemDescriptionError(text) };
+}
+
 // 百麒只開 B2B。買方必須是 8 碼統編；空白、10 個 0 或其他長度都不開立。
 export const MISSING_TAX_ID_MESSAGE = '這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。';
 

@@ -1,4 +1,5 @@
-import { cleanDescription, quoteInvoice } from './einvoice-amount.js';
+import { quoteInvoice, resolveItemDescription } from './einvoice-amount.js';
+import { clientProfileAliases } from './logistics-items.js';
 import { invoiceDateError } from './einvoice-date.js';
 import { invoiceFailureMessage, publicInvoiceTarget } from './einvoice-failure.js';
 import {
@@ -242,7 +243,7 @@ async function recordInvoiceFailure(db, ref, failure, at) {
     }).catch(() => {});
 }
 
-export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, buyerEmail, host, invoiceDate, lastIssuedDate, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, clients, actor, buyerEmail, host, invoiceDate, lastIssuedDate, now = new Date().toISOString(), clock = () => new Date() }) {
     const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
     const today = taipeiDateTime(clock()).isoDate;
@@ -263,7 +264,9 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         }
         const dateError = invoiceDateError(requestedDate, { today, lastIssuedDate: knownLast });
         if (dateError) throw new Error(dateError);
-        const text = cleanDescription(description, latest.snapshot);
+        const resolved = resolveItemDescription(latest.snapshot, clients, clientProfileAliases(latest.snapshot?.customerKey));
+        if (resolved.error) throw new Error(resolved.error);
+        const text = resolved.text;
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         const orderID = orderIdFor(caseId, version, reissue);
         const hadDraft = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.orderID === orderID;
