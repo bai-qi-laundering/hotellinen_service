@@ -64,10 +64,11 @@ export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp
         const date = String(line.shipDate || '');
         if (!date || !hotel) throw new Error('出貨單日期還沒算出來');
         const key = `${date}\0${hotel}\0${item}`;
-        const group = groups.get(key) || { date, hotel, item, qty: 0, receivedDates: new Set() };
+        const group = groups.get(key) || { date, hotel, item, qty: 0, receivedDates: new Set(), sourceIds: [] };
         const qty = Number(line.qty);
         if (!Number.isFinite(qty)) throw new Error('數量不正確');
         group.qty += qty;
+        group.sourceIds.push(line.id);
         const receivedDate = String(line.receivedDate || "").trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) group.receivedDates.add(receivedDate);
         groups.set(key, group);
@@ -78,9 +79,26 @@ export function buildInventoryWrites(lines, catalogEntry, { signature, timestamp
         hotel: group.hotel,
         item: group.item,
         count: String(group.qty),
+        specialSourceIds: group.sourceIds,
         signature,
         note: note ?? (group.receivedDates.size ? `收件日期：${[...group.receivedDates].sort().join("、")}` : ""),
         timestamp,
     }));
+}
+
+export function mergeOfficeInventoryRecord(existing, incoming) {
+    if (!existing) return incoming;
+    const previous = existing.count === '' || existing.count == null ? 0 : Number(existing.count);
+    if (!Number.isFinite(previous)) throw new Error(`${incoming.item} 的盤點數量格式不正確，沒有覆蓋舊數量`);
+    const known = new Set(existing.specialSourceIds || []);
+    const incomingIds = incoming.specialSourceIds || [];
+    if (incomingIds.some(id => known.has(id))) throw new Error(`${incoming.item} 已經匯入盤點，沒有重複加總`);
+    const notes = [existing.note, incoming.note].filter(Boolean);
+    return {
+        ...incoming,
+        count: String(previous + Number(incoming.count)),
+        specialSourceIds: [...known, ...incomingIds],
+        note: [...new Set(notes)].join('；'),
+    };
 }
 

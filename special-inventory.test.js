@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inventoryCatalog, inventoryDocId, buildInventoryWrites } from './special-inventory.js';
+import { inventoryCatalog, inventoryDocId, buildInventoryWrites, mergeOfficeInventoryRecord } from './special-inventory.js';
 
 const template = [
     { baseName: '驛館', deptName: '房務', hotel: '驛館 房務', item: '床單' },
@@ -37,6 +37,7 @@ test('same sheet sums rows that land on one 盤點 item and keeps the other', ()
             hotel: '驛館 特處',
             item: '特處床單',
             count: '5',
+            specialSourceIds: ['a', 'b'],
             signature: 'sig-office',
             note: '收件日期：2026-10-26、2026-10-27',
             timestamp: '2026/10/27 下午4:00:00',
@@ -47,11 +48,21 @@ test('same sheet sums rows that land on one 盤點 item and keeps the other', ()
             hotel: '驛館 房務',
             item: '床單',
             count: '1',
+            specialSourceIds: ['c'],
             signature: 'sig-office',
             note: '收件日期：2026-10-28',
             timestamp: '2026/10/27 下午4:00:00',
         },
     ]);
+});
+
+test('separate office shipments of the same item add to the existing inventory count', () => {
+    const first = buildInventoryWrites([{ id: 'first', officeName: '特處床單', qty: 2, shipDate: '2026-10-29' }], yiguan, { signature: 'sig-1', timestamp: 't1' })[0];
+    const next = buildInventoryWrites([{ id: 'next', officeName: '特處床單', qty: 3, shipDate: '2026-10-29' }], yiguan, { signature: 'sig-2', timestamp: 't2' })[0];
+    const merged = mergeOfficeInventoryRecord(first, next);
+    assert.equal(merged.count, '5');
+    assert.deepEqual(merged.specialSourceIds, ['first', 'next']);
+    assert.throws(() => mergeOfficeInventoryRecord(merged, next), /重複加總/);
 });
 
 test('a 特處 name is written to the 特處 department, and a slash stays in the item', () => {
