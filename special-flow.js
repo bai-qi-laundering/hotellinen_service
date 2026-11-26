@@ -519,10 +519,6 @@ export function officeSendBlockers(docs, ids, received = {}) {
         blockers.push({ code: 'hotel', message: '一次只能送出同一家飯店' });
         return blockers;
     }
-    const ready = (docs || []).filter(doc => !doc.deleted && doc.status === SIGNED_STATUS && officeGroupKey(doc) === hotel);
-    if (ready.length !== targets.length || ready.some(doc => !wanted.includes(doc.id))) {
-        blockers.push({ code: 'partial', message: '這間飯店已經到辦公室的品項要一起送出' });
-    }
     for (const doc of targets) {
         const got = officeReceivedQty(doc, received);
         if (!Number.isInteger(got) || got < 0) blockers.push({ code: 'qty', message: `${doc.item} 的實收數量不正確`, id: doc.id });
