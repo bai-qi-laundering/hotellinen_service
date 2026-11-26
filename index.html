@@ -218,6 +218,7 @@
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
     <script src="inventory-batch-state.js?v=20261124-next-date"></script>
+    <script src="flower-receipts.js?v=20261126-finance"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
     <script>
@@ -1161,6 +1162,8 @@
     </script>
 
     <script type="module">
+        import { receiptPatch, itemKey } from './receipt-quantity-sync.js?v=20261126-finance';
+        import { receiptInventoryIdentity } from './logistics-items.js?v=20261126-finance';
         let db;
         let storage; 
         let isFirebaseLoaded = false;
@@ -1467,6 +1470,34 @@
                     return ()=>{if(patch)tx.set(ref,patch,{merge:true});};
                 };
 
+                // The receipt items are the same formal quantities that finance reads.
+                window.stageInventoryReceiptSync = async function(tx,date,category,item,value,previous = null) {
+                    const row=masterData.find(entry=>entry.hotel===category);
+                    if(!row)throw new Error('找不到盤點對應的物流部門，數量未儲存');
+                    let hotelKeyword=String(row.baseName || category).trim();
+                    let deptName=String(row.deptName || '房務').trim();
+                    const alias=window.FlowerReceipts.identity(hotelKeyword,deptName);
+                    if(alias)({hotelKeyword,deptName}=alias);
+                    const context=window.sendwashItemContext?.(date,category,item);
+                    if(context?.outlet){hotelKeyword=context.baseHotel;deptName=context.department;}
+                    const receiptRef=doc(db,'logistics_records',`${date}_${hotelKeyword}_${deptName}`);
+                    const snapshot=await tx.get(receiptRef);
+                    const prior=snapshot.exists()?snapshot.data():null;
+                    if(prior?.manualDeletedReceipt || prior?.manualItemDeleted)return ()=>{};
+                    let name=item,quantity=value.doubleCount!==undefined&&value.doubleCount!==null&&value.doubleCount!==''?value.doubleCount:value.count;
+                    if(context?.outlet){
+                        const identity=receiptInventoryIdentity({...context,hotel:category},item,hotelKeyword);
+                        name=identity.itemName;
+                        const oldQty=Number(previous?.doubleCount!==undefined&&previous?.doubleCount!==null&&previous?.doubleCount!==''?previous.doubleCount:previous?.count || 0);
+                        const current=(prior?.items || []).find(entry=>itemKey(entry.inventoryItemName || entry.itemName)===itemKey(name));
+                        quantity=Number(current?.originalQty ?? 0)+Number(quantity || 0)-oldQty;
+                        if(!Number.isSafeInteger(quantity)||quantity<0)throw new Error('餐廳品項數量不一致，請由後台核對');
+                    }
+                    const patch=receiptPatch(prior,name,quantity);
+                    if(!patch)return ()=>{};
+                    return ()=>tx.set(receiptRef,{...(!prior?{date,hotelKeyword,deptName,clientSig:'',driverSig:'',timestamp:'',assignedDriver:''}:{}),...patch},{merge:true});
+                };
+
                 window.firebaseSubmit = async function(category, item, requestedDate) {
                     if (!isFirebaseLoaded) return showMessage("連線中，請稍等一秒！");
                     if (window.inventorySaveTargetsOpenHotel && !window.inventorySaveTargetsOpenHotel(category)) {
@@ -1526,12 +1557,15 @@
                                 const commitBatch=await window.inventoryBatchGuard(tx,dateStr,category);
                                 const latest=await tx.get(recordRef);if(!latest.exists())throw new Error('來源單已不存在，請重新載入');
                                 const updated=SendwashCore.sendwashInventoryPatch(latest.data(),payload,u.sendwashLoadedCount,u.sendwashLoadedDoubleCount);
-                                tx.set(recordRef,{...updated,timestamp:new Date().toISOString()},{merge:true});commitBatch();
+                                const commitReceipt=await window.stageInventoryReceiptSync(tx,dateStr,category,item,updated,latest.data());
+                                tx.set(recordRef,{...updated,timestamp:new Date().toISOString()},{merge:true});commitReceipt();commitBatch();
                             });
                             Object.assign(updates,{sendwashLoadedCount:payload.count,sendwashLoadedDoubleCount:payload.doubleCount});
                         }else await runTransaction(db,async tx=>{
                             const commitBatch=await window.inventoryBatchGuard(tx,dateStr,category);
-                            tx.set(recordRef,payload,{merge:true});commitBatch();
+                            const existing=await tx.get(recordRef);
+                            const commitReceipt=await window.stageInventoryReceiptSync(tx,dateStr,category,item,payload,existing.exists()?existing.data():null);
+                            tx.set(recordRef,payload,{merge:true});commitReceipt();commitBatch();
                         });
                         // A secondary log must never hold the confirmed inventory save open.
                         saver.withTimeout(Promise.resolve().then(()=>addDoc(collection(db,'history_logs'),{logDate:getLocalDateString(new Date()),timestamp:Date.now(),actionTime:getLocalTimeString(new Date()),date:dateStr,hotel:category,item,count:payload.count,doubleCount:payload.doubleCount,signature:payload.signature || 'CACHED_RETAINED',doubleSignature:payload.doubleSignature || 'CACHED_RETAINED',note:payload.note})),10000,'操作紀錄逾時').catch(()=>{});

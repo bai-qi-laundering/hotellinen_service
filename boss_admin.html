@@ -396,6 +396,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { initializeFirestore, memoryLocalCache, collection, query, where, getDocs, getDocsFromServer, getDocFromServer, doc, setDoc, getDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { itemMatchesName, legacyDatePrefixes, receiptInventoryIdentity, receiptTotalItems, addInventoryQuantity, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
+        import { receiptPatch } from './receipt-quantity-sync.js?v=20261126-finance';
         import { isRestaurant, outletKey, restaurantInventoryRows, correctedOutletGroups, outletCorrectionPatch } from './outlet-corrections.js?v=20261112';
         import { formatMd, formatTaipeiStamp } from './special-time.js?v=20261027-special';
         import { reworkHistoryText, deleteItem } from './special-flow.js?v=20261027-resign';
@@ -1127,9 +1128,7 @@
                             let cleanHotelName = hotelName.replace(/\s+/g, '');
                             let cleanItemName = (item.inventoryItemName || item.itemName || "").trim();
 
-                            // An already signed receipt is a snapshot; later inventory edits must not change it.
-                            let trueOrig = (d.clientSig || d.driverSig) ? undefined : invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
-                            if(restaurantTotals && d.clientSig)trueOrig=String(item.originalQty ?? item.bqQty ?? '0');
+                            let trueOrig = invMap[`${dDate}_${cleanHotelName}_${cleanItemName}`];
                             if (trueOrig === undefined) trueOrig = orig;
 
                             let actual = item.actualQty !== undefined && item.actualQty !== "" ? String(item.actualQty) : trueOrig;
@@ -1151,35 +1150,31 @@
                         // Show each newly counted item immediately, even if an unsigned receipt
                         // was created earlier while only part of the batch was entered.
                         const invGroup = invRawDataMap[matchKey];
-                        const missingToPersist = [];
+                        const quantitiesToPersist = [];
                         const pendingInventoryItems = [];
                         if (invGroup && !d.manualItemDeleted) {
                             invGroup.items.forEach(invItem => {
                                 const itemName = String(invItem.itemName || '').trim(), qty = String(invItem.qty ?? '0');
                                 if (!itemName || Number(qty) === 0) return;
                                 const signedItem = existingLogItems.find(i => itemMatchesName(i, itemName));
+                                if (!signedItem || String(signedItem.originalQty ?? signedItem.bqQty ?? '0') !== qty)
+                                    quantitiesToPersist.push({itemName, qty});
                                 if (signedItem) {
-                                    if ((d.clientSig || d.driverSig) && Number(signedItem.originalQty ?? signedItem.bqQty ?? 0) !== Number(qty))
-                                        pendingInventoryItems.push({ itemName, qty });
                                     return;
                                 }
-                                if (d.clientSig || d.driverSig) {
-                                    // A signature can be copied to another department before its
-                                    // inventory is saved. Show the gap, never alter a signed snapshot.
-                                    pendingInventoryItems.push({ itemName, qty });
-                                } else {
-                                    validItems.push({ itemName, bqQty: qty, actualQty: qty });
-                                    missingToPersist.push({ itemName, originalQty: qty, actualQty: qty, auntNote: '', driverNote: '' });
-                                }
+                                validItems.push({ itemName, bqQty: qty, actualQty: qty });
                             });
                         }
-                        if (missingToPersist.length) logisticsRepairPromises.push(runTransaction(db, async tx => {
+                        if (quantitiesToPersist.length) logisticsRepairPromises.push(runTransaction(db, async tx => {
                             const refDoc = doc(db, 'logistics_records', docSnap.id);
                             const fresh = await tx.get(refDoc);
-                            if (!fresh.exists() || fresh.data().driverSig || fresh.data().clientSig || fresh.data().manualItemDeleted) return;
-                            const items = fresh.data().items || [];
-                            const additions = missingToPersist.filter(item => !items.some(saved => itemMatchesName(saved, item.itemName)));
-                            if (additions.length) tx.update(refDoc, { items: [...items, ...additions] });
+                            if (!fresh.exists() || fresh.data().manualDeletedReceipt || fresh.data().manualItemDeleted) return;
+                            let current = fresh.data(), changed = false;
+                            for (const item of quantitiesToPersist) {
+                                const patch = receiptPatch(current, item.itemName, item.qty);
+                                if (patch) { current = {...current, ...patch}; changed = true; }
+                            }
+                            if (changed) tx.update(refDoc, {items:current.items});
                         }));
 
                         let status = "green";

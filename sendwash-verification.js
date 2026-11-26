@@ -106,7 +106,7 @@
     const unchanged=String(old.count)===count&&String(old.doubleCount ?? '')===String(payload.doubleCount ?? '')&&(!payload.signature||old.signature===payload.signature)&&(!payload.doubleSignature||old.doubleSignature===payload.doubleSignature)&&String(old.note ?? '')===String(payload.note ?? '');
     if(unchanged&&old.countSource==='sendwash'&&(old.signature||core.recheckOnly(old)&&old.doubleSignature)&&(!payload.doubleCount||old.doubleSignature))return old;
     const updated=core.sendwashInventoryPatch(old,payload,String(old.count)===count?old.count:expectedCount,expectedDoubleCount);
-    const value={...updated,timestamp:new Date().toISOString()};tx.set(recordRef,value,{merge:true});commitBatch();return {...old,...value};
+    const value={...updated,timestamp:new Date().toISOString()};const commitReceipt=await window.stageInventoryReceiptSync(tx,date,hotel,item,value,old);tx.set(recordRef,value,{merge:true});commitReceipt();commitBatch();return {...old,...value};
    }
    const refs=expectedSources.map(r=>api.doc(db,'sendwash_records',r.id)),snaps=[];for(const ref of refs)snaps.push(await tx.get(ref));
    const first=snaps[0]?.exists()?snaps[0].data():{},single=core.recheckOnly(first);
@@ -135,7 +135,8 @@
    });
    const outlet=first.outlet || '';
    const value={...payload,...(outlet?{baseHotel:first.hotel,department:first.department,outlet,sourceItem:sourceItem(first,item)}:{}),count,...(single?{signature:old.signature || '',doubleCount:core.quantity(payload.doubleCount)}:{doubleCount:'',doubleSignature:'',doubleSignDate:''}),countSource:'sendwash',sendwashStage:single?'ready':'received',sendwashSources:sources,timestamp:time};
-   tx.set(recordRef,value,{merge:true});refs.forEach((ref,i)=>tx.update(ref,updates[i]));commitBatch();return {...old,...value};
+   const commitReceipt=await window.stageInventoryReceiptSync(tx,date,hotel,item,value,old);
+   tx.set(recordRef,value,{merge:true});refs.forEach((ref,i)=>tx.update(ref,updates[i]));commitReceipt();commitBatch();return {...old,...value};
   });
  };
  window.persistSupplementalSendwash=async(date,hotel,item,payload,expectedCount,expectedDoubleCount)=>{
@@ -151,7 +152,8 @@
    if(snap.exists()&&(!old.sendwashSupplemental||old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項已有其他來源，請重新載入後核對，系統不會覆蓋');
    const updated=core.sendwashInventoryPatch(old,payload,expectedCount,expectedDoubleCount);
    const value={...updated,...context,sendwashSupplemental:true,timestamp:new Date().toISOString()};
-   tx.set(ref,value,{merge:true});commitBatch();return {...old,...value};
+   const commitReceipt=await window.stageInventoryReceiptSync(tx,date,hotel,item,value,old);
+   tx.set(ref,value,{merge:true});commitReceipt();commitBatch();return {...old,...value};
   });
  };
 })();
