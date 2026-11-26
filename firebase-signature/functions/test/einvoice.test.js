@@ -12,6 +12,7 @@ import {
     isDuplicate,
     isNotYetIssued,
     issuedFrom,
+    notifyEmailAddress,
     openInvoicePayload,
     orderIdFor,
     parseResponse,
@@ -202,6 +203,11 @@ test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
         description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
     });
     assert.equal(mailed.notifyEmail, 'accounts@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example, b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example； b@hotel.example  c@hotel.example'), 'a@hotel.example;b@hotel.example;c@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;不是信箱;b@hotel.example'), 'a@hotel.example;b@hotel.example');
+    assert.equal(notifyEmailAddress('a@hotel.example;b@hotel.example;c@hotel.example;d@hotel.example'), 'a@hotel.example;b@hotel.example;c@hotel.example');
     const skipped = openInvoicePayload({
         orderID: 'case_1-v1', sellerId: '96842769', buyer: { ...buyerB2B, email: '不是信箱' },
         description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,

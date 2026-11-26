@@ -96,10 +96,26 @@ export function orderIdFor(caseId, version, reissue = 0) {
     return id.slice(0, 50);
 }
 
+const ONE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// 汎宇 notifyEmail 是一個字串。買方主檔用半形分號串多個收件人，最多 3 個。
 export function notifyEmailAddress(value) {
-    const email = String(value || '').trim();
-    if (!email || email.length > 80) return '';
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+    const seen = new Set();
+    const accepted = [];
+    for (const part of String(value || '').split(/[;；,，\s]+/)) {
+        const email = part.trim();
+        if (!email || email.length > 80 || !ONE_EMAIL.test(email) || seen.has(email)) continue;
+        seen.add(email);
+        accepted.push(email);
+        if (accepted.length === 3) break;
+    }
+    let chosen = [];
+    for (const email of accepted) {
+        const next = chosen.length ? `${chosen.join(';')};${email}` : email;
+        if (next.length > 200) break;
+        chosen.push(email);
+    }
+    return chosen.join(';');
 }
 
 function intAmount(value, label) {
