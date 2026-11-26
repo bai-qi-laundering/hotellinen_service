@@ -6,10 +6,29 @@ export function statementCustomerKey(parentCompany, hotelName = '', deptName = '
     const key=compact(parent), label=compact(hotel), dept=compact(deptName);
     if(key==='然一客衣'||(key==='然一'&&(dept.includes('客衣')||label.startsWith('然一客衣'))))return '然一-客衣';
     if(key==='然一')return '然一';
-    if(key==='驛館餐廳'||(key==='驛館'&&(dept.includes('餐廳')||['餐飲','餐飲部'].includes(dept)||label.startsWith('驛館餐廳'))))return '驛館-餐廳';
+    const yiguanRestaurant=value=>value.includes('餐廳')||value.includes('法餐')||value.includes('酒吧')||['餐飲','餐飲部'].includes(value);
+    if(['驛館餐廳','驛館法餐','驛館酒吧'].includes(key)||(key==='驛館'&&(yiguanRestaurant(dept)||label.startsWith('驛館餐廳')||label.includes('法餐')||label.includes('酒吧'))))return '驛館-餐廳';
     if(key==='驛館')return '驛館';
     if(parent==='鼎王'||hotel.startsWith('鼎王 '))return hotel;
     return parent || hotel;
+}
+
+// 驛館餐廳有自己的客戶列時用那一列的抬頭與信箱；沒有才沿用驛館。
+export function clientProfileAliases(customerKey) {
+    const key = String(customerKey || '').trim();
+    if (key === '然一-客衣') return ['然一'];
+    if (key === '驛館-餐廳') return ['驛館 法餐', '驛館餐廳', '驛館-餐廳', '驛館'];
+    return key ? [key] : [];
+}
+
+export function sheetProfileFor(clients, customerKey, normalizeKey = value => String(value ?? '').normalize('NFKC').replace(/[\s ]+/g, '').replace(/[－–—_]/g, '-').trim().toLowerCase()) {
+    for (const alias of clientProfileAliases(customerKey)) {
+        if (clients?.[alias]) return clients[alias];
+        const key = normalizeKey(alias);
+        const exact = Object.entries(clients || {}).find(([name]) => normalizeKey(name) === key);
+        if (exact) return exact[1];
+    }
+    return null;
 }
 
 // Display names may change in finance; the inventory source name stays stable.

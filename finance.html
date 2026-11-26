@@ -516,8 +516,8 @@ import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingRe
 import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261125-delete-case';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261125-sheet-notes';
-import { createFirestoreRepository } from './statement-store.js?v=20261125-delete-case';
-import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261104-split-customers';
+import { createFirestoreRepository } from './statement-store.js?v=20261126-yiguan-restaurant';
+import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261126-yiguan-restaurant';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
@@ -2462,9 +2462,8 @@ function resolveClientProfile(comp) {
         return null;
     }
     comp = members[0] || comp;
-    if (comp === '然一-客衣') comp = '然一';
-    if (comp === '驛館-餐廳') comp = '驛館';
-    if (sheetClients[comp]) return sheetClients[comp];
+    const named = sheetProfileFor(sheetClients, comp, normalizeClientLookupKey);
+    if (named?.name || named?.taxId) return named;
     const key = normalizeClientLookupKey(comp);
     const exact = Object.entries(sheetClients || {}).find(([name]) => normalizeClientLookupKey(name) === key);
     if (exact) return exact[1];
