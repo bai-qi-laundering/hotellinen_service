@@ -3,6 +3,8 @@ import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-
 import {formatCardAmount,statementDeleteBlockReason,statementDeleteConfirmText} from './statement-case.js?v=20261125-delete-case';
 import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261125-delete-case';
 import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
+import {invoiceDateError,invoicePeriod} from './firebase-signature/functions/lib/einvoice-date.js?v=20261126-invoice-date';
+import {ledgerInvoiceLines} from './firebase-signature/functions/lib/einvoice-failure.js?v=20261126-invoice-date';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
@@ -62,6 +64,18 @@ function renderSummary(){
  $('uninvoiced').textContent=uninvoiced.size;
  $('unpaid').textContent=unpaid.size;
 }
+function invoiceCellHtml(r,l,history,issueTitle){
+ const lines=ledgerInvoiceLines(r.c,{number:l.invoice?.number,date:l.invoice?.date,amount:l.invoice?.amount,version:l.version});
+ if(lines.kind==='issued'){
+  const bits=[];
+  if(lines.date)bits.push('發票日期 '+lines.date);
+  if(lines.amount!=null)bits.push('發票金額 '+amountText(lines.amount));
+  if(lines.notifyEmail)bits.push('通知信箱 '+lines.notifyEmail);
+  return '<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">發票號碼 '+esc(lines.number)+'</span>'+(bits.length?'<small class="ledger-invoice-meta">'+esc(bits.join(' · '))+'</small>':'')+'<button data-void-invoice="'+esc(r.c.id)+'" type="button">登記已作廢</button>'+history;
+ }
+ const reason=lines.failure?'<small class="ledger-invoice-failure">'+esc(lines.failure)+'</small>':'';
+ return '<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="'+issueTitle+'">開立發票</button>'+reason+history;
+}
 function render(){
  if(!available)return;
  renderSummary();
@@ -75,16 +89,15 @@ function render(){
  const totals=rows.reduce((sum,r)=>{const l=ledger(r.c);sum.net+=Number(l.snapshot.totals.afterRebate)||0;sum.tax+=Number(l.snapshot.totals.tax)||0;sum.gross+=l.amount;return sum;},{net:0,tax:0,gross:0});
  const footer='<tfoot><tr><th colspan="4">結算總金額</th><td class="ledger-money">'+amountText(totals.net)+'</td><td class="ledger-money">'+amountText(totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(totals.gross)+'</strong></td><td colspan="6"></td></tr></tfoot>';
  let previousIssuer='';
- $('list').innerHTML=rows.length?'<div class="ledger-table-scroll"><table class="ledger-table"><colgroup><col style="width:56px"><col style="width:174px"><col style="width:116px"><col style="width:56px"><col style="width:86px"><col style="width:86px"><col style="width:90px"><col style="width:142px"><col style="width:100px"><col style="width:142px"><col style="width:112px"><col style="width:88px"><col style="width:190px"></colgroup><thead><tr>'+['結帳日','客戶','開立發票','付款','未稅','稅金','含稅','入帳日','入帳金額','到期日','票號','銀行','分行'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>{
+ $('list').innerHTML=rows.length?'<div class="ledger-table-scroll"><table class="ledger-table"><colgroup><col style="width:56px"><col style="width:174px"><col style="width:188px"><col style="width:56px"><col style="width:86px"><col style="width:86px"><col style="width:90px"><col style="width:142px"><col style="width:100px"><col style="width:142px"><col style="width:112px"><col style="width:88px"><col style="width:190px"></colgroup><thead><tr>'+['結帳日','客戶','開立發票','付款','未稅','稅金','含稅','入帳日','入帳金額','到期日','票號','銀行','分行'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>{
  const l=ledger(r.c),v=r.c.collectionRecord||{},disabled=l.pending?'disabled':'';
  const field=(key,type='text')=>'<input data-field="'+key+'" type="'+type+'" value="'+esc(v[key]??'')+'" aria-label="'+esc(r.name+' '+({receivedDate:'入帳日',receivedAmount:'入帳金額',dueDate:'支票到期日',chequeNumber:'支票號碼',bank:'銀行',branch:'分行'}[key]||key))+'" '+(type==='number'?'min="0" step="0.01" ':'')+disabled+'>';
- const invoice=l.invoice?.number||r.c.invoiceNumber||'';
  const title=l.snapshot.profile?.name||r.config.title||r.c.customerName||'';
  const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="13">'+esc(r.config.issuer)+'</th></tr>':'';
  previousIssuer=r.config.issuer;
  const history=(r.c.invoiceHistory||[]).length?'<details><summary>作廢紀錄</summary>'+r.c.invoiceHistory.map(h=>'<p>'+esc(h.number)+' · '+esc(h.voidDate||h.at?.slice(0,10)||'')+'<br>'+esc(h.reason)+'</p>').join('')+'</details>':'';
  const issueTitle=r.config.issuer==='百麒國際'?'確認後向汎宇開立 B2B 電子發票':'先在平台開票，再登記發票號碼';
- const invoiceCell=(invoice?'<span class="ledger-invoice-number" title="'+esc(r.invoice)+'">'+esc(invoice)+'</span><button data-void-invoice="'+esc(r.c.id)+'" type="button">登記已作廢</button>':'<button data-invoice="'+esc(r.c.id)+'" '+(l.pending||r.invoice!=='未開票'?'disabled':'')+' title="'+issueTitle+'">開立發票</button>')+history;
+ const invoiceCell=invoiceCellHtml(r,l,history,issueTitle);
  return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><button data-delete="'+esc(r.c.id)+'" type="button">刪除</button><small class="ledger-row-status" role="status"></small></td></tr>';
  }).join('')+'</tbody>'+footer+'</table></div>':'<p>此條件沒有紀錄。</p>';
  $('list').querySelectorAll('[data-invoice]').forEach(b=>b.onclick=()=>open(b.dataset.invoice,'invoice'));
@@ -173,16 +186,17 @@ function open(id,type){
  catch(error){$('message').textContent=error.message;return;}
  if(type==='voidInvoice'){
   $('title').textContent='登記已作廢的發票';$('error').textContent='';
-  $('fields').innerHTML=`<p>${esc(selected.customerKey)} · 原發票：<strong>${esc(l.invoice?.number||selected.invoiceNumber)}</strong></p><p>此處只登記作廢結果，不會向汎宇送出作廢。請先在原開票平台完成作廢；手開發票依原作廢流程處理。</p><label>再次輸入原發票號碼<input name="number" required maxlength="10" placeholder="原發票號碼"></label><label>實際作廢日期<input name="date" type="date" required value="${today}"></label><label>作廢原因<input name="reason" required maxlength="300"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已完成這張實際發票的作廢</label><p>保留舊發票紀錄。若有新版帳單，完成後可回送件中心重寄，再登記新發票。</p>`;
+  $('fields').innerHTML=`<p>${esc(selected.customerKey)} · 原發票：<strong>${esc(l.invoice?.number||selected.invoiceNumber)}</strong></p><p>已開立的發票不能改日期。汎宇不接受直接改日期，要先在汎宇網站作廢，再回來重開。此處只登記作廢結果，不會向汎宇送出作廢。</p><label>再次輸入原發票號碼<input name="number" required maxlength="10" placeholder="原發票號碼"></label><label>實際作廢日期<input name="date" type="date" required value="${today}"></label><label>作廢原因<input name="reason" required maxlength="300"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已完成這張實際發票的作廢</label><p>保留舊發票紀錄。若有新版帳單，完成後可回送件中心重寄，再登記新發票。</p>`;
   $('dialog').showModal();return;
  }
  if(type==='invoice'&&details.method==='electronic'){
   const taxError=missingTaxIdMessage(l.snapshot?.profile);
   const taxId=String(l.snapshot.profile?.taxId||'').replace(/\D/g,'');
   const description=defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate);
+  const period=invoicePeriod(today);
   $('title').textContent='確認開立發票';
   $('error').textContent=taxError;
-  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，汎宇才會寄信；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p>${taxError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編與金額，確認開立</label>`}`;
+  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。已開立的發票不能改日期，要先在汎宇作廢再重開。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，才請汎宇寄開立通知；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p>${taxError?'':`<label>開立發票日期<input name="invoiceDate" type="date" required value="${today}" min="${period?.start||''}" max="${today}"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編、日期與金額，確認開立</label>`}`;
   setSave('確認開立',!!taxError);
   $('dialog').showModal();
   return;
@@ -202,10 +216,14 @@ $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$
   const taxError=missingTaxIdMessage(l.snapshot?.profile);
   if(taxError)throw Error(taxError);
   if(payload.confirmed!=='yes')throw Error('請先核對後再確認開立。');
+  const dateError=invoiceDateError(payload.invoiceDate,{today});
+  if(dateError)throw Error(dateError);
   const call=await staffCallable('issueStatementInvoice');
-  const data=(await call({caseId:selected.id,version:l.version,description:defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate)})).data||{};
+  const data=(await call({caseId:selected.id,version:l.version,description:defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate),invoiceDate:payload.invoiceDate})).data||{};
   $('dialog').close();
-  alert(data.already?`這一版已經開過，發票號碼 ${data.invoiceNumber}。沒有再向汎宇送一次。`:`已開立發票 ${data.invoiceNumber}。系統沒有自動寄給客戶。`);
+  const mailed=data.notifyEmail?`已開立發票 ${data.invoiceNumber}，已請汎宇寄開立通知到 ${data.notifyEmail}。`:`已開立發票 ${data.invoiceNumber}。客戶資料表沒有電子信箱，沒有寄通知。`;
+  const adjusted=data.requestedInvoiceDate&&data.invoiceDate&&data.requestedInvoiceDate!==data.invoiceDate?`你選的是 ${data.requestedInvoiceDate}，汎宇登錄的是 ${data.invoiceDate}。`:'';
+  alert(data.already?`這一版已經開過，發票號碼 ${data.invoiceNumber}。沒有再向汎宇送一次。`:mailed+adjusted);
   window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);
   await reload();
   return;
@@ -215,7 +233,7 @@ $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$
  if(action==='voidInvoice')payload.latestVersion=selected.latestVersion;
  await fs.runTransaction(db,async tx=>{const ref=fs.doc(db,'statement_cases',selected.id),snap=await tx.get(ref);if(!snap.exists())throw Error('帳單不存在');const updated=applyLedger({id:selected.id,...snap.data()},l.version,action,payload,new Date().toISOString());tx.set(ref,updated);});
  $('dialog').close();window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);await reload();
- }catch(err){$('error').textContent=callableMessage(err);}finally{loading=false;$('save').disabled=electronicBlocked();}};
+ }catch(err){$('error').textContent=callableMessage(err);if(action==='invoice'){try{await reload();}catch{/* 對話框仍留著失敗原因 */}}}finally{loading=false;$('save').disabled=electronicBlocked();}};
 $('einvoice-test').onclick=async()=>{
  const button=$('einvoice-test');button.disabled=true;
  try{

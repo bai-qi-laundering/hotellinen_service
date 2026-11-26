@@ -205,6 +205,7 @@ import {
 } from './statement-case.js?v=20261125-delete-case';
 import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261125-delete-case';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
+import { storedInvoice } from './firebase-signature/functions/lib/einvoice-failure.js?v=20261126-invoice-date';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261104-split-customers';
 
 const params = new URLSearchParams(location.search);
@@ -354,9 +355,15 @@ function render() {
             metaRow('帳單版本', version ? `V${version.version}` : ''),
             metaRow('寄送格式', version?.sentFormat === 'pdf' ? 'PDF' : version?.sentFormat === 'xlsx' ? 'Excel' : '送出時選擇'),
         );
-        const activeInvoice = item.invoiceStatus === 'invoiced' && (item.invoiceNumber || item.invoiceRecord?.number);
+        const stored = storedInvoice(item);
+        const activeInvoice = item.invoiceStatus === 'invoiced' && stored.number;
         const invoicedThisVersion = activeInvoice && Number(item.invoicedVersion) === Number(item.latestVersion);
-        if (activeInvoice) meta.append(metaRow('發票號碼', invoicedThisVersion ? (item.invoiceNumber || item.invoiceRecord.number) : `${item.invoiceNumber || item.invoiceRecord.number}（上一版）`));
+        if (activeInvoice) {
+            meta.append(metaRow('發票號碼', invoicedThisVersion ? stored.number : `${stored.number}（上一版）`));
+            if (stored.date) meta.append(metaRow('發票日期', stored.date));
+            if (stored.amount != null) meta.append(metaRow('發票金額', formatCardAmount(stored.amount)));
+            if (stored.notifyEmail) meta.append(metaRow('通知信箱', stored.notifyEmail));
+        }
         if (invoiceReviewPending(item)) meta.append(metaRow('發票狀態', '開票後有變，待處理'));
         const older = (item.versions || []).filter(row => row.version < item.latestVersion && row.sentAt);
         const actions = document.createElement('div');
