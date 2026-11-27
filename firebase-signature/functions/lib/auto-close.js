@@ -1,4 +1,5 @@
 import { billingReceiptItems, statementCustomerKey } from './logistics-items.js';
+import './flower-branch.js';
 import { createInvoiceEngine } from './invoice-engine.js';
 import { caseDocumentId, publishSnapshot } from './statement-case.js';
 const group25th = ["良一", "良西", "良站前", "英迪格", "富野", "富汽", "富野制服", "然一", "H2O", "花季", "天子閣", "驛館", "洲際", "承億", "萊特薇庭", "帕鉑", "候工所"];
@@ -65,6 +66,8 @@ export function pinnedBillingGroup(key) {
 // H2O 西餐的出貨在 H2O 這張對帳單上，不另出一張。
 export function statementHotelKey(hotel) {
  const key=canonicalHotelKeyword(hotel);
+ const parent=globalThis.FlowerBranch.statementParent(key);
+ if (parent) return parent;
  if (key.includes('H2O') && key.includes('西餐')) return 'H2O';
  return key;
 }
@@ -102,7 +105,8 @@ export function customerOf(receipt) {
 }
 export function rowsForPeriod(documents,customer,start,end) {
  const rows=[];
- for(const {id,data:d} of documents) {
+ const folded=globalThis.FlowerBranch.foldForBilling(documents);
+ for(const {id,data:d} of folded) {
   const date=recordDate(d.date);
   if(d.manualDeletedReceipt || customerOf(d)!==customer || date<start || date>end) continue;
   const parent=String(d.hotelKeyword||'').trim();

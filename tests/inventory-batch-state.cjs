@@ -1,12 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const context=vm.createContext({module:{exports:{}},Date});
+vm.runInContext(fs.readFileSync('firebase-signature/functions/lib/flower-branch.js','utf8'),context);
 vm.runInContext(fs.readFileSync('inventory-batch-state.js','utf8'),context);
 const batch=context.module.exports;
 const plain=value=>JSON.parse(JSON.stringify(value));
 
-test('one physical hotel state covers 花季 A/C and all its departments',()=>{
- assert.equal(batch.key('花季Ａ館 房務'),'花季');
- assert.equal(batch.key('花季 C館 制服'),'花季');
+test('花季 A館 and C館 lock dates separately; other hotels stay shared',()=>{
+ assert.equal(batch.key('花季Ａ館 房務'),'花季A館');
+ assert.equal(batch.key('花季 C館 制服'),'花季C館');
+ assert.notEqual(batch.key('花季Ａ館 房務'),batch.key('花季Ｃ館 房務'));
+ assert.equal(batch.key('花季 餐廳'),'花季餐廳');
  assert.equal(batch.key('承億休閒'),'承億');
  assert.equal(batch.key('承億健身房'),'承億');
  assert.equal(batch.key('日航休閒中心'),'日航');

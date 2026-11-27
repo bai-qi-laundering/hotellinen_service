@@ -19,6 +19,7 @@ import {
     rowsForPeriod,
 } from './auto-close.js';
 import { regroupBillingJobs } from './statement-groups.js';
+import './flower-branch.js';
 
 // 鼎王按部門出帳；然一將客衣獨立出帳，其餘部門仍歸然一。
 const DEPARTMENT_STATEMENT_HOTELS = new Set(['鼎王', '然一', '驛館']);
@@ -44,7 +45,8 @@ async function writeMarker(db, id, fields) {
 export function signatureCoverage(documents, customer, start, end) {
     let signed = 0;
     let unsigned = 0;
-    for (const { data } of documents) {
+    const folded = globalThis.FlowerBranch.foldForBilling(documents);
+    for (const { data } of folded) {
         const date = recordDate(data.date);
         if (data.manualDeletedReceipt || customerOf(data) !== customer || date < start || date > end) continue;
         const parent = String(data.hotelKeyword || '').trim();
@@ -80,13 +82,16 @@ async function readOneHotelPeriod(db, hotelKeyword, start, end) {
 
 async function readHotelPeriod(db, hotelKeyword, start, end) {
     const canonical = canonicalHotelKeyword(hotelKeyword);
+    const flowerKeywords = globalThis.FlowerBranch.logisticsLookupKeywords(canonical);
     const docs = new Map();
-    for (const keyword of aliasSourceKeywords(canonical)) {
+    for (const keyword of flowerKeywords || aliasSourceKeywords(canonical)) {
         for (const doc of await readOneHotelPeriod(db, keyword, start, end)) {
-            docs.set(doc.id, { ...doc, data: { ...doc.data, hotelKeyword: canonical } });
+            const data = flowerKeywords ? doc.data : { ...doc.data, hotelKeyword: canonical };
+            docs.set(doc.id, { id: doc.id, data });
         }
     }
-    return [...docs.values()];
+    const list = [...docs.values()];
+    return flowerKeywords ? globalThis.FlowerBranch.foldForBilling(list) : list;
 }
 
 async function outcome(db, customer, period) {

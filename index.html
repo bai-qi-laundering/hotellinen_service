@@ -217,8 +217,9 @@
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
-    <script src="inventory-batch-state.js?v=20261124-next-date"></script>
-    <script src="flower-receipts.js?v=20261126-finance"></script>
+    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
+    <script src="inventory-batch-state.js?v=20261127-huaji-ac"></script>
+    <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
     <script>
@@ -256,7 +257,6 @@
         }
         function batchScheduleBase(base) {
             const physicalHotel=InventoryBatchState.key(base);
-            if(physicalHotel==='花季')return allBaseHotels.find(name=>/花季A館/.test(String(name).normalize('NFKC').replace(/\s/g,'')))||base;
             return allBaseHotels.find(name=>InventoryBatchState.key(name)===physicalHotel &&
                 String(name).normalize('NFKC').replace(/\s/g,'')===physicalHotel)||base;
         }
