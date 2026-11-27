@@ -30,6 +30,7 @@
         const result = new Map(), groups = new Map();
         documents.forEach(snapshot => {
             const data = snapshot.data(), branch = identity(data.hotelKeyword, data.deptName);
+            if (branch && data.manualDeletedReceipt) return;
             if (!branch) {
                 result.set(snapshot.id, snapshot);
                 return;
@@ -38,36 +39,7 @@
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push({snapshot, data, branch});
         });
-        for (const group of groups.values()) {
-            // Older deletions could write an empty backup to one alias while a
-            // second alias still carried the removed rows.
-            const legacyWholeDelete = group.find(entry => entry.data.manualDeletedReceipt &&
-                !entry.data.mergedInto && !(entry.data.deletedBackupItems || []).length);
-            if (legacyWholeDelete) {
-                result.set(legacyWholeDelete.snapshot.id, legacyWholeDelete.snapshot);
-                continue;
-            }
-            const legacyEdited = group.filter(entry => entry.data.manualItemDeleted &&
-                !(entry.data.deletedBackupItems || []).length);
-            const legacyAllowed = legacyEdited.length
-                ? new Set(legacyEdited.flatMap(entry => entry.data.items || [])
-                    .map(item => clean(item.inventoryItemName || item.itemName)))
-                : null;
-            const active = group.filter(entry => !entry.data.manualDeletedReceipt);
-            if (!active.length) {
-                const deleted = group[0];
-                result.set(deleted.snapshot.id, deleted.snapshot);
-                continue;
-            }
-            const entries = active;
-            const deletedItems = new Map();
-            for (const entry of group) if (entry.data.manualItemDeleted ||
-                (entry.data.manualDeletedReceipt && !entry.data.mergedInto)) {
-                for (const item of entry.data.deletedBackupItems || []) {
-                    const key = clean(item.inventoryItemName || item.itemName);
-                    if (key) deletedItems.set(key, item);
-                }
-            }
+        for (const entries of groups.values()) {
             const items = new Map(), sources = new Map();
             // Prefer signed rows, then the most recently updated receipt.
             entries.sort((a,b) => Number(!!(b.data.clientSig || b.data.driverSig)) - Number(!!(a.data.clientSig || a.data.driverSig))
@@ -76,7 +48,6 @@
             for (const entry of entries) {
                 for (const item of entry.data.items || []) {
                     const key = clean(item.inventoryItemName || item.itemName);
-                    if (deletedItems.has(key) || (legacyAllowed && !legacyAllowed.has(key))) continue;
                     const existing = items.get(key);
                     if (existing && entries.length > 1 && entry.branch.hotelKeyword !== '花季' &&
                         !(entry.branch.hotelKeyword === '富野' && sources.get(key) &&
@@ -88,9 +59,7 @@
                 }
             }
             const selected = entries[0];
-            const data = {...selected.data, ...selected.branch, items: [...items.values()],
-                manualItemDeleted: deletedItems.size > 0,
-                deletedBackupItems: [...deletedItems.values()]};
+            const data = {...selected.data, ...selected.branch, items: [...items.values()]};
             for (const field of ['clientSig','driverSig']) {
                 data[field] = entries.find(entry => entry.data[field])?.data[field] || '';
             }

@@ -31,11 +31,3 @@ test('11/18 花季A館 羽被 delete, refresh, and inventory reload',async()=>{
  const receipt=[...collapse(new Map([...docs].map(([id,data])=>[id,row(id,data)]))).values()][0].data();
  assert.equal(wasManuallyDeleted(receipt,{itemName:item}),true);
 });
-test('existing 11/18 deletion marker without backup still hides 羽被 from a second alias',()=>{
- const date='2026-11-18';
- const docs=new Map([
- ['canonical',{date,hotelKeyword:'花季',deptName:'A館 房務',manualItemDeleted:true,deletedBackupItems:[],items:[{itemName:'浴巾'}]}],
- ['alias',{date,hotelKeyword:'花季Ａ館',deptName:'房務',items:[{itemName:'羽被'},{itemName:'浴巾'}]}]
- ]);
- assert.deepEqual(freshView(docs),['浴巾']);
-});
