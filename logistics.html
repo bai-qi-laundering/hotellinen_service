@@ -113,7 +113,7 @@
     <script type="module">
         import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
+        import { itemMatchesName, mergeReceiptAfterDeletion, wasManuallyDeleted, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261127-delete-persist';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -312,7 +312,7 @@
                 const prior = await readFlowerReceipt(tx, docRef, deptKey);
                 tx.set(docRef, {
                     date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
-                    items: mergeSignedItems(prior.items || [], safeItemsForDatabase),
+                    items: mergeReceiptAfterDeletion(prior, safeItemsForDatabase),
                     timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
                 });
@@ -563,9 +563,12 @@
                     ids.push(snapshot.id);
                     flowerReceiptIds.set(branch.deptName, ids);
                 });
+                const manuallyDeletedDepts = new Set(hotelLogDocs.filter(snapshot => snapshot.data().manualDeletedReceipt)
+                    .map(snapshot => snapshot.data().deptName || '房務'));
                 let savedLogistics = {}, savedReceiptDetails = [];
                 FlowerReceipts.collapse(new Map(hotelLogDocs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
                     const d = docSnap.data();
+                    if (d.manualDeletedReceipt) return;
                     savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
@@ -583,6 +586,9 @@
                             (invItem.deptName && invItem.deptName.includes(s.deptName))
                         );
                     }
+
+                    if (!savedDept && manuallyDeletedDepts.has(invItem.deptName)) continue;
+                    if (savedDept && wasManuallyDeleted(savedDept, invItem)) continue;
 
                     if (savedDept) {
                         clientSig = savedDept.clientSig || ""; driverSig = savedDept.driverSig || "";
@@ -1030,7 +1036,7 @@
                         const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
-                            update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
+                            update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
                             if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
                             if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
                         } else {
@@ -1039,7 +1045,7 @@
                             if (prior.driverSig || !driverUrl) return;
                             update.driverSig=driverUrl;
                             if (!prior.clientSig && items.length)
-                                update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
+                                update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
                         }
                         const patch=needsBatch?InventoryBatchState.signedPatch(batchSnapshot.exists()?batchSnapshot.data():{},
                             {date:signingDate,id:refDoc.id},Date.now()):null;
