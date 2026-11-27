@@ -1076,8 +1076,9 @@
                     let dDate = standardizeDate(d.date);
 
                     if (dDate >= startDate && dDate <= endDate) {
-                        let logHotelKey = (d.hotelKeyword || "").replace(/\s+/g, '');
-                        let logDeptKey = (d.deptName || "房務").replace(/\s+/g, '');
+                        const canonicalBranch = FlowerReceipts.identity(d.hotelKeyword, d.deptName);
+                        let logHotelKey = (canonicalBranch?.hotelKeyword || d.hotelKeyword || "").replace(/\s+/g, '');
+                        let logDeptKey = (canonicalBranch?.deptName || d.deptName || "房務").replace(/\s+/g, '');
                         
                         let matchKey = `${dDate}_${logHotelKey}${logDeptKey}`;
                         processedLogKeys.add(matchKey);
@@ -1987,64 +1988,59 @@
             openLogDetailDocIds.add(docId);
 
             try {
-                const docRef = doc(db, 'logistics_records', docId);
+                const branch = FlowerReceipts.identity(localRecord.hotelKeyword, localRecord.deptName);
+                const aliasIds = new Set([docId]);
+                if (branch) {
+                    const snapshots = await readAdminPeriod('logistics_records', localRecord.date, localRecord.date);
+                    snapshots.forEach(group => group.forEach(snapshot => {
+                        const data = snapshot.data();
+                        const candidate = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
+                        if (standardizeDate(data.date) === localRecord.date && candidate &&
+                            candidate.hotelKeyword === branch.hotelKeyword && candidate.deptName === branch.deptName)
+                            aliasIds.add(snapshot.id);
+                    }));
+                }
                 let becameEmptyReceipt = false;
                 let savedBackup = [];
+                const normalizedDeletedName = normalizedLogItemName(invItemName || itemName);
 
                 await runTransaction(db, async tx => {
-                    const snap = await tx.get(docRef);
-                    const data = snap.exists() ? snap.data() : {};
-                    const priorBackup = Array.isArray(data.deletedBackupItems) ? [...data.deletedBackupItems] : [];
-                    const sourceItems = snap.exists() && Array.isArray(data.items)
-                        ? data.items
-                        : localRecord.items.map(i => ({
-                            itemName: i.itemName,
-                            ...(i.inventoryItemName ? {inventoryItemName: i.inventoryItemName} : {}),
-                            originalQty: String(i.bqQty),
-                            actualQty: String(i.actualQty),
-                            auntNote: '',
-                            driverNote: ''
-                        }));
-
-                    const removedItems = [];
-                    const filtered = sourceItems.filter(i => {
-                        const isMatch = (financeItemId && i.financeItemId === financeItemId) ||
-                            (normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName)) ||
-                            (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedLogItemName(invItemName));
-                        if (isMatch) removedItems.push({ ...i });
-                        return !isMatch;
+                    const refs = [...aliasIds].map(id => doc(db, 'logistics_records', id));
+                    const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+                    const entries = snapshots.filter(snap => snap.exists()).map(snap => ({
+                        ref: snap.ref, data: snap.data(), items: Array.isArray(snap.data().items) ? snap.data().items : []
+                    }));
+                    if (!entries.length) throw new Error('找不到物流單據，請重新載入');
+                    const priorBackup = entries.flatMap(entry => Array.isArray(entry.data.deletedBackupItems) ? entry.data.deletedBackupItems : []);
+                    const removed = [];
+                    const changes = entries.map(entry => {
+                        const kept = entry.items.filter(i => {
+                            const match = (financeItemId && i.financeItemId === financeItemId) ||
+                                normalizedLogItemName(i.itemName) === normalizedLogItemName(itemName) ||
+                                (invItemName && normalizedLogItemName(i.inventoryItemName || i.itemName) === normalizedDeletedName);
+                            if (match) removed.push({...i});
+                            return !match;
+                        });
+                        return {...entry, kept};
                     });
-
-                    // 將被刪掉的品項存進備份池
-                    removedItems.forEach(rem => {
-                        const norm = normalizedLogItemName(rem.inventoryItemName || rem.itemName);
-                        const idx = priorBackup.findIndex(b => normalizedLogItemName(b.inventoryItemName || b.itemName) === norm);
-                        if (idx > -1) priorBackup[idx] = rem;
-                        else priorBackup.push(rem);
-                    });
-                    savedBackup = priorBackup;
-
-                    if (filtered.length > 0) {
-                        tx.set(docRef, {
-                            date: localRecord.date,
-                            hotelKeyword: localRecord.hotelKeyword,
-                            deptName: localRecord.deptName || '房務',
-                            items: filtered,
-                            deletedBackupItems: priorBackup,
-                            manualItemDeleted: true
-                        }, { merge: true });
-                    } else {
-                        becameEmptyReceipt = true;
-                        tx.set(docRef, {
-                            date: localRecord.date,
-                            hotelKeyword: localRecord.hotelKeyword,
-                            deptName: localRecord.deptName || '房務',
-                            items: [],
-                            deletedBackupItems: priorBackup,
-                            manualDeletedReceipt: true,
-                            deletedAt: getLocalTimeString(new Date())
-                        }, { merge: true });
+                    if (!removed.length) {
+                        // A folded alias can show a row that was saved on another source.
+                        // A stale screen must not report success without a matching stored row.
+                        throw new Error('品項已由其他人更動，請重新載入後再刪除');
                     }
+                    const backup = new Map();
+                    [...priorBackup, ...removed].forEach(item => {
+                        const key = normalizedLogItemName(item.inventoryItemName || item.itemName);
+                        if (key) backup.set(key, item);
+                    });
+                    savedBackup = [...backup.values()];
+                    becameEmptyReceipt = changes.every(entry => entry.kept.length === 0);
+                    changes.forEach(entry => tx.set(entry.ref, {
+                        items: entry.kept,
+                        deletedBackupItems: savedBackup,
+                        manualItemDeleted: true,
+                        ...(becameEmptyReceipt ? {manualDeletedReceipt:true, deletedAt:getLocalTimeString(new Date())} : {})
+                    }, {merge:true}));
                 });
 
                 localRecord.deletedBackupItems = savedBackup;
@@ -2152,8 +2148,21 @@
                 openLogDetailDocIds.add(docId);
 
                 const docRef = doc(db, 'logistics_records', docId);
+                const branch = FlowerReceipts.identity(localRecord.hotelKeyword, localRecord.deptName);
+                const aliasRefs = new Map([[docId, docRef]]);
+                if (branch) {
+                    const groups = await readAdminPeriod('logistics_records', localRecord.date, localRecord.date);
+                    groups.forEach(group => group.forEach(row => {
+                        const data = row.data();
+                        const candidate = FlowerReceipts.identity(data.hotelKeyword, data.deptName);
+                        if (standardizeDate(data.date) === localRecord.date && candidate &&
+                            candidate.hotelKeyword === branch.hotelKeyword && candidate.deptName === branch.deptName)
+                            aliasRefs.set(row.id, row.ref);
+                    }));
+                }
                 await runTransaction(db, async tx => {
-                    const snap = await tx.get(docRef);
+                    const aliasSnapshots = await Promise.all([...aliasRefs.values()].map(ref => tx.get(ref)));
+                    const snap = aliasSnapshots.find(row => row.id === docId);
                     const currentItems = snap.exists() && Array.isArray(snap.data().items)
                         ? [...snap.data().items]
                         : localRecord.items.map(i => ({
@@ -2183,6 +2192,10 @@
                         manualDeletedReceipt: false,
                         forcedSync: true
                     }, { merge: true });
+                    aliasSnapshots.forEach(row => {
+                        if (!row.exists() || row.id === docId) return;
+                        tx.set(row.ref, {deletedBackupItems:[], manualItemDeleted:false}, {merge:true});
+                    });
                 });
 
                 await loadLogData();

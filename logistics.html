@@ -564,7 +564,7 @@
                     flowerReceiptIds.set(branch.deptName, ids);
                 });
                 const manuallyDeletedDepts = new Set(hotelLogDocs.filter(snapshot => snapshot.data().manualDeletedReceipt)
-                    .map(snapshot => snapshot.data().deptName || '房務'));
+                    .map(snapshot => FlowerReceipts.identity(snapshot.data().hotelKeyword, snapshot.data().deptName)?.deptName || snapshot.data().deptName || '房務'));
                 let savedLogistics = {}, savedReceiptDetails = [];
                 FlowerReceipts.collapse(new Map(hotelLogDocs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
                     const d = docSnap.data();
