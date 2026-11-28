@@ -515,10 +515,10 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, getDocsFromServer, getDocsFromCache, doc, getDoc, getDocFromServer, setDoc, query, where, runTransaction, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { normalizeItemName, applyFinanceItemNames, legacyDatePrefixes, billingReceiptItems, financeItemSnapshot, orderStatementSnapshot, receiptItemRanks, splitDepartmentLabel } from './logistics-items.js?v=20261031-item-order';
-import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261125-delete-case';
+import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapshotFromParts } from './statement-case.js?v=20261128-dispatch-search';
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261128-dept-alias';
-import { createFirestoreRepository } from './statement-store.js?v=20261128-dept-alias';
+import { createFirestoreRepository } from './statement-store.js?v=20261128-dispatch-search';
 import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261128-dept-alias';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
