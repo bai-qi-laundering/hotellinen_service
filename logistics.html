@@ -107,8 +107,8 @@
         }, 20000);
     </script>
     <script src="scoped-reads.js?v=20261119-read2"></script>
-    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
-    <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
+    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261128-dept-alias"></script>
+    <script src="flower-receipts.js?v=20261128-dept-alias"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
     <script src="inventory-batch-state.js?v=20261128-h2o-uniform"></script>
     <script type="module">
@@ -374,7 +374,8 @@
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
             currentHotel = urlParams.get('hotel');
-            const alias = FlowerReceipts.identity(currentHotel, '房務');
+            const parent = FlowerReceipts.statementParent(currentHotel);
+            const alias = parent ? { hotelKeyword: parent } : FlowerReceipts.identity(currentHotel, '房務');
             if (alias) currentHotel = alias.hotelKeyword;
             let queryDate = urlParams.get('date'); 
             

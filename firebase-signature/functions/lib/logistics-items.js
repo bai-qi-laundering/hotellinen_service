@@ -5,7 +5,7 @@ export function statementCustomerKey(parentCompany, hotelName = '', deptName = '
     const branch = globalThis.FlowerBranch.identity(parentCompany, deptName)
         || globalThis.FlowerBranch.identity(hotelName, '')
         || globalThis.FlowerBranch.identity(parentCompany, '');
-    const parent = branch && branch.hotelKeyword === '花季' ? '花季' : String(parentCompany || '').trim();
+    const parent = branch ? branch.hotelKeyword : String(parentCompany || '').trim();
     const hotel=String(hotelName || parent).trim();
     const compact=value=>String(value || '').normalize('NFKC').replace(/[\s\-－_]/g,'').replace(/ㄧ/g,'一');
     const key=compact(parent), label=compact(hotel), dept=compact(deptName);

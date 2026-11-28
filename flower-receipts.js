@@ -5,6 +5,7 @@
     root.FlowerReceipts = {
         identity: (hotel, dept) => api.identity(hotel, dept),
         inventoryHotel: hotel => api.inventoryHotel(hotel),
+        statementParent: hotel => api.statementParent(hotel),
         collapse: documents => api.collapse(documents),
     };
 })(typeof globalThis === 'object' ? globalThis : this);

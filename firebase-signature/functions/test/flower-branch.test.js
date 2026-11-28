@@ -5,8 +5,10 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { customerOf, rowsForPeriod, statementHotelKey } from '../lib/auto-close.js';
+import { dueHotelKeywords } from '../lib/billing-schedule.js';
 import { signatureCoverage } from '../lib/billing-run.js';
 import { statementCustomerKey } from '../lib/logistics-items.js';
+import { catalogPrice } from '../lib/price-catalog.js';
 
 const branch = globalThis.FlowerBranch;
 const canonical = { hotelKeyword: '花季', deptName: 'A館 房務', building: 'A' };
@@ -201,6 +203,126 @@ test('new writes use the canonical 花季 name', () => {
     assert.deepEqual(branch.canonicalWrite('花季Ａ館', '房務'), canonical);
     assert.deepEqual(branch.canonicalWrite('花季', 'Ｃ館 房務'), canonicalC);
     assert.deepEqual(branch.canonicalWrite('承億', '房務'), { hotelKeyword: '承億', deptName: '房務', building: '' });
+});
+
+test('承億健身房、承億休閒 and 日航休閒中心 share the parent hotel and department', () => {
+    const gym = { hotelKeyword: '承億', deptName: '健身房', building: '' };
+    const leisure = { hotelKeyword: '承億', deptName: '休閒', building: '' };
+    const nikkatsu = { hotelKeyword: '日航', deptName: '休閒中心', building: '' };
+    const special = { hotelKeyword: '日航', deptName: '休閒中心 特處', building: '' };
+    for (const [hotel, dept] of [
+        ['承億健身房', '健身房'],
+        ['承億', '健身房 健身房'],
+        ['承億', '健身房'],
+        ['承億　健身房', '健身房'],
+        ['承億健身房 健身房', ''],
+    ]) assert.deepEqual(branch.identity(hotel, dept), gym, `${hotel} / ${dept}`);
+    for (const [hotel, dept] of [
+        ['承億休閒', '休閒'],
+        ['承億', '休閒 休閒'],
+        ['承億', '休閒'],
+        ['承億休閒 休閒', ''],
+    ]) assert.deepEqual(branch.identity(hotel, dept), leisure, `${hotel} / ${dept}`);
+    for (const [hotel, dept] of [
+        ['日航休閒中心', '休閒中心'],
+        ['日航休閒', '休閒中心'],
+        ['日航', '休閒中心 休閒中心'],
+        ['日航', '休閒中心'],
+        ['日航休閒中心 休閒中心', ''],
+    ]) assert.deepEqual(branch.identity(hotel, dept), nikkatsu, `${hotel} / ${dept}`);
+    for (const [hotel, dept] of [
+        ['日航休閒中心', '特處'],
+        ['日航', '休閒中心 特處'],
+        ['日航休閒中心 特處', ''],
+    ]) assert.deepEqual(branch.identity(hotel, dept), special, `${hotel} / ${dept}`);
+    for (const [hotel, dept] of [
+        ['承億', '房務'],
+        ['承億', '藝術'],
+        ['日航', '特處'],
+        ['日航', '房務'],
+        ['巨蛋一般', '一般處理'],
+        ['巨蛋', '一般 一般處理'],
+    ]) assert.equal(branch.identity(hotel, dept), null, `${hotel} / ${dept}`);
+    assert.equal(branch.inventoryHotel('承億健身房 健身房'), '承億 健身房');
+    assert.equal(branch.inventoryHotel('承億休閒 休閒'), '承億 休閒');
+    assert.equal(branch.inventoryHotel('日航休閒中心 休閒中心'), '日航 休閒中心');
+    assert.equal(branch.inventoryHotel('日航休閒中心 特處'), '日航 休閒中心 特處');
+    assert.equal(branch.inventoryHotel('日航 特處'), '日航 特處');
+    assert.equal(branch.batchKey('承億健身房 健身房'), '承億');
+    assert.equal(branch.batchKey('日航休閒中心 特處'), '日航');
+    assert.equal(branch.batchKey('日航 特處'), null);
+    assert.deepEqual(branch.canonicalWrite('承億健身房', '健身房'), gym);
+    assert.deepEqual(branch.canonicalWrite('日航', '休閒中心 特處'), special);
+    assert.deepEqual(branch.canonicalWrite('日航', '特處'), { hotelKeyword: '日航', deptName: '特處', building: '' });
+    assert.equal(statementHotelKey('承億健身房'), '承億');
+    assert.equal(statementHotelKey('承億休閒'), '承億');
+    assert.equal(statementHotelKey('日航休閒中心'), '日航');
+    assert.equal(statementHotelKey('日航休閒'), '日航');
+    assert.equal(statementHotelKey('承億'), '承億');
+    assert.equal(statementCustomerKey('承億健身房', '承億健身房 健身房', '健身房'), '承億');
+    assert.equal(statementCustomerKey('日航休閒中心', '日航休閒中心 休閒中心', '休閒中心'), '日航');
+    assert.ok(branch.logisticsLookupKeywords('承億').includes('承億健身房'));
+    assert.ok(branch.logisticsLookupKeywords('承億').includes('承億休閒'));
+    assert.ok(branch.logisticsLookupKeywords('日航').includes('日航休閒中心'));
+    assert.equal(branch.logisticsLookupKeywords('巨蛋'), null);
+    assert.deepEqual(dueHotelKeywords(['承億', '承億健身房', '承億休閒', '日航', '日航休閒中心'], {
+        承億健身房: '25th', 承億休閒: '25th', 日航休閒中心: 'month',
+    }, '25th'), ['承億']);
+    assert.deepEqual(dueHotelKeywords(['承億', '承億健身房', '承億休閒', '日航', '日航休閒中心'], {
+        承億健身房: '25th', 承億休閒: '25th', 日航休閒中心: 'month',
+    }, 'month'), ['日航']);
+});
+
+test('same-day department aliases fold without adding, and a quantity mismatch keeps the signed main receipt', () => {
+    const docs = [
+        receipt('signed', '承億', '健身房 健身房', [{ itemName: '中毛巾', actualQty: 24 }], { driverSig: 'signed', date: '2026-11-28' }),
+        receipt('short', '承億', '健身房', [{ itemName: '中毛巾', actualQty: 24 }], { driverSig: 'signed', date: '2026-11-28' }),
+        receipt('shadow', '承億健身房', '健身房', [{ itemName: '中毛巾', actualQty: 24 }], { date: '2026-11-28' }),
+    ];
+    const rows = rowsForPeriod(docs, '承億', '2026-11-26', '2026-12-25');
+    assert.deepEqual(rows.map(row => [row.hotel, row.qty]), [['承億 健身房', 24]]);
+    assert.equal(rowsForPeriod(docs, '承億健身房', '2026-11-26', '2026-12-25').length, 0);
+    const mismatch = [
+        receipt('signed', '承億', '休閒 休閒', [{ itemName: '浴巾(泳池)', actualQty: 51 }], { clientSig: 'signed', date: '2026-11-04' }),
+        receipt('shadow', '承億休閒', '休閒', [{ itemName: '浴巾(泳池)', actualQty: 50 }], { date: '2026-11-04' }),
+        receipt('canonical', '承億', '休閒', [{ itemName: '浴巾(泳池)', actualQty: 49 }], { clientSig: 'main', date: '2026-11-04' }),
+    ];
+    const picked = branch.foldForBilling(mismatch);
+    assert.equal(picked.length, 1);
+    assert.equal(picked[0].id, 'canonical');
+    assert.equal(branch.billedQty(picked[0].data.items[0]), 49);
+    assert.equal(rowsForPeriod(mismatch, '承億', '2026-10-26', '2026-11-25').reduce((sum, row) => sum + row.qty, 0), 49);
+    assert.ok(branch.quantityWarnings.some(warning => warning.deptName === '休閒' && warning.keptQty === 49 && warning.otherQty === 51));
+    const nikkatsu = [
+        receipt('doubled', '日航', '休閒中心 休閒中心', [{ itemName: '浴巾', actualQty: 63 }], { driverSig: 'signed', date: '2026-11-28' }),
+        receipt('shadow', '日航休閒中心', '休閒中心', [{ itemName: '浴巾', actualQty: 60 }], { date: '2026-11-28' }),
+    ];
+    const nikkatsuFolded = branch.foldForBilling(nikkatsu);
+    assert.equal(nikkatsuFolded[0].id, 'doubled');
+    assert.equal(branch.billedQty(nikkatsuFolded[0].data.items[0]), 63);
+    assert.ok(branch.quantityWarnings.some(warning => warning.deptName === '休閒中心' && warning.keptQty === 63 && warning.otherQty === 60));
+    const separate = [
+        receipt('hotel', '日航', '特處', [{ itemName: '特處羽毛被', actualQty: 1 }], { clientSig: 'signed', date: '2026-11-06' }),
+        receipt('leisure', '日航', '休閒中心 特處', [{ itemName: '特處中毛', actualQty: 2 }], { clientSig: 'signed', date: '2026-11-06' }),
+        receipt('shadow', '日航休閒中心', '特處', [{ itemName: '特處中毛', actualQty: 2 }], { date: '2026-11-06' }),
+    ];
+    const kept = rowsForPeriod(separate, '日航', '2026-11-01', '2026-11-30')
+        .map(row => [row.hotel, row.item, row.qty])
+        .sort((a, b) => a.join('\0').localeCompare(b.join('\0'), 'zh-TW'));
+    assert.deepEqual(kept, [
+        ['日航 休閒中心 特處', '特處中毛', 2],
+        ['日航 特處', '特處羽毛被', 1],
+    ]);
+    assert.equal(catalogPrice({
+        hotel: '承億 健身房',
+        item: '中毛巾',
+        sheetPrices: { '承億 健身房 健身房_中毛巾': 5.8 },
+    }).price, 5.8);
+    assert.equal(catalogPrice({
+        hotel: '日航 休閒中心',
+        item: '浴巾',
+        sheetPrices: { '日航 休閒中心 休閒中心_浴巾': 13 },
+    }).price, 13);
 });
 
 test('the browser FlowerReceipts wrapper delegates to the shared module', () => {
