@@ -9,6 +9,7 @@
 // 送出請求裡的 createDateTime 與拿去算簽章的字串是同一段。
 
 import { createHmac } from 'node:crypto';
+import { itemDescriptionError } from './einvoice-amount.js';
 
 export const DEFAULT_COMPANY_ID = '96842769';
 export const TEST_HOST = 'https://webtest.einvoice.com.tw/einv';
@@ -130,9 +131,9 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
     if (buyerName.length > 60) throw new Error('發票抬頭請在 60 字以內。');
     const buyerID = String(buyer?.taxId || '').replace(/\D/g, '');
     if (!/^\d{8}$/.test(buyerID)) throw new Error('這位客戶沒有 8 碼統編，不能開立發票。');
-    const text = String(description || '').trim();
-    if (!text) throw new Error('請填品項說明。');
-    if (text.length > 500) throw new Error('品項說明請在 500 字以內。');
+    const text = String(description || '').replace(/\u3000/g, ' ').trim();
+    const descriptionError = itemDescriptionError(text);
+    if (descriptionError) throw new Error(descriptionError);
     const salesAmount = intAmount(sales, '未稅銷售額');
     const taxAmount = intAmount(tax, '稅額');
     const totalAmount = intAmount(total, '含稅金額');

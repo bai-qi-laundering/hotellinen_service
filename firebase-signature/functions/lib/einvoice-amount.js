@@ -36,11 +36,60 @@ export function defaultItemDescription(startDate, endDate) {
     return `布品洗滌費 ${slash(startDate)}–${slash(endDate)}`;
 }
 
+// 財政部 MIG 4.1 品名 Description（汎宇 openInvoice 的 ProductName／Details.description）最多 500 字。
+// 中英文、數字、標點各算 1 字。換行與控制字元不送。
+export const ITEM_DESCRIPTION_LIMIT = 500;
+
+export function itemDescriptionError(value) {
+    const text = String(value ?? '').replace(/\u3000/g, ' ').trim();
+    if (!text) return '請填品項說明。';
+    if (/[\u0000-\u001F\u007F]/.test(text)) return '品項說明不可含換行或控制字元。';
+    if ([...text].length > ITEM_DESCRIPTION_LIMIT) return '品項說明請在 500 字以內。中英文、數字與標點各算 1 字。';
+    return '';
+}
+
 export function cleanDescription(input, snapshot) {
     const fallback = defaultItemDescription(snapshot?.startDate, snapshot?.endDate);
-    const text = String(input ?? '').trim() || fallback;
-    if (text.length > 100) throw new Error('品項說明請在 100 字以內。');
+    const text = String(input ?? '').replace(/\u3000/g, ' ').trim() || fallback;
+    const error = itemDescriptionError(text);
+    if (error) throw new Error(error);
     return text;
+}
+
+function sheetCell(value) {
+    return String(value ?? '').normalize('NFKC').replace(/\u3000/g, ' ').trim();
+}
+
+function sheetColumn(header, title) {
+    if (!Array.isArray(header)) return -1;
+    return header.findIndex(cell => sheetCell(cell) === title);
+}
+
+// 客戶資料表第一列的「發票品項」。用標題找欄，不看欄序。沒有這欄或這格空白就回空字串。
+export function invoiceItemFromClients(rows, customerKey, aliases = []) {
+    if (!Array.isArray(rows) || !rows.length) return '';
+    const itemCol = sheetColumn(rows[0], '發票品項');
+    if (itemCol < 0) return '';
+    const nameCol = sheetColumn(rows[0], '飯店名稱');
+    const keyCol = nameCol >= 0 ? nameCol : 0;
+    const names = [];
+    for (const name of [customerKey, ...aliases]) {
+        const text = sheetCell(name);
+        if (text && !names.includes(text)) names.push(text);
+    }
+    for (const name of names) {
+        const row = rows.find((item, index) => index > 0 && Array.isArray(item) && sheetCell(item[keyCol]) === name);
+        const value = row ? sheetCell(row[itemCol]) : '';
+        if (value) return value;
+    }
+    return '';
+}
+
+// 有「發票品項」就用那一格；沒有這欄或空白才用自動說明。不合規格時留下錯誤，不改回自動說明。
+export function resolveItemDescription(snapshot, rows, aliases = []) {
+    const custom = invoiceItemFromClients(rows, snapshot?.customerKey, aliases);
+    const text = custom || defaultItemDescription(snapshot?.startDate, snapshot?.endDate);
+    return { text, error: itemDescriptionError(text) };
 }
 
 // 百麒只開 B2B。買方必須是 8 碼統編；空白、10 個 0 或其他長度都不開立。

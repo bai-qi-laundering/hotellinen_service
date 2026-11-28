@@ -1,4 +1,5 @@
-import { cleanDescription, quoteInvoice } from './einvoice-amount.js';
+import { quoteInvoice, resolveItemDescription } from './einvoice-amount.js';
+import { clientProfileAliases } from './logistics-items.js';
 import { invoiceFailureMessage, publicInvoiceTarget } from './einvoice-failure.js';
 import {
     buildEnvelope,
@@ -72,6 +73,7 @@ export function markInvoiced(doc, patch) {
         provider: 'universalec',
         randomNumber: patch.randomNumber || '',
         orderID: patch.orderID || '',
+        description: patch.description || '',
         ...(patch.notifyEmail ? { notifyEmail: patch.notifyEmail } : {}),
     };
     next.invoiceDraft = null;
@@ -221,7 +223,7 @@ async function recordInvoiceFailure(db, ref, failure, at) {
     }).catch(() => {});
 }
 
-export async function issueStatement({ db, send, creds: rawCreds, caseId, version, description, actor, buyerEmail, host, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, clients, actor, buyerEmail, host, now = new Date().toISOString(), clock = () => new Date() }) {
     const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
     const today = taipeiDateTime(clock()).isoDate;
@@ -238,7 +240,9 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         if (quote.buyer?.kind !== 'b2b' || !/^\d{8}$/.test(String(quote.buyer?.taxId || ''))) {
             throw new Error('這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。');
         }
-        const text = cleanDescription(description, latest.snapshot);
+        const resolved = resolveItemDescription(latest.snapshot, clients, clientProfileAliases(latest.snapshot?.customerKey));
+        if (resolved.error) throw new Error(resolved.error);
+        const text = resolved.text;
         const reissue = Array.isArray(data.invoiceHistory) ? data.invoiceHistory.length : 0;
         const orderID = orderIdFor(caseId, version, reissue);
         const hadDraft = data.invoiceDraft?.version === Number(version) && data.invoiceDraft?.orderID === orderID;

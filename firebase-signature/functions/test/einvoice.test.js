@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { clientNotifyEmail, quoteInvoice, splitTaxInclusive } from '../lib/einvoice-amount.js';
+import { cleanDescription, clientNotifyEmail, invoiceItemFromClients, itemDescriptionError, quoteInvoice, splitTaxInclusive } from '../lib/einvoice-amount.js';
 import { payableAmount } from '../lib/statement-case.js';
 import {
     buildEnvelope,
@@ -285,6 +285,66 @@ test('回應看 statusCode，失敗時留下 statusDesc', () => {
     assert.equal(issuedFrom({ invNo: 'AB12345678', status: '1' }), null);
 });
 
+test('自訂品項說明送到汎宇並記在發票紀錄，金額與列數不變', async () => {
+    const rows = [
+        ['備註', '發票品項', '飯店名稱'],
+        ['', '客房布品洗滌費', '驗證飯店'],
+        ['餐飲布巾洗滌費', '', '驛館'],
+        ['餐飲布巾洗滌費', '餐飲布巾洗滌費', '驛館 法餐'],
+    ];
+    assert.equal(invoiceItemFromClients(rows, '驗證飯店'), '客房布品洗滌費');
+    assert.equal(invoiceItemFromClients(rows, '驛館'), '');
+    assert.equal(invoiceItemFromClients(rows, '驛館-餐廳', ['驛館 法餐', '驛館餐廳', '驛館-餐廳', '驛館']), '餐飲布巾洗滌費');
+    assert.equal(invoiceItemFromClients([['飯店名稱', '電子信箱'], ['驗證飯店', 'a@hotel.example']], '驗證飯店'), '');
+    assert.equal(itemDescriptionError('餐飲布巾洗滌費'), '');
+    assert.match(itemDescriptionError('餐\n飲'), /換行/);
+    assert.match(itemDescriptionError('品'.repeat(501)), /500 字/);
+    assert.equal(cleanDescription('  餐飲布巾洗滌費  ', { startDate: '2026-10-01', endDate: '2026-10-31' }), '餐飲布巾洗滌費');
+    assert.throws(() => openInvoicePayload({
+        orderID: 'case_item-v1', sellerId: '96842769', buyer: buyerB2B,
+        description: '品'.repeat(501), sales: 1752, tax: 88, total: 1840,
+    }), /500 字/);
+
+    const db = memoryFirestore({ 'statement_cases/case_item': statementDoc() });
+    const { calls, send } = gateway(path => path === '/openInvoice' ? issuedBody() : null);
+    await issueStatement({
+        db, send, creds, caseId: 'case_item', version: 1, clients: rows, description: '客戶亂填的品名', actor: 'staff@baiqi.test', clock,
+    });
+    const opened = calls.find(call => call.path === '/openInvoice');
+    assert.equal(opened.body.reqData.Details.length, 1);
+    assert.equal(opened.body.reqData.Details[0].description, '客房布品洗滌費');
+    assert.equal(opened.body.reqData.Details[0].quantity, 1);
+    assert.equal(opened.body.reqData.Details[0].unitprice, 1752);
+    assert.equal(opened.body.reqData.Details[0].amount, 1752);
+    assert.equal(opened.body.reqData.salesAmount, 1752);
+    assert.equal(opened.body.reqData.taxAmount, 88);
+    assert.equal(opened.body.reqData.totalAmount, 1840);
+    const saved = db.read('statement_cases/case_item');
+    assert.equal(saved.invoiceRecord.description, '客房布品洗滌費');
+    assert.equal(saved.invoiceRecord.amount, 1840);
+    assert.equal(saved.invoiceDescription, '客房布品洗滌費');
+
+    const rejected = memoryFirestore({ 'statement_cases/case_long': statementDoc() });
+    const blocked = gateway(() => { throw new Error('不該送出'); });
+    const longRows = [['飯店名稱', '發票品項'], ['驗證飯店', '品'.repeat(501)]];
+    await assert.rejects(
+        () => issueStatement({
+            db: rejected, send: blocked.send, creds, caseId: 'case_long', version: 1,
+            clients: longRows, description: '短名', actor: 'staff@baiqi.test', clock,
+        }),
+        /500 字/,
+    );
+    await assert.rejects(
+        () => issueStatement({
+            db: rejected, send: blocked.send, creds, caseId: 'case_long', version: 1,
+            clients: [['飯店名稱', '發票品項'], ['驗證飯店', '餐\n飲']], description: '短名', actor: 'staff@baiqi.test', clock,
+        }),
+        /換行/,
+    );
+    assert.equal(blocked.calls.length, 0);
+    assert.equal(rejected.read('statement_cases/case_long').invoiceRecord ?? null, null);
+});
+
 test('同一版對帳單只會向汎宇開一次，第二次直接回原號碼', async () => {
     const db = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
     const { calls, send } = gateway(path => {
@@ -304,6 +364,7 @@ test('同一版對帳單只會向汎宇開一次，第二次直接回原號碼',
     assert.equal(saved.invoiceRecord.number, 'AB12345678');
     assert.equal(saved.invoiceRecord.amount, 1840);
     assert.equal(saved.invoiceRecord.randomNumber, '4321');
+    assert.equal(saved.invoiceRecord.description, '布品洗滌費 2026/10/01–2026/10/31');
     assert.equal(saved.invoiceOrderId, 'case_1-v1');
     assert.equal(saved.versions[0].invoiceNumber, 'AB12345678');
     assert.equal(saved.invoiceRaw.statusCode, '0');
@@ -695,7 +756,14 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(dispatch, /已寄送通知/);
     assert.match(dispatch, /未寄送通知/);
     assert.doesNotMatch(dispatch, /發票金額|通知信箱/);
+    assert.match(payments, /品項說明：/);
+    assert.match(payments, /發票品項/);
+    assert.match(payments, /這裡不能改/);
+    assert.doesNotMatch(payments, /name="description"/);
+    assert.doesNotMatch(payments, /description:/);
     const issueFn = index.slice(index.indexOf('export const issueStatementInvoice'), index.indexOf('export const voidStatementInvoice'));
+    assert.match(issueFn, /financeClientRows/);
+    assert.doesNotMatch(issueFn, /request\.data\?\.description|request\.data\.description/);
     assert.doesNotMatch(issueFn, /invoiceDate|latestUniversalInvoiceDate/);
     assert.match(payments, /issueStatementInvoice/);
     assert.match(payments, /missingTaxIdMessage/);

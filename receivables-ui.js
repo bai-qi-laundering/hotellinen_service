@@ -2,7 +2,8 @@ import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
 import {formatCardAmount,statementDeleteBlockReason,statementDeleteConfirmText} from './statement-case.js?v=20261125-delete-case';
 import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261126-yiguan-restaurant';
-import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
+import {defaultItemDescription,missingTaxIdMessage,resolveItemDescription} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261128-invoice-item-date';
+import {clientProfileAliases} from './firebase-signature/functions/lib/logistics-items.js?v=20261126-invoice-item';
 import {ledgerInvoiceLines} from './firebase-signature/functions/lib/einvoice-failure.js?v=20261128-invoice-date';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
@@ -176,7 +177,25 @@ async function staffCallable(name){
  }
  return httpsCallable(getFunctions(app,'asia-east1'),name);
 }
-function open(id,type){
+const FINANCE_MASTER_URL='https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec';
+let clientRowsPromise=null;
+function loadClientRows(){
+ if(!clientRowsPromise){
+  clientRowsPromise=fetch(`${FINANCE_MASTER_URL}?action=getFinanceMasterData`,{cache:'no-store'})
+   .then(async response=>{if(!response.ok)throw Error('客戶資料表沒有讀到');return response.json();})
+   .then(body=>Array.isArray(body?.clients)?body.clients:[])
+   .catch(error=>{clientRowsPromise=null;throw error;});
+ }
+ return clientRowsPromise;
+}
+async function invoiceItemPreview(customerKey,snapshot){
+ const auto=defaultItemDescription(snapshot?.startDate,snapshot?.endDate);
+ try{
+  const rows=await Promise.race([loadClientRows(),new Promise((_,reject)=>setTimeout(()=>reject(Error('客戶資料表讀取逾時')),8000))]);
+  return resolveItemDescription({...snapshot,customerKey:snapshot?.customerKey||customerKey},rows,clientProfileAliases(customerKey));
+ }catch{return {text:auto,error:'客戶資料表沒有讀到，無法確認品項說明。請稍後再試。'};}
+}
+async function open(id,type){
  selected=cases.find(c=>c.id===id);action=type;const l=ledger(selected);
  setSave('儲存');
  let details;
@@ -190,11 +209,12 @@ function open(id,type){
  if(type==='invoice'&&details.method==='electronic'){
   const taxError=missingTaxIdMessage(l.snapshot?.profile);
   const taxId=String(l.snapshot.profile?.taxId||'').replace(/\D/g,'');
-  const description=defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate);
+  const item=await invoiceItemPreview(selected.customerKey,l.snapshot);
+  const itemError=taxError?'':item.error;
   $('title').textContent='確認開立發票';
-  $('error').textContent=taxError;
-  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。已開立的發票不能改日期，要先在汎宇作廢再重開。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，才請汎宇寄開立通知；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p><p>發票日期為按下確認開立當天</p>${taxError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編與金額，確認開立</label>`}`;
-  setSave('確認開立',!!taxError);
+  $('error').textContent=taxError||itemError;
+  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。已開立的發票不能改日期，要先在汎宇作廢再重開。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，才請汎宇寄開立通知；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：<strong>${esc(item.text)}</strong></p><p>品項說明讀客戶資料表的「發票品項」。沒有這欄或空白，就用「布品洗滌費」加這期日期。這裡不能改。仍只開一列，金額不變。</p><p>發票日期為按下確認開立當天</p>${taxError||itemError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編、品項與金額，確認開立</label>`}`;
+  setSave('確認開立',!!(taxError||itemError));
   $('dialog').showModal();
   return;
  }
@@ -214,7 +234,7 @@ $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$
   if(taxError)throw Error(taxError);
   if(payload.confirmed!=='yes')throw Error('請先核對後再確認開立。');
   const call=await staffCallable('issueStatementInvoice');
-  const data=(await call({caseId:selected.id,version:l.version,description:defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate)})).data||{};
+  const data=(await call({caseId:selected.id,version:l.version})).data||{};
   $('dialog').close();
   const mailed=data.notifyEmail?`已開立發票 ${data.invoiceNumber}，已請汎宇寄開立通知到 ${data.notifyEmail}。`:`已開立發票 ${data.invoiceNumber}。客戶資料表沒有電子信箱，沒有寄通知。`;
   const adjusted=data.invoiceDate&&data.invoiceDate!==today?`汎宇登錄的發票日期是 ${data.invoiceDate}，不是今天。`:'';
