@@ -503,6 +503,43 @@ test('有電子信箱才放進 notifyEmail，沒有信箱仍可開立', async ()
     assert.equal(calls[0].body.reqData.notifyEmail.includes('apiKey'), false);
 });
 
+function yiguanClientRows(restaurantName = '驛館 法餐', restaurantEmail = 'dining@example.com') {
+    return [
+        ['飯店名稱', '請款抬頭名稱', '統一編號', '聯絡人', '聯絡電話', '電子信箱', '付款條件', '付款方式', '出貨地址', '備註', '發票品項'],
+        ['驛館', '御盟國際驛館股份有限公司高雄營業所', '92165561', '', '', 'hotel@example.com', '', '', '', '', '客房布品洗滌費'],
+        [restaurantName, '御盟國際驛館股份有限公司高雄營業所', '92165561', '', '', restaurantEmail, '', '', '', '', '餐飲布巾洗滌費'],
+    ];
+}
+
+test('驛館餐廳用客戶資料列的信箱與發票品項，空白信箱才回母飯店', async () => {
+    const rows = yiguanClientRows();
+    for (const key of ['驛館-餐廳', '驛館餐廳', '驛館 法餐', '驛館 酒吧']) {
+        assert.equal(clientNotifyEmail(rows, key), 'dining@example.com');
+        assert.equal(invoiceItemFromClients(rows, key), '餐飲布巾洗滌費');
+    }
+    assert.equal(clientNotifyEmail(yiguanClientRows('驛館\u3000法餐'), '驛館-餐廳'), 'dining@example.com');
+    assert.equal(invoiceItemFromClients(yiguanClientRows('驛館－餐廳'), '驛館 酒吧'), '餐飲布巾洗滌費');
+    assert.equal(clientNotifyEmail(yiguanClientRows('驛館 法餐', ''), '驛館-餐廳'), 'hotel@example.com');
+    assert.equal(invoiceItemFromClients(yiguanClientRows('驛館 法餐', ''), '驛館-餐廳'), '餐飲布巾洗滌費');
+    assert.equal(clientNotifyEmail(rows, '驛館'), 'hotel@example.com');
+    assert.equal(invoiceItemFromClients(rows, '驛館'), '客房布品洗滌費');
+
+    const doc = statementDoc('92165561');
+    doc.customerKey = '驛館-餐廳';
+    doc.versions[0].snapshot.customerKey = '驛館-餐廳';
+    doc.versions[0].snapshot.profile = { name: '御盟國際驛館股份有限公司高雄營業所', taxId: '92165561' };
+    const db = memoryFirestore({ 'statement_cases/case_yiguan': doc });
+    const { calls, send } = gateway(path => (path === '/openInvoice' ? issuedBody() : null));
+    const issued = await issueStatement({
+        db, send, creds, caseId: 'case_yiguan', version: 1, clients: rows,
+        actor: 'staff@baiqi.test', clock, buyerEmail: clientNotifyEmail(rows, '驛館-餐廳'),
+    });
+    assert.equal(issued.notifyEmail, 'dining@example.com');
+    assert.equal(calls[0].body.reqData.notifyEmail, 'dining@example.com');
+    assert.equal(calls[0].body.reqData.Details[0].description, '餐飲布巾洗滌費');
+    assert.equal(calls[0].body.reqData.notifyEmail.includes('apiKey'), false);
+});
+
 test('汎宇拒絕時把 statusDesc 原樣丟回，沒有寫入發票號碼', async () => {
     const db = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
     const { calls, send } = gateway(() => ({ statusCode: '2', statusDesc: '買方統編錯誤', respData: null }));

@@ -18,19 +18,30 @@ export function statementCustomerKey(parentCompany, hotelName = '', deptName = '
     return parent || hotel;
 }
 
+// 半形、全形、空白與連字號都視為同一個客戶列名稱。
+export function compactClientLabel(value) {
+    return String(value ?? '').normalize('NFKC').replace(/[\s\u3000\-－–—_]/g, '').replace(/ㄧ/g, '一').trim().toLowerCase();
+}
+
+function yiguanRestaurantClient(value) {
+    const compact = compactClientLabel(value);
+    if (compact === '驛館餐廳' || compact === '驛館法餐' || compact === '驛館酒吧') return true;
+    return statementCustomerKey(value, value, '') === '驛館-餐廳';
+}
+
 // 驛館餐廳有自己的客戶列時用那一列的抬頭與信箱；沒有才沿用驛館。
 export function clientProfileAliases(customerKey) {
     const key = String(customerKey || '').trim();
     if (key === '然一-客衣') return ['然一'];
-    if (key === '驛館-餐廳') return ['驛館 法餐', '驛館餐廳', '驛館-餐廳', '驛館'];
+    if (yiguanRestaurantClient(key)) return ['驛館 法餐', '驛館 酒吧', '驛館餐廳', '驛館-餐廳', '驛館'];
     return key ? [key] : [];
 }
 
-export function sheetProfileFor(clients, customerKey, normalizeKey = value => String(value ?? '').normalize('NFKC').replace(/[\s ]+/g, '').replace(/[－–—_]/g, '-').trim().toLowerCase()) {
+export function sheetProfileFor(clients, customerKey, normalizeKey = compactClientLabel) {
     for (const alias of clientProfileAliases(customerKey)) {
         if (clients?.[alias]) return clients[alias];
-        const key = normalizeKey(alias);
-        const exact = Object.entries(clients || {}).find(([name]) => normalizeKey(name) === key);
+        const wanted = compactClientLabel(alias);
+        const exact = Object.entries(clients || {}).find(([name]) => compactClientLabel(name) === wanted || normalizeKey(name) === normalizeKey(alias));
         if (exact) return exact[1];
     }
     return null;

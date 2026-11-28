@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {statementCustomerKey} from '../firebase-signature/functions/lib/logistics-items.js';
+import {sheetProfileFor, statementCustomerKey} from '../firebase-signature/functions/lib/logistics-items.js';
 import {createInvoiceEngine} from '../firebase-signature/functions/lib/invoice-engine.js';
 import {caseDocumentId,renderStatementHtml,buildStatementTables,statementFileBase,publishSnapshot} from '../statement-case.js';
 test('驛館及餐廳共用統編、分開明細與金額及案件',async()=>{
@@ -47,4 +47,13 @@ test('法餐與酒吧歸驛館餐廳，抬頭優先用專用列',()=>{
  const fallback=createInvoiceEngine({...shared,sheetClients:{驛館:{name:'館方抬頭',taxId:'92165561',email:'hotel@example.com'}}}).build('驛館-餐廳','2026-10-01','2026-10-31');
  assert.equal(fallback.profile.name,'館方抬頭');
  assert.equal(fallback.profile.email,'hotel@example.com');
+ const spaced=createInvoiceEngine({...shared,sheetClients:{驛館:{name:'館方抬頭',taxId:'92165561',email:'hotel@example.com'},'驛館\u3000法餐':{name:'全形空白抬頭',taxId:'92165561',email:'space@example.com'}}}).build('驛館-餐廳','2026-10-01','2026-10-31');
+ assert.equal(spaced.profile.name,'全形空白抬頭');
+ assert.equal(spaced.profile.email,'space@example.com');
+ const hyphenClients={驛館:{name:'館方抬頭',taxId:'92165561',email:'hotel@example.com'},'驛館－餐廳':{name:'連字號抬頭',taxId:'92165561',email:'hyphen@example.com'}};
+ const hyphen=createInvoiceEngine({...shared,sheetClients:hyphenClients}).build('驛館-餐廳','2026-10-01','2026-10-31');
+ assert.equal(hyphen.profile.name,'連字號抬頭');
+ assert.equal(hyphen.profile.email,'hyphen@example.com');
+ assert.equal(sheetProfileFor(hyphenClients,'驛館 酒吧').email,'hyphen@example.com');
+ assert.equal(sheetProfileFor(hyphenClients,'驛館餐廳').name,'連字號抬頭');
 });

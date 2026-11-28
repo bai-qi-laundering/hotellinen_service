@@ -519,7 +519,7 @@ import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapsho
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261128-dept-alias';
 import { createFirestoreRepository } from './statement-store.js?v=20261128-dispatch-search';
-import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261128-dept-alias';
+import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261128-yiguan-email';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
@@ -2453,7 +2453,7 @@ async function openInvoiceModal() {
 }
 
 function normalizeClientLookupKey(v) {
-    return String(v ?? '').normalize('NFKC').replace(/[\s ]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
+    return String(v ?? '').normalize('NFKC').replace(/[\s\u3000\-－–—_]/g,'').replace(/ㄧ/g,'一').trim().toLowerCase();
 }
 function exactClientProfile(comp) {
     const members = membersOfStatementTarget(comp);
