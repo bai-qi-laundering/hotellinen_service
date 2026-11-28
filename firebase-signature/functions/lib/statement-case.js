@@ -308,12 +308,19 @@ export function mergeCaseDocs(left, right) {
     return merged;
 }
 
+export function statementGeneratedAt(item) {
+    const versions = Array.isArray(item?.versions) ? item.versions : [];
+    const latest = versions.find(version => Number(version?.version) === Number(item?.latestVersion));
+    return String(latest?.createdAt || item?.updatedAt || '');
+}
+
 export function sortCases(cases) {
-    const rank = { needs_review: 0, resend: 1, pending: 2, sent: 3 };
     return [...cases].sort((a, b) => {
-        const diff = (rank[a.state] ?? 9) - (rank[b.state] ?? 9);
-        if (diff) return diff;
-        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+        const byGenerated = statementGeneratedAt(b).localeCompare(statementGeneratedAt(a));
+        if (byGenerated) return byGenerated;
+        const byUpdated = String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+        if (byUpdated) return byUpdated;
+        return String(a.id || '').localeCompare(String(b.id || ''));
     });
 }
 

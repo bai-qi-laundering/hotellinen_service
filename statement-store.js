@@ -11,7 +11,9 @@ import {
     publishSnapshot,
     sortCases,
     statementDeleteBlockReason,
-} from './statement-case.js?v=20261125-delete-case';
+    statementMatchesHotel,
+    statementMonthKey,
+} from './statement-case.js?v=20261128-dispatch-search';
 import { matchingCombinedAccount, membersOfStatementTarget } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-delete-case';
 
 export const STATEMENT_COLLECTION = 'statement_cases';
@@ -47,7 +49,7 @@ export function isLogicError(error) {
 function rememberCache(storage, cases, month = '') {
     const previous = month ? readJson(storage, CASE_CACHE_KEY, {}) : {};
     const map = {};
-    if (month && previous && typeof previous === 'object') Object.entries(previous).forEach(([id, item]) => { if (String(item?.endDate || '').slice(0, 7) !== month) map[id] = item; });
+    if (month && previous && typeof previous === 'object') Object.entries(previous).forEach(([id, item]) => { if (statementMonthKey(item?.endDate) !== month) map[id] = item; });
     cases.forEach(item => { if (item?.id) map[item.id] = item; });
     writeJson(storage, CASE_CACHE_KEY, map);
 }
@@ -316,43 +318,52 @@ export function createFirestoreRepository(db, fns, storage) {
                 }
                 return sortCases(next);
             };
+            const restrictListedCases = rows => rows.filter(item => (!month || statementMonthKey(item.endDate) === month) && statementMatchesHotel(item, keyword));
             let snap;
             try {
                 const collectionRef = fns.collection(db, STATEMENT_COLLECTION);
                 if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('結帳月份格式不正確');
-                const key=ScopedReads.norm(keyword);
-                let customerKeys=null, matchingKeys=[];
-                if(key){
-                    // Resolve a partial name from configuration and already cached labels, without reading all statements.
-                    if(fns.getDocFromServer){
-                        const config=await fns.getDocFromServer(fns.doc(db,'inventory_config','master_template'));
-                        const rows=config.exists()?(config.data().items||[]):[];
-                        matchingKeys=rows.filter(row=>[row.baseName,row.hotel,[row.baseName,row.deptName].filter(Boolean).join(' '),statementCustomerKey(row.baseName,row.hotel,row.deptName)].some(name=>ScopedReads.norm(name).includes(key))).map(row=>statementCustomerKey(row.baseName,row.hotel,row.deptName));
+                const key = ScopedReads.norm(keyword);
+                let customerKeys = null;
+                // A month is one endDate range. Hotel text is matched afterwards, so a partial name cannot drop the month.
+                if (key && !month) {
+                    let matchingKeys = [];
+                    if (fns.getDocFromServer) {
+                        const config = await fns.getDocFromServer(fns.doc(db, 'inventory_config', 'master_template'));
+                        const rows = config.exists() ? (config.data().items || []) : [];
+                        matchingKeys = rows.filter(row => [row.baseName, row.hotel, [row.baseName, row.deptName].filter(Boolean).join(' '), statementCustomerKey(row.baseName, row.hotel, row.deptName)].some(name => ScopedReads.norm(name).includes(key))).map(row => statementCustomerKey(row.baseName, row.hotel, row.deptName));
                     }
-                    customerNames.push(...readCache(storage).flatMap(row=>[row.customerKey,row.customerName]));
-                    customerKeys=[...new Set([...matchingKeys,...customerNames.filter(name=>ScopedReads.norm(name).includes(key))].flatMap(ScopedReads.variants))];
-                    for(const value of ScopedReads.variants(keyword))if(!customerKeys.includes(value))customerKeys.push(value);
+                    customerNames.push(...readCache(storage).flatMap(row => [row.customerKey, row.customerName]));
+                    customerKeys = [...new Set([...matchingKeys, ...customerNames.filter(name => ScopedReads.norm(name).includes(key))].flatMap(ScopedReads.variants))];
+                    const aliases = [keyword, statementCustomerKey(keyword, keyword, ''), globalThis.FlowerBranch?.statementParent?.(keyword)].filter(Boolean);
+                    for (const value of aliases) for (const variant of ScopedReads.variants(value)) if (!customerKeys.includes(variant)) customerKeys.push(variant);
                 }
-                const api={...fns};
-                let plans;
-                if(customerKeys&&month){
-                    const end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10);
-                    plans=ScopedReads.queries(api,db,STATEMENT_COLLECTION,month+'-01',end,{field:'customerKey',values:customerKeys,dateField:'endDate',canonicalDates:true});
-                }else if(customerKeys){
-                    plans=ScopedReads.chunks(customerKeys,30).map(names=>fns.query(collectionRef,fns.where('customerKey','in',names)));
-                }else plans=[month?fns.query(collectionRef,fns.where('endDate','>=',month+'-01'),fns.where('endDate','<',month+'-32')):collectionRef];
-                const snapshots=[];
-                for(const batch of ScopedReads.chunks(plans,4))snapshots.push(...await Promise.all(batch.map(target=>fns.getDocsFromServer(target))));
-                snap={docs:[...new Map(snapshots.flatMap(s=>s.docs).map(row=>[row.id,row])).values()]};
+                const slashMonth = month ? month.replace('-', '/') : '';
+                const plans = month
+                    ? [
+                        fns.query(collectionRef, fns.where('endDate', '>=', `${month}-01`), fns.where('endDate', '<', `${month}-32`)),
+                        fns.query(collectionRef, fns.where('endDate', '>=', `${slashMonth}/01`), fns.where('endDate', '<', `${slashMonth}/32`)),
+                    ]
+                    : customerKeys
+                        ? ScopedReads.chunks(customerKeys, 30).map(names => fns.query(collectionRef, fns.where('customerKey', 'in', names)))
+                        : [collectionRef];
+                const snapshots = [];
+                for (const batch of ScopedReads.chunks(plans, 4)) snapshots.push(...await Promise.all(batch.map(target => fns.getDocsFromServer(target))));
+                snap = { docs: [...new Map(snapshots.flatMap(s => s.docs).map(row => [row.id, row])).values()] };
             } catch (error) {
-                return { cases: await overlay(readCache(storage)), cloudError: error, fromCache: true };
+                return { cases: restrictListedCases(await overlay(readCache(storage))), cloudError: error, fromCache: true };
             }
             const cases = snap.docs
                 .map(row => ({ id: row.id, ...row.data() }))
                 .filter(row => row.customerKey && Array.isArray(row.versions));
-            const visible = await overlay(cases);
+            const loaded = await overlay(cases);
+            const visible = restrictListedCases(loaded);
             let cacheError = null;
-            try { keyword ? writeJson(storage, CASE_CACHE_KEY, {...readJson(storage,CASE_CACHE_KEY,{}), ...Object.fromEntries(visible.filter(item=>!item.cloudPending).map(item=>[item.id,item]))}) : rememberCache(storage, visible.filter(item => !item.cloudPending), month); }
+            try {
+                if (month) rememberCache(storage, loaded.filter(item => !item.cloudPending), month);
+                else if (keyword) writeJson(storage, CASE_CACHE_KEY, { ...readJson(storage, CASE_CACHE_KEY, {}), ...Object.fromEntries(visible.filter(item => !item.cloudPending).map(item => [item.id, item])) });
+                else rememberCache(storage, loaded.filter(item => !item.cloudPending), month);
+            }
             catch (error) { cacheError = error; console.warn('帳單已從雲端讀取，但本機暫存失敗', error); }
             return { cases: visible, cloudError, cacheError, fromCache: false };
         },

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {filterDispatchCases, statementInvoiceReviewPending} from '../statement-case.js';
 const html=readFileSync(new URL('../statement-dispatch.html',import.meta.url),'utf8');
 const flow=html.slice(html.indexOf('async function prepareAndContinue()'),html.indexOf('function showSentConfirm('));
 function harness(state,fail=false){
@@ -37,7 +38,7 @@ test('Sent revised statement appears in both sent and invoice review filters',()
  const source=html.slice(html.indexOf('function invoiceReviewPending('),html.indexOf('function render()'));
  const row={state:'sent',invoiceStatus:'invoiced',invoicedVersion:1,latestVersion:2,endDate:'2026-10-31',versions:[{version:2,sentAt:'sent',review:'invoiced_diff'}]};
  const select=vm.runInNewContext('(function(){let cases=[row],activeFilter="all";const $=()=>({value:""});'+source+';return filter=>{activeFilter=filter;return visibleCases();};})()',{
-  row,latestVersion:item=>item.versions.find(v=>v.version===item.latestVersion),dispatchHotelName:()=> '福客來'
+  row,filterDispatchCases,statementInvoiceReviewPending,latestVersion:item=>item.versions.find(v=>v.version===item.latestVersion),dispatchHotelName:()=> '福客來'
  });
  assert.equal(select('sent').length,1);
  assert.equal(select('needs_review').length,1);

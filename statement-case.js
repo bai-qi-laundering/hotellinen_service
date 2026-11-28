@@ -1,5 +1,6 @@
 // 對帳單快照、版本與同一份內容的 HTML / Excel。不含畫面與資料庫。
 import { orderStatementSnapshot } from './logistics-items.js';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js';
 
 export const STATUS_LABELS = {
     pending: '待寄送',
@@ -49,6 +50,56 @@ export function statementDisplayName(snapshot) {
 export function dispatchHotelName(item) {
     const key = text(item?.customerKey || item?.snapshot?.customerKey);
     return key || '未命名客戶';
+}
+
+function compactSearch(value) {
+    return String(value ?? '').normalize('NFKC').replace(/[\s\u3000\-－_]/g, '').replace(/ㄧ/g, '一').toLowerCase();
+}
+
+function hotelAliases(value) {
+    const raw = text(value);
+    if (!raw) return [];
+    const aliases = [raw, statementCustomerKey(raw, raw, '')];
+    const parent = globalThis.FlowerBranch?.statementParent?.(raw);
+    if (parent) aliases.push(parent, statementCustomerKey(parent, parent, ''));
+    return [...new Set(aliases.map(compactSearch).filter(Boolean))];
+}
+
+export function statementMonthKey(endDate) {
+    const match = String(endDate ?? '').trim().replace(/\//g, '-').match(/^(\d{4})-(\d{1,2})/);
+    if (!match) return '';
+    return `${match[1]}-${match[2].padStart(2, '0')}`;
+}
+
+export function statementGeneratedAt(item) {
+    const versions = Array.isArray(item?.versions) ? item.versions : [];
+    const latest = versions.find(version => Number(version?.version) === Number(item?.latestVersion));
+    return String(latest?.createdAt || item?.updatedAt || '');
+}
+
+export function statementMatchesHotel(item, keyword) {
+    const needles = hotelAliases(keyword);
+    if (!needles.length) return true;
+    const labels = hotelAliases(item?.customerKey);
+    for (const value of [item?.customerKey, item?.customerName, dispatchHotelName(item), statementDisplayName({ customerKey: item?.customerKey, profile: { name: item?.customerName } })]) {
+        const compact = compactSearch(value);
+        if (compact) labels.push(compact);
+    }
+    return needles.some(needle => labels.some(label => label.includes(needle) || (needle.length >= 2 && label.length >= 2 && needle.includes(label))));
+}
+
+export function statementInvoiceReviewPending(item) {
+    const version = latestVersion(item);
+    return version?.review === 'invoiced_diff' || (item?.invoiceStatus === 'invoiced' && Number(item?.invoicedVersion) < Number(item?.latestVersion));
+}
+
+export function filterDispatchCases(cases, { month = '', hotel = '', status = 'all' } = {}) {
+    const monthKey = String(month || '');
+    return (Array.isArray(cases) ? cases : []).filter(item => {
+        const stateMatches = status === 'all' || (status === 'needs_review' ? statementInvoiceReviewPending(item) : item?.state === status);
+        const monthMatches = !monthKey || statementMonthKey(item?.endDate) === monthKey;
+        return stateMatches && monthMatches && statementMatchesHotel(item, hotel);
+    });
 }
 
 function text(value) {
@@ -383,11 +434,12 @@ export function mergeCaseDocs(left, right) {
 }
 
 export function sortCases(cases) {
-    const rank = { needs_review: 0, resend: 1, pending: 2, sent: 3 };
     return [...cases].sort((a, b) => {
-        const diff = (rank[a.state] ?? 9) - (rank[b.state] ?? 9);
-        if (diff) return diff;
-        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+        const byGenerated = statementGeneratedAt(b).localeCompare(statementGeneratedAt(a));
+        if (byGenerated) return byGenerated;
+        const byUpdated = String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+        if (byUpdated) return byUpdated;
+        return String(a.id || '').localeCompare(String(b.id || ''));
     });
 }
 

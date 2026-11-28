@@ -200,10 +200,12 @@ import {
     renderStatementHtml,
     statementFileBase,
     dispatchHotelName,
+    filterDispatchCases,
     statementDeleteBlockReason,
     statementDeleteConfirmText,
-} from './statement-case.js?v=20261125-delete-case';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261128-dept-alias';
+    statementInvoiceReviewPending,
+} from './statement-case.js?v=20261128-dispatch-search';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261128-dispatch-search';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { storedInvoice } from './firebase-signature/functions/lib/einvoice-failure.js?v=20261126-invoice-date';
 import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261128-dept-alias';
@@ -295,17 +297,13 @@ async function setup() {
     } })();
 }
 function invoiceReviewPending(item) {
-    const version=latestVersion(item);
-    return version?.review==='invoiced_diff'||(item.invoiceStatus==='invoiced'&&Number(item.invoicedVersion)<Number(item.latestVersion));
+    return statementInvoiceReviewPending(item);
 }
 function visibleCases() {
-    const month = $('filterMonth').value;
-    const hotel = $('filterHotel').value.trim().toLocaleLowerCase();
-    return cases.filter(item => {
-        const stateMatches = activeFilter === 'all' || (activeFilter === 'needs_review' ? invoiceReviewPending(item) : item.state === activeFilter);
-        const monthMatches = !month || String(item.endDate || '').slice(0, 7) === month;
-        const hotelMatches = !hotel || ScopedReads.norm(dispatchHotelName(item)).includes(ScopedReads.norm(hotel));
-        return stateMatches && monthMatches && hotelMatches;
+    return filterDispatchCases(cases, {
+        month: $('filterMonth').value,
+        hotel: $('filterHotel').value.trim(),
+        status: activeFilter,
     });
 }
 function render() {
@@ -583,11 +581,10 @@ async function reload() {
     $('refresh').disabled = true;
     const generation = ++readGeneration;
     try {
-        const selectedMonth = $('filterMonth').value, keyword=$('filterHotel').value.trim();
-        const readScope=selectedMonth+'|'+keyword;
-        if (!pendingRead || pendingMonth !== readScope) {
-            pendingMonth = readScope;
-            const read = repo.cloud ? repo.list({ skipFlush: true, month: selectedMonth, keyword }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
+        const selectedMonth = $('filterMonth').value;
+        if (!pendingRead || pendingMonth !== selectedMonth) {
+            pendingMonth = selectedMonth;
+            const read = repo.cloud ? repo.list({ skipFlush: true, month: selectedMonth }) : repo.list().then(cases => ({ cases, cloudError: null, fromCache: false }));
             pendingRead = read;
             read.finally(() => { if (pendingRead === read) pendingRead = null; }).catch(() => {});
         }
@@ -633,8 +630,14 @@ function money(value) {
 }
 $('cancel').onclick = () => $('overlay').classList.remove('show');
 $('filterMonth').addEventListener('input', () => { hasLoaded = false; render(); reload(); });
-let hotelSearchTimer;
-$('filterHotel').addEventListener('input', event=>{if(event.isComposing)return;clearTimeout(hotelSearchTimer);hotelSearchTimer=setTimeout(()=>{hasLoaded=false;reload();},450);});
+function renderHotelFilter() {
+    render();
+}
+$('filterHotel').addEventListener('input', event => {
+    if (event.isComposing) return;
+    renderHotelFilter();
+});
+$('filterHotel').addEventListener('compositionend', renderHotelFilter);
 $('clearSearch').onclick = () => {
     const changedMonth = !!$('filterMonth').value;
     $('filterMonth').value = '';
