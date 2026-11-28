@@ -1,4 +1,5 @@
 import { quoteInvoice, resolveItemDescription } from './einvoice-amount.js';
+import { manualInvoiceRefusal } from './invoice-issuer.js';
 import { clientProfileAliases } from './logistics-items.js';
 import { invoiceFailureMessage, publicInvoiceTarget } from './einvoice-failure.js';
 import {
@@ -236,6 +237,12 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             throw new Error(`上一版已開立發票 ${invoiceNumberOf(data)}，請先作廢再為這一版開立。`);
         }
         if (lockHeld(data.invoiceLock, actor, now)) throw new Error('這張帳單正在開立發票，請稍後再看結果，不要重複按。');
+        const refusal = manualInvoiceRefusal(data?.customerKey || latest.snapshot?.customerKey, {
+            rows: clients,
+            taxId: latest.snapshot?.profile?.taxId,
+            title: latest.snapshot?.profile?.name,
+        });
+        if (refusal) throw new Error(refusal);
         const quote = quoteInvoice(latest.snapshot);
         if (quote.buyer?.kind !== 'b2b' || !/^\d{8}$/.test(String(quote.buyer?.taxId || ''))) {
             throw new Error('這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。');

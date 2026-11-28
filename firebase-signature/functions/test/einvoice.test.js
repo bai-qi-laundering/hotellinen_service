@@ -713,6 +713,37 @@ test('手開發票不能從這裡作廢，連線測試只查不開票', async ()
     assert.equal(calls.some(call => call.path === '/openInvoice'), false);
 });
 
+test('手開客戶向汎宇開立會被拒絕，也不會送出', async () => {
+    const keys = ['承億', '花季', '花季Ａ館', '巨蛋', '老新', '永心', '福客來', '林森', '南北樓', '建工', '逢友園', '雅樂十刻', '雅樂廚苑', '萬樂國際餐飲'];
+    for (const customerKey of keys) {
+        const doc = statementDoc();
+        doc.customerKey = customerKey;
+        doc.versions[0].snapshot.customerKey = customerKey;
+        const id = `manual-${customerKey}`;
+        const db = memoryFirestore({ [`statement_cases/${id}`]: doc });
+        const { calls, send } = gateway(() => { throw new Error('不該送出'); });
+        await assert.rejects(
+            () => issueStatement({ db, send, creds, caseId: id, version: 1, actor: 'staff@baiqi.test', clock }),
+            /不能向汎宇開立/,
+        );
+        assert.equal(calls.length, 0);
+        assert.equal(db.read(`statement_cases/${id}`).invoiceNumber, undefined);
+    }
+    const overridden = statementDoc();
+    overridden.customerKey = '承億';
+    overridden.versions[0].snapshot.customerKey = '承億';
+    const db = memoryFirestore({ 'statement_cases/manual-sheet': overridden });
+    const { calls, send } = gateway(() => { throw new Error('不該送出'); });
+    await assert.rejects(
+        () => issueStatement({
+            db, send, creds, caseId: 'manual-sheet', version: 1, actor: 'staff@baiqi.test', clock,
+            clients: [['飯店名稱', '開票公司'], ['承億', '百麒國際']],
+        }),
+        /百麒（手開）/,
+    );
+    assert.equal(calls.length, 0);
+});
+
 test('作廢失敗時把 statusDesc 丟回，帳單維持已開票', async () => {
     const doc = statementDoc();
     doc.invoiceStatus = 'invoiced';

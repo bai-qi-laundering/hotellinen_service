@@ -1,4 +1,5 @@
-import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261031c';
+import {manualReferenceHtml} from './manual-invoice-reference.js?v=20261128-manual-invoice';
+import {resolveInvoiceIssuer} from './firebase-signature/functions/lib/invoice-issuer.js?v=20261128-manual-invoice';
 import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-void';
 import {formatCardAmount,statementDeleteBlockReason,statementDeleteConfirmText} from './statement-case.js?v=20261128-dispatch-search';
 import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261128-dispatch-search';
@@ -19,20 +20,21 @@ const PAYMENT_CONFIG=[{"name":"洲際","issuer":"百麒國際","method":"transfe
 PAYMENT_CONFIG.push({name:'鉑麗',issuer:'百麒國際',method:'transfer',order:9998,taxId:'',title:'',settlement:'月底'});
 const ISSUER_ORDER=['百麒國際','百麒','百富','日聖','未設定開票公司'];
 const normalizeName=s=>String(s||'').normalize('NFKC').replace(/[\s\-－＋+／/()（）]/g,'').toLowerCase();
+let clientSheetRows=null;
 function customerConfig(c){
  const name=normalizeName(c.customerKey),l=ledger(c);
- const exact=PAYMENT_CONFIG.find(row=>normalizeName(row.name)===name);
- if(exact)return exact;
+ const resolved=resolveInvoiceIssuer(c.customerKey,{taxId:l?.snapshot?.profile?.taxId,title:l?.snapshot?.profile?.name,rows:clientSheetRows});
+ const exact=PAYMENT_CONFIG.find(row=>normalizeName(row.name)===name)||(resolved.canonicalName?PAYMENT_CONFIG.find(row=>normalizeName(row.name)===normalizeName(resolved.canonicalName)):null);
  const tax=String(l?.snapshot?.profile?.taxId||'').replace(/\D/g,'');
- const matches=tax?PAYMENT_CONFIG.filter(row=>row.taxId===tax):[];
- if(matches.length&&matches.every(row=>row.issuer===matches[0].issuer&&row.method===matches[0].method))return matches[0];
- return {issuer:c.collectionRecord?.issuer||'未設定開票公司',method:c.collectionRecord?.paymentMethod||'',order:9999,title:''};
+ const matches=!exact&&tax?PAYMENT_CONFIG.filter(row=>row.taxId===tax):[];
+ const same=matches.length&&matches.every(row=>row.issuer===matches[0].issuer&&row.method===matches[0].method);
+ const base=exact||(same?matches[0]:null);
+ return {issuer:resolved.issuer,method:base?.method||c.collectionRecord?.paymentMethod||'',order:base?.order??9999,title:base?.title||'',taxId:base?.taxId||'',invoiceMethod:resolved.method,companyLabel:resolved.companyLabel,canonicalName:resolved.canonicalName};
 }
 function invoiceDetails(c){
- const issuer=customerConfig(c).issuer;
- if(!['百麒國際','百麒','百富','日聖'].includes(issuer))throw Error('尚未設定開票公司，請先確認公司後再登記發票。');
- const method=issuer==='百麒國際'?'electronic':'manual';
- return {issuer,method,label:method==='electronic'?'電子發票':'手開發票'};
+ const config=customerConfig(c);
+ if(!['百麒國際','百麒','百富','日聖'].includes(config.issuer))throw Error('尚未設定開票公司，請先確認公司後再登記發票。');
+ return {issuer:config.issuer,method:config.invoiceMethod,label:config.invoiceMethod==='electronic'?'電子發票':'手開發票',companyLabel:config.companyLabel};
 }
 let cases=[],loading=false,available=false,sequence=0;
 const localOnly=new URLSearchParams(location.search).get('store')==='local';
@@ -92,10 +94,11 @@ function render(){
  const l=ledger(r.c),v=r.c.collectionRecord||{},disabled=l.pending?'disabled':'';
  const field=(key,type='text')=>'<input data-field="'+key+'" type="'+type+'" value="'+esc(v[key]??'')+'" aria-label="'+esc(r.name+' '+({receivedDate:'入帳日',receivedAmount:'入帳金額',dueDate:'支票到期日',chequeNumber:'支票號碼',bank:'銀行',branch:'分行'}[key]||key))+'" '+(type==='number'?'min="0" step="0.01" ':'')+disabled+'>';
  const title=l.snapshot.profile?.name||r.config.title||r.c.customerName||'';
- const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="13">'+esc(r.config.issuer)+'</th></tr>':'';
+ const company=r.config.invoiceMethod==='manual'?r.config.issuer+'（手開）':r.config.issuer;
+ const heading=previousIssuer!==r.config.issuer?'<tr class="ledger-company"><th colspan="13">'+esc(company)+'</th></tr>':'';
  previousIssuer=r.config.issuer;
  const history=(r.c.invoiceHistory||[]).length?'<details><summary>作廢紀錄</summary>'+r.c.invoiceHistory.map(h=>'<p>'+esc(h.number)+' · '+esc(h.voidDate||h.at?.slice(0,10)||'')+'<br>'+esc(h.reason)+'</p>').join('')+'</details>':'';
- const issueTitle=r.config.issuer==='百麒國際'?'確認後向汎宇開立 B2B 電子發票':'先在平台開票，再登記發票號碼';
+ const issueTitle=r.config.invoiceMethod==='manual'?'手開發票：打開三聯式照抄，再登記手寫發票號碼。不會向汎宇開立。':'確認後向汎宇開立 B2B 電子發票';
  const invoiceCell=invoiceCellHtml(r,l,history,issueTitle);
  return heading+'<tr data-case="'+esc(r.c.id)+'" class="'+(l.pending?'ledger-pending':'')+'"><td class="ledger-settlement">'+esc(settlementLabel(r.c))+'</td><td class="ledger-customer"><strong>'+esc(r.name)+'</strong><small>'+esc(title)+'</small></td><td>'+invoiceCell+'</td><td class="ledger-payment">'+esc(r.config.method==='transfer'?'匯款':r.config.method==='cheque'?'支票':'未設定')+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.afterRebate)+'</td><td class="ledger-money">'+amountText(l.snapshot.totals.tax)+'</td><td class="ledger-money"><strong>'+amountText(l.amount)+'</strong></td><td>'+field('receivedDate','date')+'</td><td>'+field('receivedAmount','number')+'</td><td>'+field('dueDate','date')+'</td><td>'+field('chequeNumber')+'</td><td>'+field('bank')+'</td><td>'+field('branch')+'<button data-collection="'+esc(r.c.id)+'" '+disabled+'>儲存</button><button data-delete="'+esc(r.c.id)+'" type="button">刪除</button><small class="ledger-row-status" role="status"></small></td></tr>';
  }).join('')+'</tbody>'+footer+'</table></div>':'<p>此條件沒有紀錄。</p>';
@@ -199,8 +202,11 @@ async function open(id,type){
  selected=cases.find(c=>c.id===id);action=type;const l=ledger(selected);
  setSave('儲存');
  let details;
- try{if(type==='invoice')details=invoiceDetails(selected);}
- catch(error){$('message').textContent=error.message;return;}
+ if(type==='invoice'){
+  try{clientSheetRows=await loadClientRows();}catch{/* 內建開票公司仍可用 */}
+  try{details=invoiceDetails(selected);}
+  catch(error){$('message').textContent=error.message;return;}
+ }
  if(type==='voidInvoice'){
   $('title').textContent='登記已作廢的發票';$('error').textContent='';
   $('fields').innerHTML=`<p>${esc(selected.customerKey)} · 原發票：<strong>${esc(l.invoice?.number||selected.invoiceNumber)}</strong></p><p>已開立的發票不能改日期。汎宇不接受直接改日期，要先在汎宇網站作廢，再回來重開。此處只登記作廢結果，不會向汎宇送出作廢。</p><label>再次輸入原發票號碼<input name="number" required maxlength="10" placeholder="原發票號碼"></label><label>實際作廢日期<input name="date" type="date" required value="${today}"></label><label>作廢原因<input name="reason" required maxlength="300"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已完成這張實際發票的作廢</label><p>保留舊發票紀錄。若有新版帳單，完成後可回送件中心重寄，再登記新發票。</p>`;
@@ -218,12 +224,19 @@ async function open(id,type){
   $('dialog').showModal();
   return;
  }
- $('title').textContent=type==='confirm'?'確認收到飯店通知':'登記已開立的發票';$('error').textContent='';
- $('fields').innerHTML=type==='confirm'?`<p>${esc(selected.customerName||selected.customerKey)} · V${l.version} · ${formatCardAmount(l.amount)}</p><label><input type="checkbox" required> 我已收到飯店確認這一版對帳單的通知</label>`:`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${details.label}</strong>（自動帶入）</p><input name="method" type="hidden" value="${details.method}"><div id="ledger-reference"></div><label>發票日期<input name="date" type="date" required value="${today}"></label><label>發票號碼<input name="number" required pattern="[A-Za-z]{2}[0-9]{8}" maxlength="10" placeholder="AB12345678"></label><label><input type="checkbox" required> 已開立並核對發票金額</label>`;
  if(type==='invoice'&&details.method==='manual'){
-  const form=$('form'),update=()=>{$('reference').innerHTML=manualReferenceHtml({buyer:l.snapshot.profile?.name,taxId:l.snapshot.profile?.taxId,date:form.elements.date.value||today,item:selected.endDate.slice(0,7)+' 洗滌費',net:l.snapshot.totals.afterRebate,tax:l.snapshot.totals.tax,total:l.amount,version:l.version},form.elements.number.value);};
+  const item=await invoiceItemPreview(selected.customerKey,l.snapshot);
+  const profile=l.snapshot.profile||{};
+  $('title').textContent='手開發票';$('error').textContent='';
+  $('fields').innerHTML=`<p>開票公司：<strong>${esc(details.companyLabel)}</strong> · 類型：<strong>手開發票</strong></p><p>這張只供照抄三聯式紙本發票，不會向汎宇開立。請核對抬頭、統編、品項與金額，寫到紙本並蓋發票章，再登記手寫的發票號碼。</p><input name="method" type="hidden" value="manual"><div id="ledger-reference"></div><label>發票日期<input name="date" type="date" required value="${today}"></label><label>發票號碼<input name="number" required pattern="[A-Za-z]{2}[0-9]{8}" maxlength="10" placeholder="AB12345678"></label><label><input type="checkbox" required> 已照三聯式開立並核對發票金額</label>`;
+  setSave('登記發票號碼');
+  const form=$('form'),update=()=>{$('reference').innerHTML=manualReferenceHtml({buyer:profile.name,taxId:profile.taxId,address:profile.address,date:form.elements.date.value||today,item:item.text,net:l.snapshot.totals.afterRebate,tax:l.snapshot.totals.tax,total:l.amount,version:l.version,issuer:details.companyLabel},form.elements.number.value);};
   form.elements.date.onchange=update;form.elements.number.oninput=update;update();
+  $('dialog').showModal();
+  return;
  }
+ $('title').textContent='確認收到飯店通知';$('error').textContent='';
+ $('fields').innerHTML=`<p>${esc(selected.customerName||selected.customerKey)} · V${l.version} · ${formatCardAmount(l.amount)}</p><label><input type="checkbox" required> 我已收到飯店確認這一版對帳單的通知</label>`;
  $('dialog').showModal();
 }
 $('cancel').onclick=()=>{if(!loading)$('dialog').close();};
