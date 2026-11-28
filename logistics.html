@@ -1053,18 +1053,14 @@
                             update.deptName = target.deptName;
                         }
                         if (main) {
-                            if (target.existed) {
-                                if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
-                                if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
-                            } else {
-                                update.items=items;
-                                if(clientUrl) update.clientSig=clientUrl;
-                                if(driverUrl) update.driverSig=driverUrl;
-                            }
+                            update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
+                            if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
+                            if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
                         } else {
                             if (prior.driverSig || !driverUrl) return;
                             update.driverSig=driverUrl;
-                            if (!target.existed && !prior.clientSig && items.length) update.items=items;
+                            if (!prior.clientSig && items.length)
+                                update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
                         }
                         const patch=needsBatch?InventoryBatchState.signedPatch(batchSnapshot.exists()?batchSnapshot.data():{},
                             {date:signingDate,id:target.id},Date.now()):null;

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { customerOf, rowsForPeriod, statementHotelKey } from '../lib/auto-close.js';
 import { dueHotelKeywords } from '../lib/billing-schedule.js';
 import { signatureCoverage } from '../lib/billing-run.js';
-import { statementCustomerKey } from '../lib/logistics-items.js';
+import { mergeSignedItems, statementCustomerKey } from '../lib/logistics-items.js';
 import { catalogPrice } from '../lib/price-catalog.js';
 
 const branch = globalThis.FlowerBranch;
@@ -296,12 +296,31 @@ test('承億健身房、承億休閒 and 日航休閒中心 share the parent hot
     assert.match(index, /chooseReceiptId\(date,hotelKeyword,deptName/);
     assert.match(signPage, /resolveReceiptWrite\(tx, signingDate, signingHotel, targetDept\)/);
     assert.match(signPage, /getDocFromServer\(doc\(db,'logistics_records',signedId\)\)/);
+    assert.match(signPage, /update\.items=mergeReceiptAfterDeletion\(\{\.\.\.prior,items:receiptTotalItems\(prior\.items \|\| \[\],signingHotel\)\}, items\)/);
     assert.deepEqual(dueHotelKeywords(['承億', '承億健身房', '承億休閒', '日航', '日航休閒中心'], {
         承億健身房: '25th', 承億休閒: '25th', 日航休閒中心: 'month',
     }, '25th'), ['承億']);
     assert.deepEqual(dueHotelKeywords(['承億', '承億健身房', '承億休閒', '日航', '日航休閒中心'], {
         承億健身房: '25th', 承億休閒: '25th', 日航休閒中心: 'month',
     }, 'month'), ['日航']);
+});
+
+test('inventory save then sign writes the signed actual quantity onto the same receipt', () => {
+    const date = '2026-11-19';
+    const inventory = branch.chooseReceiptId(date, '花季Ａ館', '房務', []);
+    const signed = branch.chooseReceiptId(date, '花季', 'A館 房務', [inventory.id]);
+    assert.equal(inventory.id, `${date}_花季_A館 房務`);
+    assert.equal(signed.id, inventory.id);
+    const items = mergeSignedItems(
+        [{ itemName: '抹布', originalQty: '52', actualQty: '52' }],
+        [{ itemName: '抹布', originalQty: '52', actualQty: '50', loadedActualQty: '52' }],
+    );
+    assert.equal(items.length, 1);
+    assert.equal(items[0].originalQty, '52');
+    assert.equal(items[0].actualQty, '50');
+    const doc = receipt(signed.id, '花季', 'A館 房務', items, { driverSig: 'signed', date });
+    const rows = rowsForPeriod([doc], '花季', '2026-10-26', '2026-11-25');
+    assert.deepEqual(rows.map(row => [row.docId, row.item, row.qty]), [[signed.id, '抹布', 50]]);
 });
 
 test('same-day department aliases fold without adding, and a quantity mismatch keeps the signed main receipt', () => {
