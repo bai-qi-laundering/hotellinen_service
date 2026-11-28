@@ -9,7 +9,7 @@ import { BILLING_CRON, BILLING_TIME_ZONE } from './lib/billing-schedule.js';
 import { handleBillingSchedule } from './lib/billing-run.js';
 import { PROD_HOST } from './lib/einvoice-client.js';
 import { clientNotifyEmail } from './lib/einvoice-amount.js';
-import { issueStatement, latestUniversalInvoiceDate, testConnection, voidStatement } from './lib/einvoice-issue.js';
+import { issueStatement, testConnection, voidStatement } from './lib/einvoice-issue.js';
 
 if (BILLING_CRON !== '30 9 1,25,28,29,30,31 * *' || BILLING_TIME_ZONE !== 'Asia/Taipei') {
     throw new Error('結帳排程常數與部署字串不一致');
@@ -168,7 +168,6 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
         const config = einvoiceConfig();
         const snap = await db.collection('statement_cases').doc(caseId).get();
         const buyerEmail = await buyerEmailForIssue(snap.exists ? snap.data()?.customerKey : '');
-        const lastIssuedDate = await latestUniversalInvoiceDate(db);
         return await issueStatement({
             db,
             send: (path, body) => postEinvoice(`${config.host}${path}`, body),
@@ -179,8 +178,6 @@ export const issueStatementInvoice = onCall(einvoiceOptions, async request => {
             actor,
             buyerEmail,
             host: config.host,
-            invoiceDate: request.data?.invoiceDate,
-            lastIssuedDate,
         });
     } catch (error) {
         throw callableError(error);

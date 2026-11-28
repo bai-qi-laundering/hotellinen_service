@@ -22,7 +22,6 @@ import {
     taipeiDateTime,
     TEST_HOST,
 } from '../lib/einvoice-client.js';
-import { invoiceDateError } from '../lib/einvoice-date.js';
 import { invoiceFailureMessage, ledgerInvoiceLines } from '../lib/einvoice-failure.js';
 import { issueStatement, testConnection, voidStatement } from '../lib/einvoice-issue.js';
 
@@ -200,6 +199,12 @@ test('B2B 開立封包帶齊 MIG 4.1 必填欄位，金額是整數', () => {
     assert.equal(b2b.Details[0].sequenceNumber, '0001');
     assert.equal(b2b.Details[0].taxType, '1');
     assert.equal(b2b.notifyEmail, undefined);
+    assert.equal(Object.hasOwn(b2b, 'invDate'), false);
+    const ignoredDate = openInvoicePayload({
+        orderID: 'case_1-v1', sellerId: '96842769', buyer: buyerB2B,
+        description: '布品洗滌費', sales: 1752, tax: 88, total: 1840, invoiceDate: '2020-01-01',
+    });
+    assert.equal(Object.hasOwn(ignoredDate, 'invDate'), false);
     const mailed = openInvoicePayload({
         orderID: 'case_1-v1', sellerId: '96842769', buyer: { ...buyerB2B, email: 'accounts@hotel.example' },
         description: '布品洗滌費 2026/10/01–2026/10/31', sales: 1752, tax: 88, total: 1840,
@@ -309,8 +314,9 @@ test('同一版對帳單只會向汎宇開一次，第二次直接回原號碼',
     assert.equal(opened[0].body.reqData.orderID, 'case_1-v1');
     assert.equal(opened[0].body.reqData.process_type, 'B');
     assert.equal(opened[0].body.reqData.buyerID, '87654321');
-    assert.equal(opened[0].body.reqData.invDate, '20261031');
+    assert.equal(Object.hasOwn(opened[0].body.reqData, 'invDate'), false);
     assert.equal(saved.invoiceDate, '2026-10-31');
+    assert.equal(saved.invoiceRecord.date, '2026-10-31');
     assert.equal(saved.invoiceFailure, null);
     assert.equal(opened[0].body.reqData.salesAmount, 1752);
     assert.equal(opened[0].body.reqData.taxAmount, 88);
@@ -467,36 +473,39 @@ test('汎宇拒絕時把 statusDesc 原樣丟回，沒有寫入發票號碼', as
     assert.equal(JSON.stringify(prod.read('statement_cases/case_1').invoiceFailure).includes('apiKey'), false);
 });
 
-test('開立日期不能是未來、不能跨期別、不能早於本期最近一張', async () => {
-    const cases = [
-        ['2026-11-01', /不能晚於今天/],
-        ['2026-08-15', /須在本期 2026-09-01～2026-10-31/],
-        ['2026-09-30', /不能早於本期最近一張發票 2026-10-15/],
-    ];
-    for (const [invoiceDate, pattern] of cases) {
-        const db = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
-        const { calls, send } = gateway(() => { throw new Error('不該送出'); });
-        await assert.rejects(
-            () => issueStatement({
-                db, send, creds, caseId: 'case_1', version: 1, description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
-                invoiceDate, lastIssuedDate: '2026-10-15',
-            }),
-            pattern,
-        );
-        assert.equal(calls.length, 0);
-        assert.equal(db.read('statement_cases/case_1').invoiceLock ?? null, null);
-        assert.equal(db.read('statement_cases/case_1').invoiceFailure ?? null, null);
-    }
+test('開立不送客戶指定日期，發票日期採用汎宇回傳，沒有則用台北今天', async () => {
     const db = memoryFirestore({ 'statement_cases/case_1': statementDoc() });
-    const { calls, send } = gateway(path => path === '/openInvoice' ? issuedBody() : null);
-    const sameDay = await issueStatement({
+    const { calls, send } = gateway(path => path === '/openInvoice' ? {
+        statusCode: '0', statusDesc: '',
+        respData: { invNo: 'AB12345678', invDate: '20261030', randomNumber: '4321' },
+    } : null);
+    const issued = await issueStatement({
         db, send, creds, caseId: 'case_1', version: 1, description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
-        invoiceDate: '2026-10-15', lastIssuedDate: '2026-10-15',
+        invoiceDate: '2020-01-01', lastIssuedDate: '2026-10-15',
     });
-    assert.equal(invoiceDateError('2026-10-31', { today: '2026-10-31', lastIssuedDate: '2026-08-01' }), '');
-    assert.equal(sameDay.invoiceNumber, 'AB12345678');
-    assert.equal(calls[0].body.reqData.invDate, '20261015');
-    assert.equal(db.read('statement_cases/case_1').invoiceDate, '2026-10-31');
+    assert.equal(issued.invoiceNumber, 'AB12345678');
+    assert.equal(issued.invoiceDate, '2026-10-30');
+    assert.equal(issued.requestedInvoiceDate, undefined);
+    assert.equal(Object.hasOwn(calls[0].body.reqData, 'invDate'), false);
+    const saved = db.read('statement_cases/case_1');
+    assert.equal(saved.invoiceDate, '2026-10-30');
+    assert.equal(saved.invoiceRecord.date, '2026-10-30');
+    assert.deepEqual(ledgerInvoiceLines(saved), {
+        kind: 'issued', number: 'AB12345678', date: '2026-10-30', amount: 1840,
+    });
+
+    const fallbackDb = memoryFirestore({ 'statement_cases/case_fallback': statementDoc() });
+    const fallback = gateway(path => path === '/openInvoice' ? {
+        statusCode: '0', statusDesc: '',
+        respData: { invNo: 'AB12345679', randomNumber: '1111' },
+    } : null);
+    const recorded = await issueStatement({
+        db: fallbackDb, send: fallback.send, creds, caseId: 'case_fallback', version: 1,
+        description: '布品洗滌費', actor: 'staff@baiqi.test', clock,
+    });
+    assert.equal(recorded.invoiceDate, '2026-10-31');
+    assert.equal(fallbackDb.read('statement_cases/case_fallback').invoiceRecord.date, '2026-10-31');
+    assert.equal(Object.hasOwn(fallback.calls[0].body.reqData, 'invDate'), false);
 });
 
 test('貨款列顯示號碼日期金額，失敗只留公開主機和統編', () => {
@@ -671,7 +680,10 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.doesNotMatch(dispatch, /開立發票|issueStatementInvoice|測試電子發票連線|quoteInvoice/);
     const payments = readFileSync(new URL('../../../receivables-ui.js', import.meta.url), 'utf8');
     assert.match(payments, /確認開立/);
-    assert.match(payments, /name="invoiceDate"/);
+    assert.match(payments, /發票日期為按下確認開立當天/);
+    assert.doesNotMatch(payments, /name="invoiceDate"/);
+    assert.doesNotMatch(payments, /invoiceDate:/);
+    assert.match(payments, /不是今天/);
     assert.match(payments, /已開立的發票不能改日期/);
     assert.match(payments, /已請汎宇寄開立通知到/);
     assert.match(payments, /客戶資料表沒有電子信箱，沒有寄通知/);
@@ -683,6 +695,8 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(dispatch, /已寄送通知/);
     assert.match(dispatch, /未寄送通知/);
     assert.doesNotMatch(dispatch, /發票金額|通知信箱/);
+    const issueFn = index.slice(index.indexOf('export const issueStatementInvoice'), index.indexOf('export const voidStatementInvoice'));
+    assert.doesNotMatch(issueFn, /invoiceDate|latestUniversalInvoiceDate/);
     assert.match(payments, /issueStatementInvoice/);
     assert.match(payments, /missingTaxIdMessage/);
     assert.match(payments, /手開發票/);
@@ -702,6 +716,8 @@ test('網頁不放發票帳號，排程也不會開立發票', () => {
     assert.match(deployDoc, /https:\/\/web\.einvoice\.com\.tw\/einv/);
     assert.match(deployDoc, /不會自動開立發票/);
     const client = readFileSync(new URL('../lib/einvoice-client.js', import.meta.url), 'utf8');
+    const openFn = client.slice(client.indexOf('export function openInvoicePayload'), client.indexOf('export function cancelInvoicePayload'));
+    assert.doesNotMatch(openFn, /invDate/);
     const issue = readFileSync(new URL('../lib/einvoice-issue.js', import.meta.url), 'utf8');
     assert.doesNotMatch(client, /process_type: kind === 'b2b' \? 'B' : 'C'|0000000000|process_type: b2b \? 'B' : 'C'/);
     assert.match(issue, /沒有 8 碼統編，不能開立發票/);

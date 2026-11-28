@@ -3,8 +3,7 @@ import {ledger,applyLedger,invoiceState} from './receivables-core.js?v=20261102-
 import {formatCardAmount,statementDeleteBlockReason,statementDeleteConfirmText} from './statement-case.js?v=20261125-delete-case';
 import {createFirestoreRepository,createLocalRepository} from './statement-store.js?v=20261126-yiguan-restaurant';
 import {defaultItemDescription,missingTaxIdMessage} from './firebase-signature/functions/lib/einvoice-amount.js?v=20261112-b2b';
-import {invoiceDateError,invoicePeriod} from './firebase-signature/functions/lib/einvoice-date.js?v=20261126-invoice-date';
-import {ledgerInvoiceLines} from './firebase-signature/functions/lib/einvoice-failure.js?v=20261126-invoice-date';
+import {ledgerInvoiceLines} from './firebase-signature/functions/lib/einvoice-failure.js?v=20261128-invoice-date';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
 import * as fs from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
@@ -192,10 +191,9 @@ function open(id,type){
   const taxError=missingTaxIdMessage(l.snapshot?.profile);
   const taxId=String(l.snapshot.profile?.taxId||'').replace(/\D/g,'');
   const description=defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate);
-  const period=invoicePeriod(today);
   $('title').textContent='確認開立發票';
   $('error').textContent=taxError;
-  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。已開立的發票不能改日期，要先在汎宇作廢再重開。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，才請汎宇寄開立通知；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p>${taxError?'':`<label>開立發票日期<input name="invoiceDate" type="date" required value="${today}" min="${period?.start||''}" max="${today}"></label><label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編、日期與金額，確認開立</label>`}`;
+  $('fields').innerHTML=`<p>開票公司：${esc(details.issuer)} · 類型：<strong>${esc(details.label)}</strong>（自動帶入）</p><input name="method" type="hidden" value="electronic"><p>請核對下面的內容。按下「確認開立」才會向汎宇開立 B2B 電子發票。結帳與寄出都不會自動開立。已開立的發票不能改日期，要先在汎宇作廢再重開。</p><p>發票抬頭：<strong>${esc(l.snapshot.profile?.name||'')}</strong><br>統編：<strong>${esc(taxId||'沒有統編')}</strong></p><p>通知信箱看客戶資料表的「電子信箱」。多個用分號分開，最多 3 個。有填，才請汎宇寄開立通知；空白就不會寄。</p><p>未稅 ${esc(amountText(l.snapshot.totals.afterRebate))} · 稅金 ${esc(amountText(l.snapshot.totals.tax))} · 含稅 <strong>${esc(amountText(l.amount))}</strong></p><p>品項說明：${esc(description)}</p><p>發票日期為按下確認開立當天</p>${taxError?'':`<label><input name="confirmed" value="yes" type="checkbox" required> 我已核對抬頭、統編與金額，確認開立</label>`}`;
   setSave('確認開立',!!taxError);
   $('dialog').showModal();
   return;
@@ -215,13 +213,11 @@ $('form').onsubmit=async e=>{e.preventDefault();if(loading)return;loading=true;$
   const taxError=missingTaxIdMessage(l.snapshot?.profile);
   if(taxError)throw Error(taxError);
   if(payload.confirmed!=='yes')throw Error('請先核對後再確認開立。');
-  const dateError=invoiceDateError(payload.invoiceDate,{today});
-  if(dateError)throw Error(dateError);
   const call=await staffCallable('issueStatementInvoice');
-  const data=(await call({caseId:selected.id,version:l.version,description:defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate),invoiceDate:payload.invoiceDate})).data||{};
+  const data=(await call({caseId:selected.id,version:l.version,description:defaultItemDescription(l.snapshot.startDate,l.snapshot.endDate)})).data||{};
   $('dialog').close();
   const mailed=data.notifyEmail?`已開立發票 ${data.invoiceNumber}，已請汎宇寄開立通知到 ${data.notifyEmail}。`:`已開立發票 ${data.invoiceNumber}。客戶資料表沒有電子信箱，沒有寄通知。`;
-  const adjusted=data.requestedInvoiceDate&&data.invoiceDate&&data.requestedInvoiceDate!==data.invoiceDate?`你選的是 ${data.requestedInvoiceDate}，汎宇登錄的是 ${data.invoiceDate}。`:'';
+  const adjusted=data.invoiceDate&&data.invoiceDate!==today?`汎宇登錄的發票日期是 ${data.invoiceDate}，不是今天。`:'';
   alert(data.already?`這一版已經開過，發票號碼 ${data.invoiceNumber}。沒有再向汎宇送一次。`:mailed+adjusted);
   window.parent.postMessage({type:'baiqi-ledger-updated'},location.origin);
   await reload();
