@@ -165,7 +165,7 @@ function parseFinanceClientRows(rows) {
 }
 
 function normalizeClientLookupKey(v) {
-    return String(v ?? '').normalize('NFKC').replace(/[\s ]+/g,'').replace(/[－–—_]/g,'-').trim().toLowerCase();
+    return String(v ?? '').normalize('NFKC').replace(/[\s\u3000\-－–—_]/g,'').replace(/ㄧ/g,'一').trim().toLowerCase();
 }
 
 function resolveClientProfile(comp) {

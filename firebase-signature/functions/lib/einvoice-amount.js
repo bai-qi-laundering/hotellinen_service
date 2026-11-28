@@ -1,5 +1,6 @@
 // 客戶實付是對帳單含稅總額（未稅 + 管理費 − 回饋之後再加 5% 稅）。
 // 電子發票改以這個含稅整數拆回未稅與稅額，讓銷售額 + 稅額 = 總額。
+import { clientProfileAliases, compactClientLabel } from './logistics-items.js';
 
 function num(value) {
     const n = Number(value);
@@ -65,22 +66,48 @@ function sheetColumn(header, title) {
     return header.findIndex(cell => sheetCell(cell) === title);
 }
 
+function clientSheetLayout(rows) {
+    const header = Array.isArray(rows?.[0]) ? rows[0] : [];
+    const nameCol = sheetColumn(header, '飯店名稱');
+    const emailCol = sheetColumn(header, '電子信箱');
+    const hasHeader = nameCol >= 0 || emailCol >= 0 || sheetColumn(header, '發票品項') >= 0;
+    return {
+        nameCol: nameCol >= 0 ? nameCol : 0,
+        emailCol: emailCol >= 0 ? emailCol : 5,
+        start: hasHeader ? 1 : 0,
+    };
+}
+
+function clientLookupNames(customerKey, aliases = []) {
+    const names = [];
+    for (const name of [...clientProfileAliases(customerKey), customerKey, ...aliases]) {
+        const text = sheetCell(name);
+        if (!text || names.some(existing => compactClientLabel(existing) === compactClientLabel(text))) continue;
+        names.push(text);
+    }
+    return names;
+}
+
+function clientSheetRow(rows, layout, name) {
+    const wanted = compactClientLabel(name);
+    if (!wanted) return null;
+    return rows.find((item, index) => index >= layout.start && Array.isArray(item) && compactClientLabel(item[layout.nameCol]) === wanted) || null;
+}
+
 // 客戶資料表第一列的「發票品項」。用標題找欄，不看欄序。沒有這欄或這格空白就回空字串。
 export function invoiceItemFromClients(rows, customerKey, aliases = []) {
     if (!Array.isArray(rows) || !rows.length) return '';
     const itemCol = sheetColumn(rows[0], '發票品項');
     if (itemCol < 0) return '';
-    const nameCol = sheetColumn(rows[0], '飯店名稱');
-    const keyCol = nameCol >= 0 ? nameCol : 0;
-    const names = [];
-    for (const name of [customerKey, ...aliases]) {
-        const text = sheetCell(name);
-        if (text && !names.includes(text)) names.push(text);
-    }
-    for (const name of names) {
-        const row = rows.find((item, index) => index > 0 && Array.isArray(item) && sheetCell(item[keyCol]) === name);
-        const value = row ? sheetCell(row[itemCol]) : '';
-        if (value) return value;
+    const layout = clientSheetLayout(rows);
+    const restaurantBill = compactClientLabel(customerKey) !== '驛館' && clientProfileAliases(customerKey).some(name => compactClientLabel(name) === '驛館');
+    for (const name of clientLookupNames(customerKey, aliases)) {
+        const row = clientSheetRow(rows, layout, name);
+        if (!row) continue;
+        const value = sheetCell(row[itemCol]);
+        const parentRow = restaurantBill && compactClientLabel(name) === '驛館';
+        if (parentRow && !value) continue;
+        if (value || !parentRow) return value;
     }
     return '';
 }
@@ -114,8 +141,18 @@ export function buyerFromProfile(profile) {
 export function clientNotifyEmail(rows, customerKey) {
     const want = String(customerKey || '').trim();
     if (!want || !Array.isArray(rows)) return '';
-    const row = rows.find(item => Array.isArray(item) && String(item[0] ?? '').trim() === want);
-    return row ? String(row[5] ?? '').trim() : '';
+    const layout = clientSheetLayout(rows);
+    const restaurantBill = compactClientLabel(want) !== '驛館' && clientProfileAliases(want).some(name => compactClientLabel(name) === '驛館');
+    const names = clientLookupNames(want);
+    const ordered = restaurantBill
+        ? [...names.filter(name => compactClientLabel(name) !== '驛館'), ...names.filter(name => compactClientLabel(name) === '驛館')]
+        : names;
+    for (const name of ordered) {
+        const row = clientSheetRow(rows, layout, name);
+        const email = row ? String(row[layout.emailCol] ?? '').trim() : '';
+        if (email) return email;
+    }
+    return '';
 }
 
 export function quoteInvoice(snapshot) {
