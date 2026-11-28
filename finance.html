@@ -233,6 +233,7 @@ body { background: white; padding: 0; margin: 0; }
     </div>
 </div>
 
+<div id="flowerQtyBanner" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-[2000] max-w-3xl w-[calc(100%-2rem)] bg-amber-50 text-amber-950 border border-amber-300 px-4 py-3 rounded-lg shadow-lg text-sm font-bold whitespace-pre-wrap"></div>
 <div id="toast" class="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-[2000] font-bold flex items-center gap-2 transform translate-y-[-20px]">
 <span>✅</span> <span id="toastMsg">資料已自動儲存更新！</span>
 </div>
@@ -507,8 +508,8 @@ body { background: white; padding: 0; margin: 0; }
      此處不再顯示盤點／物流連結，避免混入財務操作畫面。 -->
 
 <script src="scoped-reads.js?v=20261119-read2"></script>
-<script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
-<script src="flower-receipts.js?v=20261127-huaji-ac"></script>
+<script src="firebase-signature/functions/lib/flower-branch.js?v=20261128-flower-qty"></script>
+<script src="flower-receipts.js?v=20261128-flower-qty"></script>
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -1535,6 +1536,19 @@ function getPrice(hotelName, item, date=null) {
     return catalogPrice({ hotel: hotelName, item, date, rules: effectivePriceRules, customPrices, sheetPrices }).price;
 }
 
+function showFlowerQuantityWarnings() {
+    const banner = document.getElementById('flowerQtyBanner');
+    const list = (window.FlowerBranch && FlowerBranch.quantityWarnings) || [];
+    if (!banner) return;
+    if (!list.length) {
+        banner.classList.add('hidden');
+        banner.textContent = '';
+        return;
+    }
+    const lines = list.map(warning => `${warning.date} ${warning.building}館 ${warning.item}：已簽主單 ${warning.keptQty}，另一張 ${warning.otherQty}`);
+    banner.textContent = '花季同日同館有數量不同的單。已採用已簽的半形主單，沒有相加，出帳繼續：\n' + lines.join('\n');
+    banner.classList.remove('hidden');
+}
 function showToast(msg = "資料已自動儲存更新！") {
 document.getElementById('toastMsg').innerText = msg;
 const toast = document.getElementById('toast');
@@ -1579,7 +1593,9 @@ async function getLogisticsDocsForPeriod(startDate, endDate, force = false, requ
             const date = standardizeDate(d.data().date);
             if (date >= startDate && date <= endDate) docs.set(d.id, d);
         }));
-        return FlowerReceipts.collapse(docs);
+        const folded = FlowerReceipts.collapse(docs);
+        showFlowerQuantityWarnings();
+        return folded;
     })();
     logisticsPeriodCache.set(key, {promise, fetchedAt:0, docs:null});
     if (logisticsPeriodCache.size > 8) {
