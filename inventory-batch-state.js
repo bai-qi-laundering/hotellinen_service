@@ -1,9 +1,11 @@
-/* One receipt cursor and one inventory date per physical hotel. */
+/* One receipt cursor and one inventory date per physical hotel.
+ * 花季 A館 and C館 are separate dates; the shared FlowerBranch module decides the key. */
 (function(root){
  const normalize=value=>String(value||'').normalize('NFKC').replace(/\s/g,'');
  const key=hotel=>{
+  const branch=root.FlowerBranch&&root.FlowerBranch.batchKey(hotel);
+  if(branch)return branch;
   const name=normalize(hotel);
-  if(/^花季[AC]館/.test(name))return '花季';
   // These departments have their own inventory names, but ride on the parent hotel's receipt.
   if(name==='承億休閒'||name==='承億健身房')return '承億';
   if(name==='日航休閒'||name==='日航休閒中心')return '日航';

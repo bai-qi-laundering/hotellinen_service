@@ -507,7 +507,8 @@ body { background: white; padding: 0; margin: 0; }
      此處不再顯示盤點／物流連結，避免混入財務操作畫面。 -->
 
 <script src="scoped-reads.js?v=20261119-read2"></script>
-<script src="flower-receipts.js?v=20261119-signed2"></script>
+<script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
+<script src="flower-receipts.js?v=20261127-huaji-ac"></script>
 <script type="module">
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -517,7 +518,7 @@ import { renderStatementHtml, buildStatementWorkbook, statementFileBase, snapsho
 import { sumCustomerReceivables, sumGroupFigures } from './firebase-signature/functions/lib/receivable.js?v=20261031-receivable';
 import { attemptWithBackoff, catalogPrice, datedPrice, mergePriceCatalog, parsePriceCell, sheetPricesFromRows, unitPriceForRecord } from './firebase-signature/functions/lib/price-catalog.js?v=20261125-sheet-notes';
 import { createFirestoreRepository } from './statement-store.js?v=20261126-yiguan-restaurant';
-import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261126-yiguan-restaurant';
+import { sheetProfileFor, statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261127-huaji-ac';
 import { membersOfStatementTarget, statementSelectionGroups } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 import { settlementGroup } from './firebase-signature/functions/lib/auto-close.js?v=20261031-h2o-west';
 import { attributeDriver, isDriverPerformanceExcluded, parseRouteSheet, parseScheduleSheet, planDriverWritebacks, commitDriverWritebacks } from './driver-attribution.js?v=20261113-unsigned-lock';
