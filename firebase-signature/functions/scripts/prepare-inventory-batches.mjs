@@ -2,13 +2,14 @@
 // Run from firebase-signature/functions with Firebase Admin credentials for the production project.
 import {initializeApp,applicationDefault} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
+import '../lib/flower-branch.js';
 
 const apply=process.argv.includes('--apply');
 const days=Number(process.env.BATCH_LOOKBACK_DAYS || 30);
 if(!Number.isInteger(days)||days<1||days>180)throw Error('BATCH_LOOKBACK_DAYS must be 1..180');
 const cutoff=new Date();cutoff.setDate(cutoff.getDate()-days);
 const since=cutoff.toISOString().slice(0,10);
-const key=value=>{const name=String(value||'').normalize('NFKC').replace(/\s/g,'');return /^花季[AC]館/.test(name)?'花季':name;};
+const key=value=>globalThis.FlowerBranch.batchKey(value)||String(value||'').normalize('NFKC').replace(/\s/g,'');
 initializeApp({credential:applicationDefault(),projectId:'hotel-inventory-3a1ad'});
 const db=getFirestore();
 const [receipts,inventory]=await Promise.all([

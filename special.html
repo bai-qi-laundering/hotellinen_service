@@ -49,7 +49,7 @@
         </main>
 
         <main id="officePane" class="px-3 hidden" data-testid="office-pane">
-            <p class="text-sm text-slate-500 font-bold mt-3 mb-2">核對摺疊送出的品項和數量。勾收到，數量不對就改實收。簽完才寫進盤點。還沒到辦公室的會列在下面，不擋送出。</p>
+            <p class="text-sm text-slate-500 font-bold mt-3 mb-2">只勾這次要送出的品項；未勾選的留在辦公室。數量不對就改實收，簽完才寫進盤點。</p>
             <div id="sheetList"></div>
         </main>
     </div>
@@ -69,7 +69,7 @@
     <div id="officePopup" class="hidden fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3">
         <div class="bg-white w-full max-w-md rounded-3xl p-4" role="dialog" aria-modal="true">
             <h2 class="text-xl font-black mb-2">辦公室簽名</h2>
-            <p class="text-sm text-slate-500 font-bold mb-2">簽完會寫進盤點，並把這張出貨單標成已送出。</p>
+            <p class="text-sm text-slate-500 font-bold mb-2">簽完只會把勾選的品項寫進盤點並標為已送出。</p>
             <canvas id="officeCanvas" class="sign-canvas" data-testid="office-pad"></canvas>
             <button type="button" data-action="clear-office" class="mt-2 text-sm font-black text-red-600">清除</button>
             <div class="grid grid-cols-2 gap-2 mt-3">
@@ -92,8 +92,8 @@
     <script type="module">
         import { FALLBACK_HOTELS, SPECIAL_MOCK_KEY, REWORK_REASONS } from './special-config.js?v=20261027-special';
         import { shipDateLabel } from './special-shipdate.js?v=20261027-special';
-        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, spreadCards, washSlips, officeSheets, officeOutstanding, officeQtyFlags, foldedHandedQty, reworkBadge, reworkNote, signedMark, signPoolQty, signWashBatch, signSpreadItem, returnToWash, itemTrail, normalizeInFlight, departmentReadPlan, demoDepartmentDocs, newSpecialId } from './special-flow.js?v=20261123-depts';
-        import { inventoryCatalog, buildInventoryWrites } from './special-inventory.js?v=20261113-received-date';
+        import { signItem, reworkItem, sendSheet, updateOfficeName, foldCards, spreadCards, washSlips, officeSheets, searchableOfficeSheets, officeOutstanding, officeQtyFlags, foldedHandedQty, reworkBadge, reworkNote, signedMark, signPoolQty, signWashBatch, signSpreadItem, returnToWash, itemTrail, normalizeInFlight, departmentReadPlan, demoDepartmentDocs, newSpecialId } from './special-flow.js?v=20261127-rework-wash';
+        import { inventoryCatalog, buildInventoryWrites, mergeOfficeInventoryRecord } from './special-inventory.js?v=20261126-partial-office';
         import { taipeiParts, taipeiToday, formatTaipeiStamp, formatMd } from './special-time.js?v=20261027-inventory';
 
         const pageParams = new URLSearchParams(location.search);
@@ -101,6 +101,7 @@
         const useMock = pageParams.get('mock') === '1' || demo;
         const dept = ['wash', 'spread', 'fold', 'office'].includes(pageParams.get('dept')) ? pageParams.get('dept') : 'fold';
         const RULE_HINT = '無法寫入特處資料（Firebase 權限不足）。請老闆在 Firestore 規則允許 special_items 讀寫。這筆沒有儲存。';
+        const SHEET_URL = 'https://script.google.com/macros/s/AKfycbxkUiqCGa85QiI8P91p4DEnd6exOuQ4VnBt4r-hrrQHImE-3Bg0KO3yVR3_EbG5yHovtA/exec';
         let db = null;
         let storage = null;
         let docs = [];
@@ -108,6 +109,7 @@
         let schedules = [];
         let catalog = new Map();
         let catalogReady = false;
+        let templateFingerprint = '';
         const mode = dept;
         let returnQty = 1;
         let officeChecked = new Set();
@@ -270,10 +272,13 @@
             try {
                 await runTransaction(db, async transaction => {
                     await checkLatest(transaction, specialUpserts);
-                    for (const record of inventoryRecords) {
-                        const { id, ...fields } = record;
-                        transaction.set(doc(db, 'inventory_records', id), fields, { merge: true });
-                    }
+                    const refs = inventoryRecords.map(record => doc(db, 'inventory_records', record.id));
+                    const existing = await Promise.all(refs.map(ref => transaction.get(ref)));
+                    inventoryRecords.forEach((record, index) => {
+                        const merged = mergeOfficeInventoryRecord(existing[index].exists() ? existing[index].data() : null, record);
+                        const { id, ...fields } = merged;
+                        transaction.set(refs[index], fields, { merge: true });
+                    });
                     for (const item of specialUpserts) transaction.set(doc(db, 'special_items', item.id), firestoreShape(item));
                 });
             } catch (error) {
@@ -453,16 +458,17 @@
         function renderSheets() {
             if (document.activeElement?.dataset?.officeFor) return;
             const sheets = officeSheets(docs, { hotels, catalog });
+            const matches = searchableOfficeSheets(sheets, document.getElementById('foldSearch').value);
             const host = document.getElementById('sheetList');
-            if (!sheets.length) {
-                host.innerHTML = '<p class="text-center text-slate-500 font-bold py-16">還沒有簽好的特處</p>';
+            if (!matches.length) {
+                host.innerHTML = `<p class="text-center text-slate-500 font-bold py-16">${sheets.length ? '沒有符合搜尋的特處單據' : '還沒有簽好的特處'}</p>`;
                 return;
             }
             const today = taipeiToday();
             const shippingToday = [];
             const sentToday = [];
             const otherSheets = [];
-            sheets.forEach((sheet, index) => {
+            matches.forEach(({sheet, index}) => {
                 const stamp = sheet.sentAt ? new Date(sheet.sentAt) : null;
                 const isToday = sheet.sent && stamp && Number.isFinite(stamp.getTime()) && taipeiToday(stamp) === today;
                 const entry = {sheet, index};
@@ -505,11 +511,12 @@
                     return `${heading}${lines}${pending}`;
                 }).join('');
                 const readyIds = sheet.items.map(item => item.id);
-                const allChecked = readyIds.every(id => officeChecked.has(id));
-                const flags = officeQtyFlags(docs, readyIds, officeActual);
+                const selectedIds = readyIds.filter(id => officeChecked.has(id));
+                const hasSelection = selectedIds.length > 0;
+                const flags = officeQtyFlags(docs, selectedIds, officeActual);
                 const footer = sheet.sent
                     ? `<div class="mt-3 rounded-xl bg-green-50 border border-green-200 p-3 text-green-800 font-black">已送出 ${esc(formatTaipeiStamp(sheet.sentAt))}${sheet.officeSignature ? `<img src="${esc(sheet.officeSignature)}" alt="辦公室簽名" class="mt-2 h-16 bg-white border rounded">` : ''}</div>`
-                    : `${flags.length ? `<p class="mt-3 text-sm font-black text-red-700">有數量不符，簽名後會留下是誰、什麼時候標的。</p>` : ''}<button type="button" data-action="open-office" data-sheet="${index}" data-testid="office-send" class="w-full mt-3 py-4 rounded-xl font-black text-lg ${allChecked ? 'bg-blue-700 text-white' : 'bg-slate-300 text-slate-600'}" ${allChecked ? '' : 'disabled'}>${allChecked ? '簽名送出到盤點' : '請先勾選摺疊送出的每一項'}</button>`;
+                    : `${flags.length ? `<p class="mt-3 text-sm font-black text-red-700">有數量不符，簽名後會留下是誰、什麼時候標的。</p>` : ''}<button type="button" data-action="open-office" data-sheet="${index}" data-testid="office-send" class="w-full mt-3 py-4 rounded-xl font-black text-lg ${hasSelection ? 'bg-blue-700 text-white' : 'bg-slate-300 text-slate-600'}" ${hasSelection ? '' : 'disabled'}>${hasSelection ? `簽名送出已勾選的 ${selectedIds.length} 項` : '請勾選這次要送出的品項'}</button>`;
                 const tag = grouped ? 'section' : 'article';
                 const style = grouped ? 'border-t border-slate-200 pt-3' : 'bg-white rounded-2xl shadow border border-slate-200 overflow-hidden mb-4';
                 return `<${tag} class="${style}" data-sheet-index="${index}">
@@ -611,7 +618,7 @@
             const shipStep = pool > 1 ? `<div class="flex items-center gap-3 mt-3"><span class="font-black">可出貨</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="-1">－</button><b id="shipQtyLabel" class="text-2xl w-8 text-center">${shipQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="ship" data-dir="1">＋</button></div><p id="partialHint" class="hidden text-sm font-bold text-amber-700 mt-1">沒有全部出貨的部分會退回重工，請選原因</p>` : '';
             const reworkStep = doc.qty > 1 ? `<div class="flex items-center gap-3 mt-2"><span class="font-black">退回</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="-1">－</button><b id="reworkQtyLabel" class="text-2xl w-8 text-center">${reworkQty}</b><span class="font-black">件</span><button type="button" class="step-btn" data-action="step" data-which="rework" data-dir="1">＋</button></div>` : '';
             const reworkBlock = `<div class="mt-4 pt-3 border-t"><p class="font-black text-red-700 mb-2">${resigning ? '已簽名但不能出貨，可退回重工' : '退回原因'}</p><div class="flex flex-wrap gap-2">${reasonChips()}</div>${reworkStep}
-                <button type="button" data-action="confirm-rework" data-testid="rework-confirm" class="w-full mt-3 py-4 rounded-xl bg-red-600 text-white font-black">退回重工，暫不出貨</button></div>`;
+                <button type="button" data-action="confirm-rework" data-testid="rework-confirm" class="w-full mt-3 py-4 rounded-xl bg-red-600 text-white font-black">退回洗滌重工，暫不出貨</button></div>`;
             const signLabel = resigning ? '重新簽名，送到辦公室' : '簽名完成，送到辦公室';
             const back = (doc.status === '待摺疊' || doc.status === '重工中') ? returnWashBlock(doc) : '';
             actions.innerHTML = `${hint}${shipStep}
@@ -731,8 +738,8 @@
                 await persist(applied.upserts);
                 docs = applied.docs;
                 render();
-                showItemSaved('已退回重工，這些數量不會列入待出貨單');
-                toast('已退回重工');
+                showItemSaved('已退回洗滌重工，保留飯店送出日期與重工標示');
+                toast('已退回洗滌重工');
             } catch (error) {
                 toast(error.message || '重工沒有存好');
                 if (/權限不足/.test(error.message || '')) showBanner(error.message);
@@ -838,7 +845,8 @@
             const sheets = officeSheets(docs, { hotels, catalog });
             const sheet = sheets[index];
             if (!sheet || sheet.sent) return;
-            officeIds = sheet.items.map(item => item.id);
+            officeIds = sheet.items.map(item => item.id).filter(id => officeChecked.has(id));
+            if (!officeIds.length) return toast('請勾選這次要送出的品項');
             document.getElementById('officePopup').classList.remove('hidden');
             requestAnimationFrame(() => { officePad = setupPad(document.getElementById('officeCanvas')); });
         }
@@ -851,6 +859,7 @@
             try {
                 startSaving();
                 await flushOfficeNames();
+                await loadConfig(true);
                 if (!catalogReady) return toast('盤點品項還沒載入，請稍後再試');
                 const lines = sheetLines(officeIds);
                 const hotel = lines[0]?.hotel || '';
@@ -863,11 +872,10 @@
                     return;
                 }
                 const signature = await storeSignature(officePad.dataUrl(), officeIds[0] || 'sheet', 'office');
-                await loadConfig(true);
                 const time = new Date().toISOString();
                 const received = {};
                 for (const item of lines) received[item.id] = officeActual[item.id] ?? foldedHandedQty(item);
-                if (lines.some(item => !officeChecked.has(item.id))) return toast('請先勾選摺疊送出的每一項');
+                if (!lines.length || lines.some(item => !officeChecked.has(item.id))) return toast('請重新勾選這次要送出的品項');
                 const applied = sendSheet(docs, officeIds, { signature, time, schedules, received });
                 const records = buildInventoryWrites(applied.upserts.filter(item => Number(item.qty) > 0), catalog.get(hotel), {
                     signature,
@@ -875,6 +883,7 @@
                 });
                 await persistSent(applied.upserts, records);
                 docs = applied.docs;
+                officeIds.forEach(id => { officeChecked.delete(id); delete officeActual[id]; });
                 document.getElementById('officePopup').classList.add('hidden');
                 officePad = null;
                 render();
@@ -929,15 +938,17 @@
                 document.getElementById('nameAlert').classList.add('hidden');
             } else if (action === 'open-office') {
                 startSaving();
-                flushOfficeNames().then(() => {
+                flushOfficeNames().then(async () => {
+                    await syncOfficeTemplateFromSheet();
                     if (!catalogReady) return toast('盤點品項還沒載入，請稍後再試');
                     const sheet = officeSheets(docs, { hotels, catalog })[Number(button.dataset.sheet)];
-                    const lines = sheet?.items || [];
+                    const lines = (sheet?.items || []).filter(item => officeChecked.has(item.id));
+                    if (!lines.length) return toast('請勾選這次要送出的品項');
                     const bad = lines.filter(item => !nameMatches(sheet.hotel, item.officeName));
                     document.querySelectorAll('[data-office-for]').forEach(paintOfficeInput);
                     if (bad.length) return showNameAlert(bad);
                     openOffice(Number(button.dataset.sheet));
-                }).catch(error => toast(error.message || '品名沒有存好')).finally(finishSaving);
+                }).catch(error => toast(error.message || '品名設定沒有同步')).finally(finishSaving);
             } else if (action === 'close-office') {
                 document.getElementById('officePopup').classList.add('hidden');
             } else if (action === 'clear-office') officePad?.clear();
@@ -1003,8 +1014,25 @@
             if (liveHotels.length) hotels = liveHotels;
             catalog = inventoryCatalog(template);
             catalogReady = true;
+            templateFingerprint = JSON.stringify(template);
             schedules = Array.isArray(data.deliverySchedules) ? data.deliverySchedules : [];
             document.getElementById('configStatus').textContent = `飯店 ${hotels.length} 間`;
+        }
+        async function syncOfficeTemplateFromSheet() {
+            if (demo || useMock) return;
+            if (!db) throw new Error('無法連上資料庫，試算表品名沒有同步');
+            const response = await fetch(`${SHEET_URL}?action=getInventoryData&t=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error('試算表讀取失敗，請稍後再試');
+            const data = await response.json();
+            const rows = data.template;
+            if (!Array.isArray(rows) || !rows.length || !rows.every(row => row && row.baseName && row.hotel && row.item)) {
+                throw new Error(data.error || '試算表品項不完整，沒有更新盤點設定');
+            }
+            if (JSON.stringify(rows) !== templateFingerprint) {
+                const { doc, setDoc } = window.__specialFs;
+                await setDoc(doc(db, 'inventory_config', 'master_template'), { items: rows }, { merge: true });
+                await loadConfig(true);
+            }
         }
         async function boot() {
             if (demo) {

@@ -227,6 +227,27 @@ function markDeleted(doc, time) {
     return next;
 }
 
+function routeReworkToWash(next, time, signature = '') {
+    next.status = WASH_STATUS;
+    next.expectedQty = next.qty;
+    next.returnDate = taipeiParts(time).date;
+    next.returnSignature = signature;
+    next.returnSignedAt = time;
+    next.washSignature = '';
+    next.washSignedAt = '';
+    next.spreadSignature = '';
+    next.spreadSignedAt = '';
+    next.foldedQty = null;
+    next.officeReceived = null;
+    next.officeCheckedAt = '';
+    next.officeQtyFlag = false;
+    next.discrepancyOpen = false;
+    next.discrepancyAckAt = '';
+    const reason = [...next.history].reverse().find(event => event.type === 'rework')?.reason || '';
+    next.history.push({ type: 'return-wash', time, qty: next.qty, reason, signature, round: next.round });
+    return next;
+}
+
 function reworkRemainder(source, { id, qty, reason, time, parentId, round }) {
     const remain = clone(source);
     if (id) remain.id = id;
@@ -246,7 +267,7 @@ function reworkRemainder(source, { id, qty, reason, time, parentId, round }) {
     remain.deletedAt = '';
     remain.history.push({ type: 'split', time, qty, reason, round: remain.round });
     remain.history.push({ type: 'rework', time, qty, reason, round: remain.round });
-    return remain;
+    return routeReworkToWash(remain, time);
 }
 
 export function signItem(docs, id, { shipQty, signature, reason, shipDate, shipRule, time, idFactory }) {
@@ -368,6 +389,7 @@ export function reworkItem(docs, id, { reworkQty, reason, signature, time, idFac
         const event = { type: 'rework', time, qty, reason: why, round: updated.round };
         if (signature) event.signature = signature;
         updated.history.push(event);
+        routeReworkToWash(updated, time, signature);
         return { docs: replace(docs.map(clone), updated), upserts: [updated] };
     }
     if (typeof idFactory !== 'function') throw new Error('缺少單號');
@@ -390,6 +412,8 @@ export function reworkItem(docs, id, { reworkQty, reason, signature, time, idFac
     const event = { type: 'rework', time, qty, reason: why, round: dirty.round };
     if (signature) event.signature = signature;
     dirty.history.push(event);
+    dirty.splitOf = current.id;
+    routeReworkToWash(dirty, time, signature);
     return { docs: [...replace(docs.map(clone), stay), dirty], upserts: [stay, dirty] };
 }
 
@@ -518,10 +542,6 @@ export function officeSendBlockers(docs, ids, received = {}) {
     if (targets.some(doc => officeGroupKey(doc) !== hotel)) {
         blockers.push({ code: 'hotel', message: '一次只能送出同一家飯店' });
         return blockers;
-    }
-    const ready = (docs || []).filter(doc => !doc.deleted && doc.status === SIGNED_STATUS && officeGroupKey(doc) === hotel);
-    if (ready.length !== targets.length || ready.some(doc => !wanted.includes(doc.id))) {
-        blockers.push({ code: 'partial', message: '這間飯店已經到辦公室的品項要一起送出' });
     }
     for (const doc of targets) {
         const got = officeReceivedQty(doc, received);
@@ -968,6 +988,14 @@ export function officeSheets(docs, order = {}) {
         || String(a.shipDate).localeCompare(String(b.shipDate))
         || ranks.hotel(a.hotel) - ranks.hotel(b.hotel)
         || a.hotel.localeCompare(b.hotel, 'zh-Hant'));
+}
+
+// Keep a matching sheet intact: the office confirmation must still cover every item.
+export function searchableOfficeSheets(sheets, query = '') {
+    const norm = value => String(value || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+    const needle = norm(query);
+    return sheets.map((sheet, index) => ({sheet, index})).filter(({sheet}) =>
+        !needle || norm([sheet.hotel, ...(sheet.items || []).flatMap(item => [item.item, item.officeName])].join(' ')).includes(needle));
 }
 
 

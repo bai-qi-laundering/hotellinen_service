@@ -181,6 +181,28 @@ export function applyFinanceItemNames(items, updates) {
     return next;
 }
 
+
+// An administrator may remove an item from an existing receipt while its original
+// inventory count remains. Keep that removal authoritative until explicitly restored.
+export function wasManuallyDeleted(receipt, candidate) {
+    if (!receipt?.manualItemDeleted) return false;
+    const source = String(candidate?.inventoryItemName || candidate?.itemName || '').trim();
+    const display = String(candidate?.itemName || '').trim();
+    return (receipt.deletedBackupItems || []).some(removed => {
+        if (removed.financeItemId && candidate?.financeItemId && removed.financeItemId === candidate.financeItemId) return true;
+        const removedSource = normalizeItemName(removed.inventoryItemName || removed.itemName);
+        return !!removedSource && (removedSource === normalizeItemName(source) || removedSource === normalizeItemName(display));
+    });
+}
+
+export function mergeReceiptAfterDeletion(receipt, items) {
+    if (receipt?.manualDeletedReceipt) throw new Error('這張物流單已在後台刪除，請重新載入');
+    if ((items || []).some(item => wasManuallyDeleted(receipt, item))) {
+        throw new Error('有品項已在後台刪除，請重新載入後再簽名');
+    }
+    return mergeSignedItems(receipt?.items || [], items || []);
+}
+
 export function mergeSignedItems(latestItems, submittedItems) {
     const next = latestItems.map(item => ({...item}));
     for (const submitted of submittedItems) {

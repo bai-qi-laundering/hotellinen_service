@@ -4,7 +4,7 @@
 // 不聽即時更新，也不掃整份對帳單或出貨紀錄。
 
 import { settlementGroup, statementHotelKey } from './firebase-signature/functions/lib/auto-close.js';
-import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261126-yiguan-restaurant';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261127-huaji-ac';
 import { accountKeyForCustomer, isCombinedAccountKey } from './firebase-signature/functions/lib/statement-groups.js?v=20261125-combine';
 
 // Display aliases must resolve to the same immutable statement customer key.

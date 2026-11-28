@@ -118,7 +118,11 @@ test('文旅 11/20: 摺疊 returns one 大毛, and 辦公室 sends only what has
     assert.equal(officeOutstanding(atOffice.docs, '文旅', '2026-11-20').some(doc => doc.id === back.id), true);
     assert.deepEqual(officeSendBlockers(atOffice.docs, readyIds), []);
     assert.equal(officeSheets(atOffice.docs)[0].blockers.length, 0);
-    assert.throws(() => sendSheet(atOffice.docs, [blanket.id], { signature: 'office', time: '2026-11-21T05:00:00.000Z' }), /一起送出/);
+    const selected = sendSheet(atOffice.docs, [blanket.id], { signature: 'office', time: '2026-11-21T05:00:00.000Z', schedules });
+    assert.equal(selected.upserts.length, 1);
+    assert.equal(selected.docs.find(doc => doc.id === blanket.id).status, '已送出');
+    assert.equal(selected.docs.find(doc => doc.id === stay.id).status, '已簽名');
+    assert.deepEqual(officeSheets(selected.docs).find(sheet => !sheet.sent).items.map(item => item.id), [stay.id]);
     const sent = sendSheet(atOffice.docs, readyIds, { signature: 'office', time: '2026-11-21T05:00:00.000Z', schedules });
     assert.equal(sent.docs.find(doc => doc.id === blanket.id).status, '已送出');
     assert.equal(sent.docs.find(doc => doc.id === stay.id).status, '已送出');

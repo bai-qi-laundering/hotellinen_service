@@ -10,7 +10,6 @@
 
 import { createHmac } from 'node:crypto';
 import { itemDescriptionError } from './einvoice-amount.js';
-import { compactInvoiceDate } from './einvoice-date.js';
 
 export const DEFAULT_COMPANY_ID = '96842769';
 export const TEST_HOST = 'https://webtest.einvoice.com.tw/einv';
@@ -126,7 +125,7 @@ function intAmount(value, label) {
     return n;
 }
 
-export function openInvoicePayload({ orderID, sellerId, buyer, description, sales, tax, total, invoiceDate }) {
+export function openInvoicePayload({ orderID, sellerId, buyer, description, sales, tax, total }) {
     const buyerName = String(buyer?.name || '').trim();
     if (!buyerName || /^0+$/.test(buyerName)) throw new Error('買方名稱不可為 0。');
     if (buyerName.length > 60) throw new Error('發票抬頭請在 60 字以內。');
@@ -141,15 +140,12 @@ export function openInvoicePayload({ orderID, sellerId, buyer, description, sale
     if (totalAmount < 1) throw new Error('含稅金額需為 1 元以上的整數，這張沒有開立。');
     if (salesAmount + taxAmount !== totalAmount) throw new Error('未稅加稅額必須等於含稅金額，這張沒有開立。');
     const notifyEmail = notifyEmailAddress(buyer?.email);
-    const invDate = compactInvoiceDate(invoiceDate);
-    if (invoiceDate && !invDate) throw new Error('請選擇開立發票日期。');
     return {
         orderID,
         process_type: 'B',
         sellerID: sellerId,
         buyerID,
         buyerName,
-        ...(invDate ? { invDate } : {}),
         invoiceType: '07',
         donateMark: '0',
         printMark: 'Y',

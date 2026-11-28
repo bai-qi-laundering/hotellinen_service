@@ -107,13 +107,14 @@
         }, 20000);
     </script>
     <script src="scoped-reads.js?v=20261119-read2"></script>
-    <script src="flower-receipts.js?v=20261119-signed2"></script>
+    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
+    <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
-    <script src="inventory-batch-state.js?v=20261124-next-date"></script>
+    <script src="inventory-batch-state.js?v=20261127-huaji-ac"></script>
     <script type="module">
         import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
-        import { itemMatchesName, mergeSignedItems, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261019-same-names';
+        import { itemMatchesName, mergeReceiptAfterDeletion, wasManuallyDeleted, addInventoryQuantity, receiptInventoryIdentity, receiptTotalItems, outletReceiptDetails } from './logistics-items.js?v=20261127-delete-persist';
         // 動態匯入可捕捉 SDK 下載失敗，避免永遠停在「載入中」。
         try {
         const [firebaseApp, firestoreSDK, storageSDK] = await Promise.all([
@@ -272,6 +273,16 @@
         }
 
 
+        function canonicalFlowerWrite(hotel, dept) {
+            const alias = FlowerReceipts.identity(hotel, dept);
+            if (!alias) return { hotelKeyword: hotel, deptName: dept, batchHotel: hotel };
+            return {
+                hotelKeyword: alias.hotelKeyword,
+                deptName: alias.deptName,
+                batchHotel: alias.building ? alias.hotelKeyword + alias.building + '館' : hotel,
+            };
+        }
+
         async function readFlowerReceipt(tx, refDoc, dept, archive = true) {
             const ids = ['花季','富野'].includes(currentHotel) ? flowerReceiptIds.get(dept) || [] : [];
             const refs = new Map([[refDoc.id, refDoc]]);
@@ -299,7 +310,8 @@
 
             try {
                 showToastMsg("⏳ 正在強制同步至財務系統...");
-                const docId = `${currentDate}_${currentHotel}_${deptKey}`;
+                const written = canonicalFlowerWrite(currentHotel, deptKey);
+                const docId = `${currentDate}_${written.hotelKeyword}_${written.deptName}`;
                 const docRef = doc(db, 'logistics_records', docId);
 
                 let safeItemsForDatabase = groupedData[deptKey].items.map(item => ({
@@ -309,10 +321,10 @@
                 }));
 
                 await runTransaction(db, async tx => {
-                const prior = await readFlowerReceipt(tx, docRef, deptKey);
+                const prior = await readFlowerReceipt(tx, docRef, written.deptName);
                 tx.set(docRef, {
-                    date: currentDate, hotelKeyword: currentHotel, deptName: deptKey,
-                    items: mergeSignedItems(prior.items || [], safeItemsForDatabase),
+                    date: currentDate, hotelKeyword: written.hotelKeyword, deptName: written.deptName,
+                    items: mergeReceiptAfterDeletion(prior, safeItemsForDatabase),
                     timestamp: new Date().toLocaleString(), forcedSync: true
                 }, { merge: true });
                 });
@@ -563,9 +575,12 @@
                     ids.push(snapshot.id);
                     flowerReceiptIds.set(branch.deptName, ids);
                 });
+                const manuallyDeletedDepts = new Set(hotelLogDocs.filter(snapshot => snapshot.data().manualDeletedReceipt)
+                    .map(snapshot => FlowerReceipts.identity(snapshot.data().hotelKeyword, snapshot.data().deptName)?.deptName || snapshot.data().deptName || '房務'));
                 let savedLogistics = {}, savedReceiptDetails = [];
                 FlowerReceipts.collapse(new Map(hotelLogDocs.map(snapshot => [snapshot.id, snapshot]))).forEach(docSnap => {
                     const d = docSnap.data();
+                    if (d.manualDeletedReceipt) return;
                     savedReceiptDetails.push(d);
                     savedLogistics[d.deptName] = {...d,items:receiptTotalItems(d.items || [],currentHotel)};
                 });
@@ -583,6 +598,9 @@
                             (invItem.deptName && invItem.deptName.includes(s.deptName))
                         );
                     }
+
+                    if (!savedDept && manuallyDeletedDepts.has(invItem.deptName)) continue;
+                    if (savedDept && wasManuallyDeleted(savedDept, invItem)) continue;
 
                     if (savedDept) {
                         clientSig = savedDept.clientSig || ""; driverSig = savedDept.driverSig || "";
@@ -1016,21 +1034,22 @@
                 const clientUrl = clientBlob ? await uploadSignatureToStorage(clientBlob,`${signingHotel}_${dept}_client_${Date.now()}`) : null;
                 const driverUrl = driverBlob ? await uploadSignatureToStorage(driverBlob,`${signingHotel}_driver_${Date.now()}`) : null;
                 const saveDept = async (targetDept, main) => {
-                    const refDoc = doc(db,'logistics_records',`${signingDate}_${signingHotel}_${targetDept}`);
+                    const written = canonicalFlowerWrite(signingHotel, targetDept);
+                    const refDoc = doc(db,'logistics_records',`${signingDate}_${written.hotelKeyword}_${written.deptName}`);
                     const items = groupedData[targetDept]?.items.map(i=>({
                         ...i,
                         deptName:i.deptName,itemName:i.itemName,originalQty:i.originalQty,
                         auntNote:i.auntNote,actualQty:i.actualQty,driverNote:i.driverNote||''
                     })) || [];
                     await runTransaction(db, async tx => {
-                        const needsBatch=main&&InventoryBatchState.key(signingHotel)!=='喜達絲';
-                        const batchRef=needsBatch?doc(db,'inventory_batch_states',InventoryBatchState.key(signingHotel)):null;
+                        const needsBatch=main&&InventoryBatchState.key(written.batchHotel)!=='喜達絲';
+                        const batchRef=needsBatch?doc(db,'inventory_batch_states',InventoryBatchState.key(written.batchHotel)):null;
                         const batchSnapshot=needsBatch?await tx.get(batchRef):null;
-                        const prior = await readFlowerReceipt(tx, refDoc, targetDept, main);
-                        const update = {date:signingDate,hotelKeyword:signingHotel,deptName:targetDept,
+                        const prior = await readFlowerReceipt(tx, refDoc, written.deptName, main);
+                        const update = {date:signingDate,hotelKeyword:written.hotelKeyword,deptName:written.deptName,
                             timestamp:getExactTimeString(),signatureSavedAt:Date.now()};
                         if (main) {
-                            update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
+                            update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
                             if(clientUrl || prior.clientSig) update.clientSig=clientUrl || prior.clientSig;
                             if(driverUrl || prior.driverSig) update.driverSig=driverUrl || prior.driverSig;
                         } else {
@@ -1039,7 +1058,7 @@
                             if (prior.driverSig || !driverUrl) return;
                             update.driverSig=driverUrl;
                             if (!prior.clientSig && items.length)
-                                update.items=mergeSignedItems(receiptTotalItems(prior.items || [],signingHotel), items);
+                                update.items=mergeReceiptAfterDeletion({...prior,items:receiptTotalItems(prior.items || [],signingHotel)}, items);
                         }
                         const patch=needsBatch?InventoryBatchState.signedPatch(batchSnapshot.exists()?batchSnapshot.data():{},
                             {date:signingDate,id:refDoc.id},Date.now()):null;

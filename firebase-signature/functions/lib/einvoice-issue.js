@@ -1,6 +1,5 @@
 import { quoteInvoice, resolveItemDescription } from './einvoice-amount.js';
 import { clientProfileAliases } from './logistics-items.js';
-import { invoiceDateError } from './einvoice-date.js';
 import { invoiceFailureMessage, publicInvoiceTarget } from './einvoice-failure.js';
 import {
     buildEnvelope,
@@ -201,25 +200,6 @@ async function releaseLock(db, ref) {
     }).catch(() => {});
 }
 
-export async function latestUniversalInvoiceDate(db) {
-    try {
-        const col = db.collection('statement_cases');
-        if (!col || typeof col.get !== 'function') return '';
-        const snap = await col.get();
-        let last = '';
-        const visit = data => {
-            if (!data || data.provider !== 'universalec') return;
-            const date = String(data.invoiceDate || data.invoiceRecord?.date || '').trim();
-            if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date > last) last = date;
-        };
-        if (typeof snap?.forEach === 'function') snap.forEach(doc => visit(typeof doc.data === 'function' ? doc.data() : doc));
-        else for (const doc of snap?.docs || []) visit(typeof doc.data === 'function' ? doc.data() : doc);
-        return last;
-    } catch {
-        return '';
-    }
-}
-
 async function recordInvoiceFailure(db, ref, failure, at) {
     const target = publicInvoiceTarget(failure?.environment === 'prod' ? 'https://web.einvoice.com.tw/einv' : failure?.host);
     await db.runTransaction(async tx => {
@@ -243,12 +223,10 @@ async function recordInvoiceFailure(db, ref, failure, at) {
     }).catch(() => {});
 }
 
-export async function issueStatement({ db, send, creds: rawCreds, caseId, version, clients, actor, buyerEmail, host, invoiceDate, lastIssuedDate, now = new Date().toISOString(), clock = () => new Date() }) {
+export async function issueStatement({ db, send, creds: rawCreds, caseId, version, clients, actor, buyerEmail, host, now = new Date().toISOString(), clock = () => new Date() }) {
     const creds = normalizeCreds(rawCreds);
     const ref = caseRef(db, caseId);
     const today = taipeiDateTime(clock()).isoDate;
-    const requestedDate = String(invoiceDate || today).trim();
-    const knownLast = lastIssuedDate === undefined ? await latestUniversalInvoiceDate(db) : lastIssuedDate;
     const prepared = await db.runTransaction(async tx => {
         const snap = await tx.get(ref);
         const data = snap.exists ? snap.data() : null;
@@ -262,8 +240,6 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
         if (quote.buyer?.kind !== 'b2b' || !/^\d{8}$/.test(String(quote.buyer?.taxId || ''))) {
             throw new Error('這位客戶沒有 8 碼統編，不能開立發票。請先到結帳系統補上統編。');
         }
-        const dateError = invoiceDateError(requestedDate, { today, lastIssuedDate: knownLast });
-        if (dateError) throw new Error(dateError);
         const resolved = resolveItemDescription(latest.snapshot, clients, clientProfileAliases(latest.snapshot?.customerKey));
         if (resolved.error) throw new Error(resolved.error);
         const text = resolved.text;
@@ -279,14 +255,13 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             sales: quote.sales,
             tax: quote.tax,
             total: quote.total,
-            invoiceDate: requestedDate,
         });
         tx.set(ref, {
             ...data,
             invoiceLock: { version: Number(version), at: now, uid: actor },
             invoiceDraft: { version: Number(version), orderID, at: now },
         });
-        return { quote, text, orderID, hadDraft, payload, notifyEmail: payload.notifyEmail || '', invoiceDate: requestedDate };
+        return { quote, text, orderID, hadDraft, payload, notifyEmail: payload.notifyEmail || '', invoiceDate: today };
     });
     if (prepared.done) return prepared.done;
 
@@ -314,7 +289,6 @@ export async function issueStatement({ db, send, creds: rawCreds, caseId, versio
             already: false,
             invoiceNumber: issued.number,
             invoiceDate: next.invoiceDate,
-            requestedInvoiceDate: prepared.invoiceDate,
             notifyEmail: prepared.notifyEmail || '',
             kind: 'b2b',
         };

@@ -79,18 +79,19 @@ export function receiptEntryId(receivedDate, hotel) {
     return `en_receipt_${clean(receivedDate)}_${clean(hotel)}`;
 }
 
-export function buildReceiptSpecialDocs({ hotel, receivedDate, lines, time, entryId }) {
+export function buildReceiptSpecialDocs({ hotel, receivedDate, lines, time, entryId, submissionKey }) {
     const pageHotel = String(hotel || '').trim();
     const date = String(receivedDate || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('日期不正確');
     if (!pageHotel) throw new Error('缺少飯店');
     if (!time) throw new Error('缺少寫入時間');
-    const sharedEntryId = entryId || receiptEntryId(date, pageHotel);
+    const suffix = submissionKey ? `__resend_${clean(submissionKey)}` : '';
+    const sharedEntryId = entryId || (receiptEntryId(date, pageHotel) + suffix);
     return (lines || []).map(line => {
         const item = String(line.item || '').trim();
         const qty = Number(line.qty);
         return {
-            id: receiptSpecialId(date, pageHotel, item),
+            id: receiptSpecialId(date, pageHotel, item) + suffix,
             hotel: pageHotel,
             receivedDate: date,
             item,
