@@ -1,11 +1,49 @@
-/* 花季 A館／C館的唯一館別正規化。瀏覽器以 script 載入，Cloud Functions 以 side-effect import。
- * 不把 C館改成 B館。舊單不在這裡改寫，只在讀取與新寫入時折成同一名稱。 */
+/* 同一客戶同一部門的名稱正規化。瀏覽器以 script 載入，Cloud Functions 以 side-effect import。
+ * 花季不把 C館改成 B館。承億健身房／休閒、日航休閒中心折回母飯店，不另立客戶。
+ * 舊單不在這裡改寫，只在讀取與新寫入時折成同一名稱。 */
 (function (root) {
     const clean = value => String(value || '').normalize('NFKC').replace(/\s+/g, '');
+    // display 是出帳與新寫入用的部門。bases 是範本把部門黏在飯店名上的寫法。
+    // parentDept 只在「母飯店 + 這個部門」本身就是這張單時才對上；日航特處是另一個部門，不能靠這個併進來。
+    const departmentAliases = [
+        { parent: '承億', bases: ['承億健身房'], dept: '健身房', display: '健身房', parentDept: true },
+        { parent: '承億', bases: ['承億休閒'], dept: '休閒', display: '休閒', parentDept: true },
+        { parent: '日航', bases: ['日航休閒中心', '日航休閒'], dept: '休閒中心', display: '休閒中心', parentDept: true },
+        { parent: '日航', bases: ['日航休閒中心', '日航休閒'], dept: '特處', display: '休閒中心 特處', parentDept: false },
+    ];
     function suffixOf(rest) {
         if (rest === '' || rest === '房務' || rest === '房務部') return '房務';
         if (rest === '回洗' || rest === '回洗部') return '回洗';
         return rest;
+    }
+    function canonicalDepartment(row) {
+        return { hotelKeyword: row.parent, deptName: row.display, building: '' };
+    }
+    function departmentIdentity(hotel, dept) {
+        const name = clean(hotel);
+        const department = clean(dept);
+        for (const row of departmentAliases) {
+            const parent = clean(row.parent);
+            const deptName = clean(row.dept);
+            const display = clean(row.display);
+            const doubled = deptName + deptName;
+            const baseRest = clean(row.bases[0]).slice(parent.length);
+            const signDept = (row.parentDept ? deptName : baseRest) + deptName;
+            const hotelIsBase = row.bases.some(base => clean(base) === name);
+            if (hotelIsBase && (department === deptName || department === display || department === doubled)) return canonicalDepartment(row);
+            if (name === parent && row.parentDept && (department === deptName || department === doubled || department === display)) return canonicalDepartment(row);
+            if (name === parent && !row.parentDept && (department === display || department === signDept)) return canonicalDepartment(row);
+            if (!department && (name === parent + signDept || name === parent + doubled || row.bases.some(base => name === clean(base) + deptName))) {
+                return canonicalDepartment(row);
+            }
+        }
+        return null;
+    }
+    function bareParent(hotel) {
+        const name = clean(hotel);
+        if (name === '承億健身房' || name === '承億休閒') return '承億';
+        if (name === '日航休閒中心' || name === '日航休閒') return '日航';
+        return null;
     }
     function identity(hotel, dept) {
         const name = clean(hotel);
@@ -27,39 +65,121 @@
                 rest = deptBuilding[2];
             }
         }
-        if (!building) return null;
-        return { hotelKeyword: '花季', deptName: building + '館 ' + suffixOf(rest), building };
+        if (building) return { hotelKeyword: '花季', deptName: building + '館 ' + suffixOf(rest), building };
+        return departmentIdentity(hotel, dept);
     }
     function inventoryHotel(hotel) {
         const name = clean(hotel);
         if (/^富野汽旅房務(?:部)?$/.test(name)) return '富野 汽旅 房務';
         const id = identity(name, '');
         if (id && id.building) return '花季' + id.building + '館 ' + id.deptName.replace(/^[AC]館\s*/, '');
+        if (id) return id.hotelKeyword + ' ' + id.deptName;
         return hotel;
     }
     function batchKey(hotel, dept) {
         const id = identity(hotel, dept || '');
-        return id && id.building ? '花季' + id.building + '館' : null;
+        if (id && id.building) return '花季' + id.building + '館';
+        if (id && (id.hotelKeyword === '承億' || id.hotelKeyword === '日航')) return id.hotelKeyword;
+        return bareParent(hotel);
     }
     function statementParent(hotel) {
-        return /^花季[AC]館/i.test(clean(hotel)) ? '花季' : null;
+        if (/^花季[AC]館/i.test(clean(hotel))) return '花季';
+        const id = identity(hotel, '');
+        if (id && (id.hotelKeyword === '承億' || id.hotelKeyword === '日航')) return id.hotelKeyword;
+        return bareParent(hotel);
     }
     function logisticsLookupKeywords(hotelKeyword) {
         const name = clean(hotelKeyword);
-        if (name !== '花季' && !/^花季[AC]館/i.test(name)) return null;
-        const out = new Set();
-        for (const seed of ['花季', '花季A館', '花季C館', '花季 A館', '花季 C館']) {
-            out.add(seed);
-            const half = seed.normalize('NFKC');
-            out.add(half);
-            out.add(half.replace(/[A-Za-z]/g, letter => String.fromCharCode(letter.charCodeAt(0) + 0xFEE0)));
+        if (name === '花季' || /^花季[AC]館/i.test(name)) {
+            const out = new Set();
+            for (const seed of ['花季', '花季A館', '花季C館', '花季 A館', '花季 C館']) {
+                out.add(seed);
+                const half = seed.normalize('NFKC');
+                out.add(half);
+                out.add(half.replace(/[A-Za-z]/g, letter => String.fromCharCode(letter.charCodeAt(0) + 0xFEE0)));
+            }
+            return [...out];
         }
-        return [...out];
+        if (name === '承億' || name === '承億健身房' || name === '承億休閒') {
+            return ['承億', '承億健身房', '承億休閒', '承億 健身房', '承億 休閒'];
+        }
+        if (name === '日航' || name === '日航休閒中心' || name === '日航休閒') {
+            return ['日航', '日航休閒中心', '日航休閒', '日航 休閒中心'];
+        }
+        return null;
+    }
+    function priceLookupLabels(hotel) {
+        const name = String(hotel || '').trim();
+        if (name === '承億 健身房') return ['承億 健身房 健身房', '承億健身房 健身房'];
+        if (name === '承億 休閒') return ['承億 休閒 休閒', '承億休閒 休閒'];
+        if (name === '日航 休閒中心') return ['日航 休閒中心 休閒中心', '日航休閒中心 休閒中心'];
+        if (name === '日航 休閒中心 特處') return ['日航休閒中心 特處'];
+        return [];
+    }
+    function halfwidth(value) {
+        return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+    }
+    function undoubleLabel(dept) {
+        const text = halfwidth(dept);
+        const parts = text.split(' ').filter(Boolean);
+        if (parts.length >= 2 && parts.length % 2 === 0) {
+            const mid = parts.length / 2;
+            const left = parts.slice(0, mid).join(' ');
+            const right = parts.slice(mid).join(' ');
+            if (left && left === right) return left;
+        }
+        return text;
     }
     function canonicalWrite(hotel, dept) {
         const id = identity(hotel, dept);
-        if (!id) return { hotelKeyword: String(hotel || '').trim(), deptName: String(dept || '').trim(), building: '' };
-        return { hotelKeyword: id.hotelKeyword, deptName: id.deptName, building: id.building || '' };
+        if (id) return { hotelKeyword: id.hotelKeyword, deptName: id.deptName, building: id.building || '' };
+        return { hotelKeyword: halfwidth(hotel), deptName: undoubleLabel(dept), building: '' };
+    }
+    function receiptDocId(date, hotelKeyword, deptName) {
+        return `${date}_${hotelKeyword}_${deptName}`;
+    }
+    function toFullwidthLetters(value) {
+        return String(value || '').replace(/[A-Za-z]/g, letter => String.fromCharCode(letter.charCodeAt(0) + 0xFEE0));
+    }
+    function variantReceiptIds(date, hotel, dept) {
+        const canon = canonicalWrite(hotel, dept);
+        const ids = new Set();
+        const add = (name, department) => {
+            const hotelName = String(name || '').trim();
+            const deptName = String(department ?? '');
+            if (!date || !hotelName) return;
+            const written = canonicalWrite(hotelName, deptName);
+            if (written.hotelKeyword !== canon.hotelKeyword || written.deptName !== canon.deptName) return;
+            ids.add(receiptDocId(date, hotelName, deptName));
+        };
+        add(canon.hotelKeyword, canon.deptName);
+        add(hotel, dept);
+        add(halfwidth(hotel), halfwidth(dept));
+        add(canon.hotelKeyword, toFullwidthLetters(canon.deptName));
+        add(toFullwidthLetters(canon.hotelKeyword), canon.deptName);
+        if (canon.deptName) add(canon.hotelKeyword, `${canon.deptName} ${canon.deptName}`);
+        const keywords = logisticsLookupKeywords(canon.hotelKeyword) || [canon.hotelKeyword];
+        const tails = [canon.deptName, canon.deptName.split(' ').pop(), '房務', '回洗'];
+        for (const keyword of keywords) {
+            for (const department of tails) add(keyword, department);
+            if (canon.building) {
+                add(`${canon.hotelKeyword}${canon.building}館`, '房務');
+                add(`${canon.hotelKeyword}${toFullwidthLetters(canon.building)}館`, '房務');
+                add(keyword, `${canon.building}館 房務`);
+                add(keyword, `${toFullwidthLetters(canon.building)}館 房務`);
+            }
+        }
+        const canonicalId = receiptDocId(date, canon.hotelKeyword, canon.deptName);
+        ids.add(canonicalId);
+        return { ...canon, canonicalId, ids: [...ids] };
+    }
+    function chooseReceiptId(date, hotel, dept, existingIds) {
+        const plan = variantReceiptIds(date, hotel, dept);
+        const existing = new Set(existingIds || []);
+        if (existing.has(plan.canonicalId)) return { ...plan, id: plan.canonicalId, existed: true };
+        const legacy = plan.ids.find(id => existing.has(id));
+        if (legacy) return { ...plan, id: legacy, existed: true };
+        return { ...plan, id: plan.canonicalId, existed: false };
     }
     function receiptTime(data) {
         const value = data.signedAt || data.updatedAt || data.timestamp || '';
@@ -80,8 +200,8 @@
     function hasSignature(data) {
         return !!(String(data.clientSig || '').trim() || String(data.driverSig || '').trim());
     }
-    // 已簽的半形主單（日期_花季_A館 房務）優先。未簽的影子單不能蓋過已簽單。仍分不出先後時用較新的簽收時間。
-    function flowerRank(entry) {
+    // 已簽的正規主單優先（花季半形「A館 房務」、承億「健身房」、日航「休閒中心」）。未簽影子單不能蓋過已簽單。
+    function canonicalRank(entry) {
         const hotel = String(entry.data.hotelKeyword || '');
         const dept = String(entry.data.deptName || '');
         const halfwidthMain = hotel.normalize('NFKC') === hotel && dept.normalize('NFKC') === dept
@@ -105,8 +225,9 @@
         for (const entries of groups.values()) {
             const items = new Map(), sources = new Map();
             entries.sort((a, b) => {
-                if (a.branch.hotelKeyword === '花季') {
-                    const rank = flowerRank(b) - flowerRank(a);
+                const hotel = a.branch.hotelKeyword;
+                if (hotel === '花季' || hotel === '承億' || hotel === '日航') {
+                    const rank = canonicalRank(b) - canonicalRank(a);
                     if (rank) return rank;
                 } else {
                     const signedFirst = Number(hasSignature(b.data)) - Number(hasSignature(a.data));
@@ -122,7 +243,8 @@
                     const existing = items.get(key);
                     const unsignedFuyano = entry.branch.hotelKeyword === '富野' && sources.get(key) && !(entry.data.clientSig || entry.data.driverSig);
                     if (existing && entries.length > 1 && !unsignedFuyano && billedQty(existing) !== billedQty(item)) {
-                        if (entry.branch.hotelKeyword === '花季') {
+                        const hotel = entry.branch.hotelKeyword;
+                        if (hotel === '花季' || hotel === '承億' || hotel === '日航') {
                             quantityWarnings.push({
                                 date: String(entry.data.date || ''),
                                 building: entry.branch.building || '',
@@ -132,7 +254,7 @@
                                 otherQty: billedQty(item),
                             });
                         } else {
-                            throw new Error(entry.branch.hotelKeyword + ' ' + entry.data.date + ' ' + entry.branch.deptName + '「' + (item.itemName || item.inventoryItemName || '') + '」有兩張單，數量 ' + billedQty(existing) + ' 與 ' + billedQty(item) + ' 不同，請先核對原單再出帳。系統不會自動取其中一張，也不會把數量相加。');
+                            throw new Error(hotel + ' ' + entry.data.date + ' ' + entry.branch.deptName + '「' + (item.itemName || item.inventoryItemName || '') + '」有兩張單，數量 ' + billedQty(existing) + ' 與 ' + billedQty(item) + ' 不同，請先核對原單再出帳。系統不會自動取其中一張，也不會把數量相加。');
                         }
                     }
                     if (!existing) {
@@ -166,7 +288,8 @@
     }
     root.FlowerBranch = {
         identity, inventoryHotel, batchKey, statementParent, logisticsLookupKeywords,
-        canonicalWrite, collapse, foldForBilling, billedQty,
+        priceLookupLabels, canonicalWrite, receiptDocId, variantReceiptIds, chooseReceiptId,
+        collapse, foldForBilling, billedQty,
         get quantityWarnings() { return quantityWarnings; },
     };
 })(typeof globalThis === 'object' ? globalThis : this);

@@ -1,5 +1,6 @@
 // Shared price lookup for the finance page, statements, and the signature function.
 // A blank cell or a failed read is "unknown", never $0. An explicit 0 stays 0.
+import './flower-branch.js';
 
 export function parsePriceCell(value) {
     if (typeof value === 'number') return Number.isFinite(value) ? value : null;
@@ -122,16 +123,31 @@ export function guestLaundryUniformPrice(record, sheetPrices) {
 
 // Compare dated sheet contracts and dated manual changes by their start date.
 // Firebase wins a same-day tie; an older manual change cannot mask a new contract.
+function priceHotels(hotel) {
+    const name = String(hotel || '').trim();
+    const labels = [name];
+    for (const extra of globalThis.FlowerBranch?.priceLookupLabels?.(name) || []) {
+        if (extra && !labels.includes(extra)) labels.push(extra);
+    }
+    return labels;
+}
+
 function effectiveRule(catalog, hotel, item, date) {
     if (!normalizePriceDate(date)) return null;
-    const key = `${hotel}_${item}`;
-    const sheet = catalog?.sheetPrices?.[key];
-    const sheetRules = sheet && typeof sheet === 'object' && Array.isArray(sheet.history) ? sheet.history : [];
-    return [
-        ...sheetRules.map(rule => ({ ...rule, source: 'sheet-effective', priority: 0 })),
-        ...(catalog?.rules || []).filter(rule => rule?.key === key).map(rule => ({ ...rule, source: 'effective', priority: 1 })),
-    ].filter(rule => normalizePriceDate(rule.start) && rule.start <= date && parsePriceCell(rule.price) !== null)
-        .sort((a, b) => b.start.localeCompare(a.start) || b.priority - a.priority)[0] || null;
+    let chosen = null;
+    for (const label of priceHotels(hotel)) {
+        const key = `${label}_${item}`;
+        const sheet = catalog?.sheetPrices?.[key];
+        const sheetRules = sheet && typeof sheet === 'object' && Array.isArray(sheet.history) ? sheet.history : [];
+        const match = [
+            ...sheetRules.map(rule => ({ ...rule, source: 'sheet-effective', priority: 0 })),
+            ...(catalog?.rules || []).filter(rule => rule?.key === key).map(rule => ({ ...rule, source: 'effective', priority: 1 })),
+        ].filter(rule => normalizePriceDate(rule.start) && rule.start <= date && parsePriceCell(rule.price) !== null)
+            .sort((a, b) => b.start.localeCompare(a.start) || b.priority - a.priority)[0] || null;
+        if (!match) continue;
+        if (!chosen || match.start > chosen.start || (match.start === chosen.start && match.priority > chosen.priority)) chosen = match;
+    }
+    return chosen;
 }
 
 // Effective-date history, then the Firebase catalog, then a parsed sheet cell.
@@ -140,16 +156,18 @@ export function catalogPrice({ hotel, item, date = null, rules = [], customPrice
     if (uniform !== null) return { price: uniform, source: 'sheet-unified' };
     const effective = effectiveRule({ rules, sheetPrices }, hotel, item, date);
     if (effective) return { price: parsePriceCell(effective.price), source: effective.source };
-    const exact = `${hotel}_${item}`;
-    const unified = `${hotel}_統一折扣`;
-    const custom = lookup(customPrices, exact);
-    if (custom !== null) return { price: custom, source: 'firebase' };
-    const sheet = lookup(sheetPrices, exact);
-    if (sheet !== null) return { price: sheet, source: 'sheet' };
-    const customUnified = lookup(customPrices, unified);
-    if (customUnified !== null) return { price: customUnified, source: 'firebase-unified' };
-    const sheetUnified = lookup(sheetPrices, unified);
-    if (sheetUnified !== null) return { price: sheetUnified, source: 'sheet-unified' };
+    for (const label of priceHotels(hotel)) {
+        const exact = `${label}_${item}`;
+        const unified = `${label}_統一折扣`;
+        const custom = lookup(customPrices, exact);
+        if (custom !== null) return { price: custom, source: 'firebase' };
+        const sheet = lookup(sheetPrices, exact);
+        if (sheet !== null) return { price: sheet, source: 'sheet' };
+        const customUnified = lookup(customPrices, unified);
+        if (customUnified !== null) return { price: customUnified, source: 'firebase-unified' };
+        const sheetUnified = lookup(sheetPrices, unified);
+        if (sheetUnified !== null) return { price: sheetUnified, source: 'sheet-unified' };
+    }
     return { price: null, source: 'missing' };
 }
 

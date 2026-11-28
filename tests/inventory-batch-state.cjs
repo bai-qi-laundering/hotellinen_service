@@ -14,6 +14,10 @@ test('花季 A館 and C館 lock dates separately; other hotels stay shared',()=>
  assert.equal(batch.key('承億健身房'),'承億');
  assert.equal(batch.key('日航休閒中心'),'日航');
  assert.equal(batch.key('日航休閒'),'日航');
+ assert.equal(batch.key('承億健身房 健身房'),'承億');
+ assert.equal(batch.key('日航休閒中心 休閒中心'),'日航');
+ assert.equal(batch.key('日航休閒中心 特處'),'日航');
+ assert.equal(batch.key('日航 特處'),'日航特處');
  assert.equal(batch.key('捷中正 房務'),'捷中正房務');
 });
 test('the next daily previous-day document follows the signed receipt',()=>{

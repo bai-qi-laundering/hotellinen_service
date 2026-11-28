@@ -146,8 +146,10 @@
   return api.runTransaction(db,async tx=>{
    const commitBatch=await window.inventoryBatchGuard(tx,date,hotel);
    const ref=api.doc(db,'inventory_records',core.inventoryId(date,hotel,item)),snap=await tx.get(ref);
-   const receipt=await tx.get(api.doc(db,'logistics_records',`${date}_${context.baseHotel}_${context.department}`));
-   if(receipt.exists()&&(receipt.data().clientSig||receipt.data().driverSig))throw new Error('餐廳總單已簽收，不能新增或修改補登品項');
+   const receiptPlan=window.FlowerReceipts.variantReceiptIds(date,context.baseHotel,context.department);
+   const receiptSnaps=[];
+   for(const id of receiptPlan.ids) receiptSnaps.push(await tx.get(api.doc(db,'logistics_records',id)));
+   if(receiptSnaps.some(receipt=>receipt.exists()&&(receipt.data().clientSig||receipt.data().driverSig)))throw new Error('餐廳總單已簽收，不能新增或修改補登品項');
    const old=snap.exists()?snap.data():{...context,countSource:'sendwash',sendwashSupplemental:true,count:'',doubleCount:''};
    if(snap.exists()&&(!old.sendwashSupplemental||old.date!==date||old.hotel!==hotel||old.item!==item))throw new Error('品項已有其他來源，請重新載入後核對，系統不會覆蓋');
    const updated=core.sendwashInventoryPatch(old,payload,expectedCount,expectedDoubleCount);

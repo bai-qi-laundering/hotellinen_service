@@ -389,9 +389,9 @@
         <pre id="flowerCleanupOutput" class="whitespace-pre-wrap"></pre>
     </section>
     <script src="scoped-reads.js?v=20261119-read2"></script>
-    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
-    <script src="inventory-batch-state.js?v=20261127-huaji-ac"></script>
-    <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
+    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261128-one-doc"></script>
+    <script src="inventory-batch-state.js?v=20261128-h2o-uniform"></script>
+    <script src="flower-receipts.js?v=20261128-one-doc"></script>
 <script type="module">
         import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -1221,26 +1221,30 @@
                 // The transaction never overwrites a receipt created or signed concurrently.
                 const newReceiptPromises = [];
                 for (const [matchKey, data] of Object.entries(invRawDataMap)) {
-                    const standardId = `${data.date}_${data.hotelKeyword}_${data.deptName}`;
-                    if (processedLogKeys.has(matchKey) || processedLogKeys.has(standardId)) continue;
+                    const plan = window.FlowerReceipts.variantReceiptIds(data.date, data.hotelKeyword, data.deptName);
+                    const standardId = plan.canonicalId;
+                    if (processedLogKeys.has(matchKey) || plan.ids.some(id => processedLogKeys.has(id))) continue;
                     if (hotelKey && !ScopedReads.norm(data.hotelName).includes(ScopedReads.norm(hotelKey))) continue;
                     const items = data.items.filter(item => Number(item.qty) !== 0).map(item => ({
                         itemName: item.itemName, bqQty: String(item.qty), actualQty: String(item.qty)
                     }));
                     if (!items.length) continue;
                     items.sort((a,b) => getItemSortIndex(data.hotelName,a.itemName) - getItemSortIndex(data.hotelName,b.itemName));
-                    const scheduleFields = driverWritebackFields({id:standardId,assignedDriver:'',hotelKeyword:data.hotelKeyword,
-                        deptName:data.deptName,date:data.date},driverScheduleContext()) || {};
+                    const scheduleFields = driverWritebackFields({id:standardId,assignedDriver:'',hotelKeyword:plan.hotelKeyword,
+                        deptName:plan.deptName,date:data.date},driverScheduleContext()) || {};
                     newReceiptPromises.push(runTransaction(db, async tx => {
+                        const snaps = [];
+                        for (const id of plan.ids) snaps.push(await tx.get(doc(db,'logistics_records',id)));
+                        const live = snaps.filter(snapshot => snapshot.exists() && !snapshot.data().manualDeletedReceipt);
+                        if (live.length) return false;
                         const refDoc = doc(db,'logistics_records',standardId);
-                        if ((await tx.get(refDoc)).exists()) return false;
-                        tx.set(refDoc, {date:data.date,hotelKeyword:data.hotelKeyword,deptName:data.deptName,
+                        tx.set(refDoc, {date:data.date,hotelKeyword:plan.hotelKeyword,deptName:plan.deptName,
                             clientSig:'',driverSig:'',timestamp:'',forcedSync:true,assignedDriver:'',...scheduleFields,
                             items:items.map(i => ({itemName:i.itemName,originalQty:i.bqQty,actualQty:i.actualQty,auntNote:'',driverNote:''}))});
                         return true;
                     }).then(created => {
                         if (!created) return;
-                        logRecords.push({id:standardId,date:data.date,hotelKeyword:data.hotelKeyword,deptName:data.deptName,
+                        logRecords.push({id:standardId,date:data.date,hotelKeyword:plan.hotelKeyword,deptName:plan.deptName,
                             hotel:data.hotelName,items,deletedBackupItems:[],assignedDriver:scheduleFields.assignedDriver || '',
                             driverSource:scheduleFields.driverSource || '',driverRoute:scheduleFields.driverRoute || '',
                             driverEffectiveDate:scheduleFields.driverEffectiveDate || '',driverSig:'',clientSig:'',signDate:'',status:'yellow'});

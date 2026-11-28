@@ -1,4 +1,4 @@
-import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261127-huaji-ac';
+import { statementCustomerKey } from './firebase-signature/functions/lib/logistics-items.js?v=20261128-dept-alias';
 import './scoped-reads.js?v=20261119-read2';
 // 對帳單送件資料：正式路徑寫入 Firestore statement_cases。
 // 雲端暫時失敗時先留在這台電腦，下次打開送件中心再補送。

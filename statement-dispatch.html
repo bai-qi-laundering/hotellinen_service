@@ -203,10 +203,10 @@ import {
     statementDeleteBlockReason,
     statementDeleteConfirmText,
 } from './statement-case.js?v=20261125-delete-case';
-import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261126-yiguan-restaurant';
+import { createFirestoreRepository, createLocalRepository } from './statement-store.js?v=20261128-dept-alias';
 import { handoffStatementFile, isPhoneShareDevice } from './statement-file-delivery.js?v=20261031-share-fix';
 import { storedInvoice } from './firebase-signature/functions/lib/einvoice-failure.js?v=20261126-invoice-date';
-import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261126-yiguan-restaurant';
+import { mountUnsentDashboard } from './unsent-dashboard.js?v=20261128-dept-alias';
 
 const params = new URLSearchParams(location.search);
 const localOnly = params.get('store') === 'local';
