@@ -218,7 +218,7 @@
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
     <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
-    <script src="inventory-batch-state.js?v=20261127-huaji-ac"></script>
+    <script src="inventory-batch-state.js?v=20261128-h2o-uniform"></script>
     <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
@@ -263,7 +263,7 @@
 
         function updateXidasiDateControl() {
             const picker = document.getElementById('datePicker');
-            const shared=activeBatchFor(currentBaseHotel);
+            const shared=InventoryBatchState.usesReceiptLock(currentBaseHotel,currentDept) ? activeBatchFor(currentBaseHotel) : null;
             const locked = !!shared?.lockedDate || (normalizeScheduleName(currentBaseHotel) === '喜達絲' && !!xidasiDateLock);
             picker.disabled = locked;
             picker.title = shared ? (locked ? '第一筆數量已寫入，日期已鎖定；後台可更改。' : '尚未鎖定日期；其他日期可查看，儲存仍須符合簽收規則。') : locked ? '日期已固定；後台可更改。' : '';
@@ -421,7 +421,7 @@
         }
 
         function getTargetDateStr(baseName, refDateStr, department, ignoreBatchState = false) {
-            const shared=!ignoreBatchState&&activeBatchFor(baseName);
+            const shared=!ignoreBatchState&&InventoryBatchState.usesReceiptLock(baseName,department)&&activeBatchFor(baseName);
             if(shared){const scheduleBase=batchScheduleBase(baseName);
                 return shared.lockedDate || InventoryBatchState.nextDate(shared.latestSignedReceiptDate,
                     ref=>getTargetDateStr(scheduleBase,ref,getDefaultDept(scheduleBase),true));}
@@ -737,7 +737,7 @@
         }
         
         function dateChanged() {
-            if (activeBatchFor(currentBaseHotel)?.lockedDate) document.getElementById('datePicker').value=getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept);
+            if (InventoryBatchState.usesReceiptLock(currentBaseHotel,currentDept) && activeBatchFor(currentBaseHotel)?.lockedDate) document.getElementById('datePicker').value=getTargetDateStr(currentBaseHotel,document.getElementById('homeDatePicker').value,currentDept);
             else if (normalizeScheduleName(currentBaseHotel) === '喜達絲') {
                 if (xidasiDateLock) document.getElementById('datePicker').value = xidasiDateLock;
                 else xidasiSelectedDate = document.getElementById('datePicker').value;
@@ -1449,7 +1449,7 @@
                             }
                             inventoryBatchState={...snapshot.data(),base};
                             if(!settled){settled=true;resolve();return;}
-                            if(currentBaseHotel===base&&!document.getElementById('hotelView').classList.contains('hidden')){
+                            if(currentBaseHotel===base&&InventoryBatchState.usesReceiptLock(base,currentDept)&&!document.getElementById('hotelView').classList.contains('hidden')){
                                 applyDepartmentDate();renderItems(true);
                             }
                         },error=>{if(!settled){settled=true;window.stopInventoryBatchState();reject(error);}else showMessage('批次日期同步失敗，請暫停輸入並重開飯店');});
@@ -1459,7 +1459,9 @@
                     if(InventoryDateLock.hotel(hotel))return ()=>{}; // 喜達絲沿用第一筆鎖定，不查物流簽收。
                     const row=masterData.find(item=>item.hotel===hotel);
                     if(!row)throw new Error('找不到這家飯店的盤點設定，暫停儲存');
-                    const base=row.baseName,ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
+                    const base=row.baseName;
+                     if(!InventoryBatchState.usesReceiptLock(base,row.deptName))return ()=>{};
+                     const ref=doc(db,'inventory_batch_states',InventoryBatchState.key(base));
                     const snapshot=await tx.get(ref);
                     // A newly signed receipt creates this state in the same transaction as the signature.
                     // A concurrent signature makes this transaction retry and recheck the locked date.

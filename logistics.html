@@ -110,7 +110,7 @@
     <script src="firebase-signature/functions/lib/flower-branch.js?v=20261127-huaji-ac"></script>
     <script src="flower-receipts.js?v=20261127-huaji-ac"></script>
     <script src="receipt-inventory-read.js?v=20261022-fast-open"></script>
-    <script src="inventory-batch-state.js?v=20261127-huaji-ac"></script>
+    <script src="inventory-batch-state.js?v=20261128-h2o-uniform"></script>
     <script type="module">
         import { reconcileRemovedSignature } from './inventory-batch-reconcile.js?v=20261126-rollback';
         import { correctedOutletGroups } from './outlet-corrections.js?v=20261112';
@@ -1042,7 +1042,7 @@
                         auntNote:i.auntNote,actualQty:i.actualQty,driverNote:i.driverNote||''
                     })) || [];
                     await runTransaction(db, async tx => {
-                        const needsBatch=main&&InventoryBatchState.key(written.batchHotel)!=='喜達絲';
+                        const needsBatch=main&&InventoryBatchState.key(written.batchHotel)!=='喜達絲'&&InventoryBatchState.usesReceiptLock(written.batchHotel,targetDept);
                         const batchRef=needsBatch?doc(db,'inventory_batch_states',InventoryBatchState.key(written.batchHotel)):null;
                         const batchSnapshot=needsBatch?await tx.get(batchRef):null;
                         const prior = await readFlowerReceipt(tx, refDoc, written.deptName, main);

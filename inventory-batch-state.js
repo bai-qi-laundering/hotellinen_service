@@ -11,6 +11,7 @@
   if(name==='日航休閒'||name==='日航休閒中心')return '日航';
   return name;
  };
+ const usesReceiptLock=(base,department)=>!(normalize(base)==='H2O' && /^制服(?:部)?$/.test(normalize(department)));
  const day=value=>{const m=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[0]:'';};
  const addDays=(value,amount)=>{const [y,m,d]=value.split('-').map(Number),date=new Date(y,m-1,d);date.setDate(date.getDate()+amount);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;};
  function nextDate(receiptDate,targetForDay){
@@ -35,6 +36,6 @@
   if(day(date)!==expected)throw Error(`此飯店目前只能寫入 ${expected} 的單據，請返回重新開啟飯店`);
   return state.lockedDate?null:{lockedDate:expected,lockedAt:Date.now()};
  }
- const api={key,day,nextDate,signedPatch,validate};
+ const api={key,usesReceiptLock,day,nextDate,signedPatch,validate};
  if(typeof module==='object'&&module.exports)module.exports=api;else root.InventoryBatchState=api;
 })(typeof window==='object'?window:globalThis);

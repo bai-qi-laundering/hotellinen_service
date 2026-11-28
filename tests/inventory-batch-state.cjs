@@ -51,3 +51,14 @@ test('receipt and all inventory save routes use the shared state',()=>{
  assert.match(inventory,/if\(InventoryDateLock\.hotel\(hotel\)\)return \(\)=>\{\}/);
  assert.match(sendwash,/window\.inventoryBatchGuard\(tx,date,hotel\)/);
 });
+
+test('H2O uniform bypasses the shared receipt date while the other departments remain locked',()=>{
+ assert.equal(batch.usesReceiptLock('H2O','制服'),false);
+ assert.equal(batch.usesReceiptLock('Ｈ２Ｏ','制服部'),false);
+ assert.equal(batch.usesReceiptLock('H2O','房務'),true);
+ assert.equal(batch.usesReceiptLock('日航','制服'),true);
+ const page=fs.readFileSync('index.html','utf8'),sign=fs.readFileSync('logistics.html','utf8');
+ assert.match(page,/InventoryBatchState\.usesReceiptLock\(baseName,department\)&&activeBatchFor\(baseName\)/);
+ assert.match(page,/InventoryBatchState\.usesReceiptLock\(base,row\.deptName\)\)return \(\)=>\{\}/);
+ assert.match(sign,/InventoryBatchState\.usesReceiptLock\(written\.batchHotel,targetDept\)/);
+});
