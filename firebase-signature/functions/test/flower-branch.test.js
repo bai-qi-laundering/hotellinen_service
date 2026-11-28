@@ -111,19 +111,35 @@ test('same-day same-building receipts fold to one and do not add quantities', ()
     assert.equal(coverage.signedReceiptCount + coverage.unsignedReceiptCount, 1);
 });
 
-test('quantity disagreements stop billing instead of keeping or adding a side', () => {
+test('quantity disagreements keep the signed halfwidth receipt and warn instead of stopping', () => {
     const docs = [
-        receipt('half', '花季', 'A館 房務', [{ itemName: '抹布', actualQty: 50 }]),
-        receipt('full', '花季', 'Ａ館 房務', [{ itemName: '抹布', actualQty: '', originalQty: 52 }]),
+        receipt('alias', '花季Ａ館', '房務', [{ itemName: '抹布', actualQty: 52 }], { driverSig: 'later', timestamp: '2026-11-11 18:00:00' }),
+        receipt('half', '花季', 'A館 房務', [{ itemName: '抹布', actualQty: 50 }], { clientSig: 'signed', timestamp: '2026-11-11 08:00:00' }),
+        receipt('full', '花季', 'Ａ館 房務', [{ itemName: '抹布', actualQty: '', originalQty: 52 }], { driverSig: 'also' }),
     ];
-    assert.throws(() => branch.collapse(new Map(docs.map(doc => [doc.id, snapshot(doc.id, doc.data)]))), /抹布.*50.*52.*核對/);
-    assert.throws(() => rowsForPeriod(docs, '花季', '2026-10-26', '2026-11-25'), /不會把數量相加/);
-    assert.throws(() => signatureCoverage(docs, '花季', '2026-10-26', '2026-11-25'), /核對/);
+    const folded = branch.foldForBilling(docs);
+    assert.equal(folded.length, 1);
+    assert.equal(folded[0].id, 'half');
+    assert.equal(branch.billedQty(folded[0].data.items[0]), 50);
+    assert.equal(rowsForPeriod(docs, '花季', '2026-10-26', '2026-11-25').reduce((sum, row) => sum + row.qty, 0), 50);
+    assert.equal(signatureCoverage(docs, '花季', '2026-10-26', '2026-11-25').signedReceiptCount, 1);
+    const warnings = branch.quantityWarnings;
+    assert.ok(warnings.some(warning => warning.date === '2026-11-19' && warning.building === 'A' && warning.item === '抹布' && warning.keptQty === 50 && warning.otherQty === 52));
+    const unsignedMain = [
+        receipt('draft-main', '花季', 'A館 房務', [{ itemName: '浴巾', actualQty: 10 }]),
+        receipt('signed-alias', '花季Ａ館', '房務', [{ itemName: '浴巾', actualQty: 11 }], { driverSig: 'signed' }),
+    ];
+    const picked = branch.foldForBilling(unsignedMain);
+    assert.equal(picked[0].id, 'signed-alias');
+    assert.equal(branch.billedQty(picked[0].data.items[0]), 11);
     const cDocs = [
         receipt('c1', '花季Ｃ館', '房務', [{ itemName: '足巾', actualQty: 12 }]),
-        receipt('c2', '花季', 'C館 房務', [{ itemName: '足巾', actualQty: 13 }]),
+        receipt('c2', '花季', 'C館 房務', [{ itemName: '足巾', actualQty: 13 }], { clientSig: 'signed' }),
     ];
-    assert.throws(() => branch.foldForBilling(cDocs), /C館 房務「足巾」/);
+    const cFolded = branch.foldForBilling(cDocs);
+    assert.equal(cFolded[0].id, 'c2');
+    assert.equal(branch.billedQty(cFolded[0].data.items[0]), 13);
+    assert.ok(branch.quantityWarnings.some(warning => warning.building === 'C' && warning.item === '足巾' && warning.keptQty === 13 && warning.otherQty === 12));
 });
 
 test('a deleted alias is ignored and a deleted line does not look like a quantity conflict', () => {
@@ -175,7 +191,10 @@ test('富野 folding still flags a real quantity conflict and still ignores an u
         receipt('signed', '花季', 'A館 房務', [{ itemName: '浴巾', actualQty: 10 }], { clientSig: 'signed' }),
         receipt('draft', '花季Ａ館', '房務', [{ itemName: '浴巾', actualQty: 11 }]),
     ];
-    assert.throws(() => branch.foldForBilling(flowerUnsigned), /花季/);
+    const flowerFolded = branch.foldForBilling(flowerUnsigned);
+    assert.equal(flowerFolded[0].id, 'signed');
+    assert.equal(branch.billedQty(flowerFolded[0].data.items[0]), 10);
+    assert.ok(branch.quantityWarnings.some(warning => warning.keptQty === 10 && warning.otherQty === 11));
 });
 
 test('new writes use the canonical 花季 name', () => {
@@ -190,8 +209,10 @@ test('the browser FlowerReceipts wrapper delegates to the shared module', () => 
     vm.runInContext(fs.readFileSync(path.join(root, 'firebase-signature/functions/lib/flower-branch.js'), 'utf8'), context);
     vm.runInContext(fs.readFileSync(path.join(root, 'flower-receipts.js'), 'utf8'), context);
     assert.deepEqual(JSON.parse(JSON.stringify(context.FlowerReceipts.identity('花季Ａ館', '房務'))), canonical);
-    assert.throws(() => context.FlowerReceipts.collapse(new Map([
-        ['a', snapshot('a', { date: '2026-11-19', hotelKeyword: '花季', deptName: 'A館 房務', items: [{ itemName: '浴巾', actualQty: 1 }] })],
+    const folded = context.FlowerReceipts.collapse(new Map([
+        ['a', snapshot('a', { date: '2026-11-19', hotelKeyword: '花季', deptName: 'A館 房務', clientSig: 'signed', items: [{ itemName: '浴巾', actualQty: 1 }] })],
         ['b', snapshot('b', { date: '2026-11-19', hotelKeyword: '花季Ａ館', deptName: '房務', items: [{ itemName: '浴巾', actualQty: 2 }] })],
-    ])), /核對/);
+    ]));
+    assert.equal(folded.get('a').data().items[0].actualQty, 1);
+    assert.ok(context.FlowerBranch.quantityWarnings.some(warning => warning.keptQty === 1 && warning.otherQty === 2));
 });

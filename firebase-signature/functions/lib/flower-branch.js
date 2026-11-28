@@ -76,7 +76,20 @@
         const qty = Number(raw);
         return Number.isFinite(qty) ? qty : NaN;
     }
+    let quantityWarnings = [];
+    function hasSignature(data) {
+        return !!(String(data.clientSig || '').trim() || String(data.driverSig || '').trim());
+    }
+    // 已簽的半形主單（日期_花季_A館 房務）優先。未簽的影子單不能蓋過已簽單。仍分不出先後時用較新的簽收時間。
+    function flowerRank(entry) {
+        const hotel = String(entry.data.hotelKeyword || '');
+        const dept = String(entry.data.deptName || '');
+        const halfwidthMain = hotel.normalize('NFKC') === hotel && dept.normalize('NFKC') === dept
+            && clean(hotel) === entry.branch.hotelKeyword && dept === entry.branch.deptName;
+        return (hasSignature(entry.data) ? 4 : 0) + (halfwidthMain ? 2 : 0) + (clean(hotel) === entry.branch.hotelKeyword ? 1 : 0);
+    }
     function collapse(documents) {
+        quantityWarnings = [];
         const result = new Map(), groups = new Map();
         documents.forEach(snapshot => {
             const data = snapshot.data(), branch = identity(data.hotelKeyword, data.deptName);
@@ -91,9 +104,17 @@
         });
         for (const entries of groups.values()) {
             const items = new Map(), sources = new Map();
-            entries.sort((a, b) => Number(!!(b.data.clientSig || b.data.driverSig)) - Number(!!(a.data.clientSig || a.data.driverSig))
-                || receiptTime(b.data) - receiptTime(a.data)
-                || String(b.data.timestamp || '').localeCompare(String(a.data.timestamp || '')));
+            entries.sort((a, b) => {
+                if (a.branch.hotelKeyword === '花季') {
+                    const rank = flowerRank(b) - flowerRank(a);
+                    if (rank) return rank;
+                } else {
+                    const signedFirst = Number(hasSignature(b.data)) - Number(hasSignature(a.data));
+                    if (signedFirst) return signedFirst;
+                }
+                return receiptTime(b.data) - receiptTime(a.data)
+                    || String(b.data.timestamp || '').localeCompare(String(a.data.timestamp || ''));
+            });
             for (const entry of entries) {
                 for (const item of entry.data.items || []) {
                     if (item.deletedInLogistics) continue;
@@ -101,7 +122,18 @@
                     const existing = items.get(key);
                     const unsignedFuyano = entry.branch.hotelKeyword === '富野' && sources.get(key) && !(entry.data.clientSig || entry.data.driverSig);
                     if (existing && entries.length > 1 && !unsignedFuyano && billedQty(existing) !== billedQty(item)) {
-                        throw new Error(entry.branch.hotelKeyword + ' ' + entry.data.date + ' ' + entry.branch.deptName + '「' + (item.itemName || item.inventoryItemName || '') + '」有兩張單，數量 ' + billedQty(existing) + ' 與 ' + billedQty(item) + ' 不同，請先核對原單再出帳。系統不會自動取其中一張，也不會把數量相加。');
+                        if (entry.branch.hotelKeyword === '花季') {
+                            quantityWarnings.push({
+                                date: String(entry.data.date || ''),
+                                building: entry.branch.building || '',
+                                deptName: entry.branch.deptName,
+                                item: item.itemName || item.inventoryItemName || '',
+                                keptQty: billedQty(existing),
+                                otherQty: billedQty(item),
+                            });
+                        } else {
+                            throw new Error(entry.branch.hotelKeyword + ' ' + entry.data.date + ' ' + entry.branch.deptName + '「' + (item.itemName || item.inventoryItemName || '') + '」有兩張單，數量 ' + billedQty(existing) + ' 與 ' + billedQty(item) + ' 不同，請先核對原單再出帳。系統不會自動取其中一張，也不會把數量相加。');
+                        }
                     }
                     if (!existing) {
                         items.set(key, item);
@@ -135,5 +167,6 @@
     root.FlowerBranch = {
         identity, inventoryHotel, batchKey, statementParent, logisticsLookupKeywords,
         canonicalWrite, collapse, foldForBilling, billedQty,
+        get quantityWarnings() { return quantityWarnings; },
     };
 })(typeof globalThis === 'object' ? globalThis : this);

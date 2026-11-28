@@ -184,7 +184,7 @@ async function markMembersCombined(db, job, combinedId, date, group, logger) {
     }
 }
 
-async function publishCustomer(db, { id, customer, customers, period, documents, context, date, group }) {
+async function publishCustomer(db, { id, customer, customers, period, documents, context, date, group, logger }) {
     const names = customers?.length ? customers : [customer];
     const rows = names.flatMap(name => rowsForPeriod(documents, name, period.startDate, period.endDate));
     const coverage = names.reduce((sum, name) => {
@@ -205,6 +205,8 @@ async function publishCustomer(db, { id, customer, customers, period, documents,
         });
         return { customer, id, status: 'skipped_empty', ...coverage };
     }
+    const qtyWarnings = globalThis.FlowerBranch.quantityWarnings || [];
+    if (qtyWarnings.length) logger?.warn?.('flower_quantity_mismatch', { customer, warnings: qtyWarnings });
     const snapshot = createInvoiceEngine({ ...context, rawLogisticsData: rows }).build(customer, period.startDate, period.endDate);
     const status = await commitOnce({
         db,
@@ -334,6 +336,7 @@ export async function runBillingDay({
                     context,
                     date,
                     group,
+                    logger,
                 });
                 results.push(published);
                 if (job.members.length > 1 && published.status !== 'failed') {
