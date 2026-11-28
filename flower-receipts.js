@@ -6,6 +6,9 @@
         identity: (hotel, dept) => api.identity(hotel, dept),
         inventoryHotel: hotel => api.inventoryHotel(hotel),
         statementParent: hotel => api.statementParent(hotel),
+        canonicalWrite: (hotel, dept) => api.canonicalWrite(hotel, dept),
+        variantReceiptIds: (date, hotel, dept) => api.variantReceiptIds(date, hotel, dept),
+        chooseReceiptId: (date, hotel, dept, existingIds) => api.chooseReceiptId(date, hotel, dept, existingIds),
         collapse: documents => api.collapse(documents),
     };
 })(typeof globalThis === 'object' ? globalThis : this);

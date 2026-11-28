@@ -265,6 +265,37 @@ test('承億健身房、承億休閒 and 日航休閒中心 share the parent hot
     assert.ok(branch.logisticsLookupKeywords('承億').includes('承億休閒'));
     assert.ok(branch.logisticsLookupKeywords('日航').includes('日航休閒中心'));
     assert.equal(branch.logisticsLookupKeywords('巨蛋'), null);
+    const date = '2026-11-28';
+    const inventory = branch.chooseReceiptId(date, '承億健身房', '健身房', []);
+    const sign = branch.chooseReceiptId(date, '承億', '健身房 健身房', []);
+    assert.equal(inventory.id, `${date}_承億_健身房`);
+    assert.equal(sign.id, inventory.id);
+    const gymLegacy = [`${date}_承億健身房_健身房`];
+    assert.equal(branch.chooseReceiptId(date, '承億', '健身房', gymLegacy).id, gymLegacy[0]);
+    assert.equal(branch.chooseReceiptId(date, '承億健身房', '健身房', [`${date}_承億_健身房`, ...gymLegacy]).id, `${date}_承億_健身房`);
+    const flowerSave = branch.chooseReceiptId('2026-11-19', '花季Ａ館', '房務', []);
+    const flowerSign = branch.chooseReceiptId('2026-11-19', '花季', 'A館 房務', []);
+    assert.equal(flowerSave.id, '2026-11-19_花季_A館 房務');
+    assert.equal(flowerSign.id, flowerSave.id);
+    assert.equal(branch.chooseReceiptId('2026-11-19', '花季', 'Ａ館 房務', ['2026-11-19_花季Ａ館_房務']).id, '2026-11-19_花季Ａ館_房務');
+    assert.equal(branch.chooseReceiptId('2026-11-19', '花季C館', '房務', []).id, '2026-11-19_花季_C館 房務');
+    const nikkatsuReceipt = branch.chooseReceiptId(date, '日航休閒中心', '休閒中心', []);
+    assert.equal(nikkatsuReceipt.id, `${date}_日航_休閒中心`);
+    assert.equal(branch.chooseReceiptId(date, '日航', '休閒中心 休閒中心', []).id, nikkatsuReceipt.id);
+    assert.equal(branch.chooseReceiptId(date, '日航休閒中心', '休閒中心', [`${date}_日航_休閒中心 休閒中心`]).id, `${date}_日航_休閒中心 休閒中心`);
+    assert.equal(branch.chooseReceiptId(date, '日航休閒中心', '特處', []).id, `${date}_日航_休閒中心 特處`);
+    assert.equal(branch.chooseReceiptId(date, '日航', '特處', []).id, `${date}_日航_特處`);
+    assert.equal(branch.variantReceiptIds(date, '日航', '特處').ids.includes(`${date}_日航_休閒中心 特處`), false);
+    assert.equal(branch.chooseReceiptId(date, '文旅', '房務 房務', []).id, `${date}_文旅_房務`);
+    assert.equal(branch.chooseReceiptId(date, '文旅', '房務', []).id, `${date}_文旅_房務`);
+    assert.equal(branch.chooseReceiptId(date, '文旅', 'Ａ館', []).id, `${date}_文旅_A館`);
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const signPage = fs.readFileSync(path.join(root, 'logistics.html'), 'utf8');
+    assert.match(index, /variantReceiptIds\(date,hotelKeyword,deptName\)/);
+    assert.match(index, /chooseReceiptId\(date,hotelKeyword,deptName/);
+    assert.match(signPage, /resolveReceiptWrite\(tx, signingDate, signingHotel, targetDept\)/);
+    assert.match(signPage, /getDocFromServer\(doc\(db,'logistics_records',signedId\)\)/);
     assert.deepEqual(dueHotelKeywords(['承億', '承億健身房', '承億休閒', '日航', '日航休閒中心'], {
         承億健身房: '25th', 承億休閒: '25th', 日航休閒中心: 'month',
     }, '25th'), ['承億']);

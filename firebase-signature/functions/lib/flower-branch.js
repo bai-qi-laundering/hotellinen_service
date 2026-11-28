@@ -116,10 +116,70 @@
         if (name === '日航 休閒中心 特處') return ['日航休閒中心 特處'];
         return [];
     }
+    function halfwidth(value) {
+        return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+    }
+    function undoubleLabel(dept) {
+        const text = halfwidth(dept);
+        const parts = text.split(' ').filter(Boolean);
+        if (parts.length >= 2 && parts.length % 2 === 0) {
+            const mid = parts.length / 2;
+            const left = parts.slice(0, mid).join(' ');
+            const right = parts.slice(mid).join(' ');
+            if (left && left === right) return left;
+        }
+        return text;
+    }
     function canonicalWrite(hotel, dept) {
         const id = identity(hotel, dept);
-        if (!id) return { hotelKeyword: String(hotel || '').trim(), deptName: String(dept || '').trim(), building: '' };
-        return { hotelKeyword: id.hotelKeyword, deptName: id.deptName, building: id.building || '' };
+        if (id) return { hotelKeyword: id.hotelKeyword, deptName: id.deptName, building: id.building || '' };
+        return { hotelKeyword: halfwidth(hotel), deptName: undoubleLabel(dept), building: '' };
+    }
+    function receiptDocId(date, hotelKeyword, deptName) {
+        return `${date}_${hotelKeyword}_${deptName}`;
+    }
+    function toFullwidthLetters(value) {
+        return String(value || '').replace(/[A-Za-z]/g, letter => String.fromCharCode(letter.charCodeAt(0) + 0xFEE0));
+    }
+    function variantReceiptIds(date, hotel, dept) {
+        const canon = canonicalWrite(hotel, dept);
+        const ids = new Set();
+        const add = (name, department) => {
+            const hotelName = String(name || '').trim();
+            const deptName = String(department ?? '');
+            if (!date || !hotelName) return;
+            const written = canonicalWrite(hotelName, deptName);
+            if (written.hotelKeyword !== canon.hotelKeyword || written.deptName !== canon.deptName) return;
+            ids.add(receiptDocId(date, hotelName, deptName));
+        };
+        add(canon.hotelKeyword, canon.deptName);
+        add(hotel, dept);
+        add(halfwidth(hotel), halfwidth(dept));
+        add(canon.hotelKeyword, toFullwidthLetters(canon.deptName));
+        add(toFullwidthLetters(canon.hotelKeyword), canon.deptName);
+        if (canon.deptName) add(canon.hotelKeyword, `${canon.deptName} ${canon.deptName}`);
+        const keywords = logisticsLookupKeywords(canon.hotelKeyword) || [canon.hotelKeyword];
+        const tails = [canon.deptName, canon.deptName.split(' ').pop(), '房務', '回洗'];
+        for (const keyword of keywords) {
+            for (const department of tails) add(keyword, department);
+            if (canon.building) {
+                add(`${canon.hotelKeyword}${canon.building}館`, '房務');
+                add(`${canon.hotelKeyword}${toFullwidthLetters(canon.building)}館`, '房務');
+                add(keyword, `${canon.building}館 房務`);
+                add(keyword, `${toFullwidthLetters(canon.building)}館 房務`);
+            }
+        }
+        const canonicalId = receiptDocId(date, canon.hotelKeyword, canon.deptName);
+        ids.add(canonicalId);
+        return { ...canon, canonicalId, ids: [...ids] };
+    }
+    function chooseReceiptId(date, hotel, dept, existingIds) {
+        const plan = variantReceiptIds(date, hotel, dept);
+        const existing = new Set(existingIds || []);
+        if (existing.has(plan.canonicalId)) return { ...plan, id: plan.canonicalId, existed: true };
+        const legacy = plan.ids.find(id => existing.has(id));
+        if (legacy) return { ...plan, id: legacy, existed: true };
+        return { ...plan, id: plan.canonicalId, existed: false };
     }
     function receiptTime(data) {
         const value = data.signedAt || data.updatedAt || data.timestamp || '';
@@ -228,7 +288,8 @@
     }
     root.FlowerBranch = {
         identity, inventoryHotel, batchKey, statementParent, logisticsLookupKeywords,
-        priceLookupLabels, canonicalWrite, collapse, foldForBilling, billedQty,
+        priceLookupLabels, canonicalWrite, receiptDocId, variantReceiptIds, chooseReceiptId,
+        collapse, foldForBilling, billedQty,
         get quantityWarnings() { return quantityWarnings; },
     };
 })(typeof globalThis === 'object' ? globalThis : this);

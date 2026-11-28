@@ -217,9 +217,9 @@
     <script src="inventory-hotel.js?v=20261110-pin-hotel"></script>
     <script src="inventory-progress.js?v=20261123-after-pillowcase"></script>
     <script src="inventory-date-lock.js?v=20261122-record-completion"></script>
-    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261128-dept-alias"></script>
+    <script src="firebase-signature/functions/lib/flower-branch.js?v=20261128-one-doc"></script>
     <script src="inventory-batch-state.js?v=20261128-h2o-uniform"></script>
-    <script src="flower-receipts.js?v=20261128-dept-alias"></script>
+    <script src="flower-receipts.js?v=20261128-one-doc"></script>
     <script src="sendwash-core.js?v=20261119-nikko"></script>
     <script src="sendwash-verification.js?v=20261123-shared-batch"></script>
     <script>
@@ -1482,10 +1482,16 @@
                     if(alias)({hotelKeyword,deptName}=alias);
                     const context=window.sendwashItemContext?.(date,category,item);
                     if(context?.outlet){hotelKeyword=context.baseHotel;deptName=context.department;}
-                    const receiptRef=doc(db,'logistics_records',`${date}_${hotelKeyword}_${deptName}`);
-                    const snapshot=await tx.get(receiptRef);
-                    const prior=snapshot.exists()?snapshot.data():null;
+                    const plan=window.FlowerReceipts.variantReceiptIds(date,hotelKeyword,deptName);
+                    const snapshots=[];
+                    for(const id of plan.ids) snapshots.push(await tx.get(doc(db,'logistics_records',id)));
+                    const live=snapshots.filter(snapshot=>snapshot.exists()&&!snapshot.data().manualDeletedReceipt&&!snapshot.data().manualItemDeleted);
+                    if(!live.length&&snapshots.some(snapshot=>snapshot.exists()&&(snapshot.data().manualDeletedReceipt||snapshot.data().manualItemDeleted)))return ()=>{};
+                    const choice=window.FlowerReceipts.chooseReceiptId(date,hotelKeyword,deptName,live.map(snapshot=>snapshot.id));
+                    const snapshot=snapshots.find(entry=>entry.id===choice.id);
+                    const prior=snapshot&&snapshot.exists()?snapshot.data():null;
                     if(prior?.manualDeletedReceipt || prior?.manualItemDeleted)return ()=>{};
+                    const receiptRef=doc(db,'logistics_records',choice.id);
                     let name=item,quantity=value.doubleCount!==undefined&&value.doubleCount!==null&&value.doubleCount!==''?value.doubleCount:value.count;
                     if(context?.outlet){
                         const identity=receiptInventoryIdentity({...context,hotel:category},item,hotelKeyword);
@@ -1497,7 +1503,8 @@
                     }
                     const patch=receiptPatch(prior,name,quantity);
                     if(!patch)return ()=>{};
-                    return ()=>tx.set(receiptRef,{...(!prior?{date,hotelKeyword,deptName,clientSig:'',driverSig:'',timestamp:'',assignedDriver:''}:{}),...patch},{merge:true});
+                    const created=prior?{}:{date,hotelKeyword:choice.hotelKeyword,deptName:choice.deptName,clientSig:'',driverSig:'',timestamp:'',assignedDriver:''};
+                    return ()=>tx.set(receiptRef,{...created,...patch},{merge:true});
                 };
 
                 window.firebaseSubmit = async function(category, item, requestedDate) {
