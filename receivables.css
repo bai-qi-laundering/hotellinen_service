@@ -7,6 +7,7 @@
 .copy-invoice b{color:#2587ba;font-weight:600}
 .copy-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:21px}
 .copy-heading h3{font-size:22px;margin:0;letter-spacing:3px}
+.copy-period{text-align:center;font-size:18px;letter-spacing:1px;margin:0 0 8px}
 .copy-heading span{font-size:10px;color:#8b9189}
 .copy-meta{display:flex;justify-content:space-between;gap:16px;margin:12px 0;font-size:14px;align-items:center}
 .copy-taxid{display:inline-flex}
@@ -23,8 +24,10 @@
 .copy-remark{font-size:12px!important;text-align:center;color:#8d968e}
 .copy-stamp{padding:0!important;text-align:center;background:#f0f5f7;vertical-align:top}
 .copy-stamp div{font-size:10px;padding:8px 3px;border-bottom:1px solid #717f77;background:white}
-.copy-stamp strong{display:block;font-size:27px;line-height:1.8;color:#537d98;margin-top:23px}
-.copy-tax{text-align:center;font-size:12px}
+.copy-stamp strong{display:block;font-size:20px;line-height:1.45;color:#537d98;margin-top:16px;padding:0 6px}
+.copy-invoice th.copy-tax{text-align:left;font-size:13px;letter-spacing:0;font-weight:500}
+#receivables .copy-invoice input[type="checkbox"]{width:16px;height:16px;padding:0;margin:0 3px;vertical-align:middle;border-radius:2px}
+.copy-chinese .copy-places{display:block;margin-top:6px;font-size:14px;letter-spacing:2px;color:#343d40}
 .copy-tax b{font-size:20px}
 .copy-chinese{display:table-cell!important}
 .copy-chinese span{font-size:10px;line-height:1.25;display:inline-block;vertical-align:middle;margin-right:14px}
